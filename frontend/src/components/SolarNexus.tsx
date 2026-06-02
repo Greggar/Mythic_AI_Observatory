@@ -85,7 +85,7 @@ export default function SolarNexus({
   // Build ring orbit angle with a slow steady drift
   const driftAngle = timeOffset;
 
-  if (phase === "idle" && !traceActive) {
+  if (phase === "idle" && !trace && !traceActive) {
     return (
       <div className="glass-panel p-5 flex flex-col items-center overflow-hidden">
         <div className="flex flex-col items-center gap-1.5 mb-3 z-10">
