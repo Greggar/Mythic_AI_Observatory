@@ -319,6 +319,11 @@ export default function ThoughtStream({
   phase,
   stepOutputs,
 }: Props) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!mounted) return null;
+
   if (phase === "complete") {
     return <SolarBloom cx={cx} cy={cy} />;
   }
