@@ -111,8 +111,8 @@ export default function SacredGeometry({ size, cx, cy, observatoryMode = false }
         return (
           <circle
             key={`dot-${angle}`}
-            cx={cx + r * Math.cos(rad)}
-            cy={cy + r * Math.sin(rad)}
+            cx={Math.round((cx + r * Math.cos(rad)) * 100) / 100}
+            cy={Math.round((cy + r * Math.sin(rad)) * 100) / 100}
             r={1}
             fill="rgba(45,212,191,0.04)"
           />
