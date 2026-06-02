@@ -1,0 +1,356 @@
+"use client";
+
+import { motion } from "framer-motion";
+import {
+  Brain,
+  Cpu,
+  Globe,
+  Network,
+  Clock,
+  CheckCircle,
+  Sparkles,
+  Activity,
+} from "lucide-react";
+import type { Telemetry } from "@/hooks/useWebSocket";
+import type { TraceSession } from "@/types/trace";
+
+interface Props {
+  telemetry: Telemetry | null;
+  connected: boolean;
+  trace: TraceSession | null;
+  traceActive: boolean;
+  activeStepIndex: number | null;
+  phase: "idle" | "replaying" | "complete";
+}
+
+function ConfidenceRing({ confidence, cx, cy, r }: { confidence: number; cx: number; cy: number; r: number }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const circumference = 2 * Math.PI * r;
+  const dashLength = circumference * confidence;
+  const color = confidence > 0.8 ? "#fbbf24" : confidence > 0.6 ? "#f59e0b" : "#2dd4bf";
+  const coronaScale = 0.3 + 0.7 * confidence;
+
+  return (
+    <g>
+      <defs>
+        <radialGradient id="coronaAureole">
+          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+          <stop offset="20%" stopColor={color} stopOpacity="0.15" />
+          <stop offset="50%" stopColor="#2dd4bf" stopOpacity="0.04" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {/* Solar aureole — breathing glow */}
+      <motion.circle cx={cx} cy={cy} r={r * 1.8}
+        fill="url(#coronaAureole)"
+        animate={mounted ? {
+          scale: [1, 1.08, 1],
+          opacity: [0.5, 0.9, 0.5],
+        } : {}}
+        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
+        style={{ originX: cx, originY: cy }}
+      />
+      {/* Corona rays */}
+      {mounted && [0, 45, 90, 135, 180, 225, 270, 315].map((angle, i) => (
+        <motion.line
+          key={`ray-${i}`}
+          x1={cx} y1={cy}
+          x2={cx + r * 1.5 * Math.cos((angle * Math.PI) / 180)}
+          y2={cy + r * 1.5 * Math.sin((angle * Math.PI) / 180)}
+          stroke={color} strokeWidth="0.4" opacity="0"
+          animate={mounted ? {
+            opacity: [0, 0.12 * coronaScale, 0],
+          } : {}}
+          transition={{ duration: 4, delay: i * 0.3, repeat: Infinity, ease: "easeInOut" }}
+        />
+      ))}
+      {/* Concentric measurement rings */}
+      {[r * 0.3, r * 0.6, r * 0.9].map((radius, i) => (
+        <motion.circle key={`ring-${i}`} cx={cx} cy={cy} r={radius}
+          fill="none" stroke={color} strokeWidth="0.3"
+          strokeDasharray={i === 1 ? "2 4" : i === 2 ? "1 3" : ""}
+          animate={mounted ? { opacity: [0.04, 0.1, 0.04], rotate: i % 2 === 0 ? 360 : -360 } : {}}
+          transition={{
+            opacity: { duration: 5 + i, repeat: Infinity, ease: "easeInOut" },
+            rotate: { duration: 30 + i * 10, repeat: Infinity, ease: "linear" },
+          }}
+          style={{ originX: cx, originY: cy }}
+        />
+      ))}
+      {/* Confidence arc */}
+      <motion.circle
+        cx={cx} cy={cy} r={r}
+        fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round"
+        strokeDasharray={`${dashLength} ${circumference - dashLength}`}
+        strokeDashoffset={-Math.PI * r * 0.25}
+        initial={{ opacity: 0 }}
+        animate={mounted ? { opacity: 1 } : {}}
+        transition={{ duration: 0.8, ease: "easeOut" }}
+      />
+      {/* Glow overlay on arc */}
+      <motion.circle
+        cx={cx} cy={cy} r={r + 2}
+        fill="none" stroke={color} strokeWidth="1" strokeLinecap="round"
+        strokeDasharray={`${dashLength} ${circumference - dashLength}`}
+        strokeDashoffset={-Math.PI * r * 0.25}
+        animate={mounted ? {
+          opacity: [0.12, 0.35, 0.12],
+          scale: [1, 1.03, 1],
+        } : {}}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        style={{ filter: `drop-shadow(0 0 4px ${color})`, originX: cx, originY: cy }}
+      />
+      {/* Planetary confidence indicators */}
+      {mounted && [
+        { angle: 30, r2: r * 0.4, size: 2 },
+        { angle: 120, r2: r * 0.55, size: 2.5 },
+        { angle: 210, r2: r * 0.35, size: 1.5 },
+        { angle: 300, r2: r * 0.5, size: 2 },
+      ].map((p, i) => {
+        const px = cx + p.r2 * Math.cos((p.angle * Math.PI) / 180);
+        const py = cy + p.r2 * Math.sin((p.angle * Math.PI) / 180);
+        return (
+          <motion.circle key={`planet-${i}`}
+            cx={px} cy={py} r={p.size}
+            fill={color}
+            animate={{ opacity: [0.3, 0.8, 0.3] }}
+            transition={{ duration: 3 + i * 0.5, delay: i * 0.4, repeat: Infinity, ease: "easeInOut" }}
+          />
+        );
+      })}
+      {/* Centre core */}
+      <motion.circle cx={cx} cy={cy} r={r * 0.25}
+        fill={color}
+        animate={mounted ? { r: [r * 0.25, r * 0.32, r * 0.25], opacity: [0.6, 0.9, 0.6] } : {}}
+        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+      />
+      {/* Centre value */}
+      <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+        fill={color} fontSize="13" fontFamily="monospace" fontWeight="bold">
+        {Math.round(confidence * 100)}%
+      </text>
+    </g>
+  );
+}
+
+import { useEffect, useState } from "react";
+
+const STAGES = [
+  "Request Received",
+  "Intent Classification",
+  "Agent Selection",
+  "Memory Retrieval",
+  "Context Synthesis",
+  "Response Generation",
+  "Final Response",
+];
+
+export default function IntelligencePanel({
+  telemetry,
+  connected,
+  trace,
+  traceActive,
+  activeStepIndex,
+  phase,
+}: Props) {
+  const ollamaCount = telemetry?.ollama.count ?? null;
+  const remotesOnline = telemetry?.remotes.filter((r) => r.status === "ok").length ?? 0;
+  const remotesUnreachable = telemetry ? telemetry.remotes.length - remotesOnline : 0;
+  const gwStatus = telemetry?.openclaw.status ?? null;
+  const cpu = telemetry?.cpu.percent ?? null;
+
+  const currentStage = activeStepIndex !== null && trace ? trace.steps[activeStepIndex] : null;
+  const nextStageIndex = activeStepIndex !== null && trace && activeStepIndex < trace.steps.length - 1
+    ? activeStepIndex + 1
+    : null;
+  const nextStageLabel = nextStageIndex !== null && trace ? trace.steps[nextStageIndex].label : null;
+  const totalDuration = trace?.steps.reduce((acc, s) => acc + (s.duration_ms || 0), 0) ?? 0;
+  const confidence = trace?.confidence ?? null;
+  const insightTags = trace?.insight_tags ?? [];
+
+  return (
+    <div className="glass-panel p-5 space-y-5">
+      <div className="flex items-center gap-2 text-solar-gold">
+        <Brain size={16} />
+        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">Intelligence</span>
+        <span
+          className={`ml-auto w-2 h-2 rounded-full ${connected ? "bg-jade-glow" : "bg-red-500/50"}`}
+        />
+      </div>
+
+      {/* IDLE STATE — system overview */}
+      {phase === "idle" && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+            <Cpu size={14} className="text-teal-mystic" />
+            <span className="text-xs text-zinc-400 flex-1">CPU</span>
+            <span className="text-sm font-mono text-zinc-200">
+              {cpu !== null ? `${cpu.toFixed(1)}%` : "—"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+            <Network size={14} className="text-teal-mystic" />
+            <span className="text-xs text-zinc-400 flex-1">Remotes Online</span>
+            <span className="text-sm font-mono text-zinc-200">
+              {remotesOnline}/{telemetry?.remotes.length ?? "—"}
+            </span>
+            {remotesUnreachable > 0 && (
+              <span className="text-[10px] text-red-400/70 font-mono">
+                {remotesUnreachable} down
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+            <Globe size={14} className="text-teal-mystic" />
+            <span className="text-xs text-zinc-400 flex-1">Models</span>
+            <span className="text-sm font-mono text-zinc-200">
+              {ollamaCount !== null ? `${ollamaCount}` : "—"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+            <Activity size={14} className="text-teal-mystic" />
+            <span className="text-xs text-zinc-400 flex-1">Gateway</span>
+            <span className="text-sm font-mono text-zinc-200 text-jade-glow">
+              {gwStatus === "ok" ? "Online" : gwStatus || "—"}
+            </span>
+          </div>
+
+          <div className="pt-2 mt-3 border-t border-white/[0.04]">
+            <div className="flex items-center gap-2 text-[10px] text-zinc-600 font-mono">
+              <Sparkles size={10} />
+              Awaiting orchestration
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PROCESSING STATE — trace active */}
+      {(phase === "replaying" || (traceActive && phase !== "complete")) && trace && currentStage && (
+        <div className="space-y-3">
+          {/* Current stage */}
+          <div className="p-3 rounded-xl bg-teal-mystic/[0.06] border border-teal-mystic/[0.12]">
+            <div className="text-[10px] font-semibold tracking-widest uppercase text-teal-mystic/60 mb-1">
+              Current Stage
+            </div>
+            <div className="text-sm font-medium text-teal-mystic">{currentStage.label}</div>
+            {(currentStage.metadata?.output as string | undefined) && (
+              <div className="mt-2 text-[11px] text-zinc-400 font-mono leading-relaxed line-clamp-2">
+                {(currentStage.metadata.output as string)}
+              </div>
+            )}
+          </div>
+
+          {/* Next stage */}
+          {nextStageLabel && (
+            <div className="p-3 rounded-xl bg-white/[0.03]">
+              <div className="text-[10px] font-semibold tracking-widest uppercase text-zinc-600 mb-1">
+                Next
+              </div>
+              <div className="text-sm text-zinc-300">{nextStageLabel}</div>
+            </div>
+          )}
+
+          {/* Elapsed time */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+            <Clock size={14} className="text-solar-gold" />
+            <span className="text-xs text-zinc-400 flex-1">Elapsed</span>
+            <span className="text-sm font-mono text-zinc-200">
+              {totalDuration > 0
+                ? totalDuration > 1000
+                  ? `${(totalDuration / 1000).toFixed(1)}s`
+                  : `${totalDuration}ms`
+                : "…"}
+            </span>
+          </div>
+
+          {/* Agent activity indicators */}
+          <div className="pt-2 mt-3 border-t border-white/[0.04] space-y-2">
+            <div className="text-[10px] font-semibold tracking-widest uppercase text-zinc-600">
+              Agents
+            </div>
+            <div className="flex gap-1.5">
+              {STAGES.map((_, i) => {
+                const isCurrent = i === activeStepIndex;
+                const isDone = activeStepIndex !== null && i < activeStepIndex;
+                return (
+                  <div
+                    key={i}
+                    className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                      isCurrent
+                        ? "bg-solar-gold shadow-[0_0_4px_rgba(251,191,36,0.5)]"
+                        : isDone
+                          ? "bg-jade-glow"
+                          : "bg-white/[0.05]"
+                    }`}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* COMPLETED STATE */}
+      {phase === "complete" && trace && (
+        <div className="space-y-3">
+          <div className="p-3 rounded-xl bg-solar-gold/[0.06] border border-solar-gold/[0.12]">
+            <div className="flex items-center gap-2 text-solar-gold mb-2">
+              <CheckCircle size={14} />
+              <span className="text-[10px] font-semibold tracking-widest uppercase">Complete</span>
+            </div>
+
+            {trace.output && (
+              <div className="mt-2 text-[11px] text-zinc-300 font-mono leading-relaxed line-clamp-3">
+                {trace.output}
+              </div>
+            )}
+          </div>
+
+          {/* Confidence — radiant solar ring */}
+          {confidence !== null && (
+            <div className="flex justify-center py-2">
+              <svg width="80" height="80" viewBox="0 0 80 80">
+                <ConfidenceRing confidence={confidence} cx={40} cy={40} r={28} />
+              </svg>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+            <Clock size={14} className="text-zinc-500" />
+            <span className="text-xs text-zinc-400 flex-1">Duration</span>
+            <span className="text-sm font-mono text-zinc-200">
+              {totalDuration > 1000
+                ? `${(totalDuration / 1000).toFixed(1)}s`
+                : `${totalDuration}ms`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+            <Brain size={14} className="text-zinc-500" />
+            <span className="text-xs text-zinc-400 flex-1">Model</span>
+            <span className="text-sm font-mono text-zinc-200">qwen3.5:9B</span>
+          </div>
+
+          {/* Insight tags */}
+          {insightTags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {insightTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="px-2 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-wider
+                    bg-solar-gold/[0.08] text-solar-gold border border-solar-gold/[0.15]"
+                >
+                  {tag.replace(/_/g, " ")}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

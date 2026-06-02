@@ -1,0 +1,24 @@
+{
+  "hostnames": {
+    "primary-server": {
+      "name": "Gingerlong",
+      "desc": "Primary orchestration server — API, UI, Ollama, OpenClaw",
+      "insight": "The conductor. Hosts the API, UI, Ollama, OpenClaw. All orchestration originates here."
+    },
+    "backoffice": {
+      "name": "BackOffice",
+      "desc": "Worker node — inference cluster, Docker Model Runner",
+      "insight": "Compute heart. Runs qwen3.5:9B, Hermes Bridge, ComfyUI. GPU-bound inference specialist."
+    },
+    "loungeroom": {
+      "name": "LoungeRoom",
+      "desc": "Worker node — batch tasks, training pipelines",
+      "insight": "Pipeline worker. Handles batch tasks, long-running training loops, and data processing."
+    }
+  },
+  "instances": {
+    "100.69.155.86:9100": "primary-server",
+    "100.100.179.99:9100": "backoffice",
+    "100.89.142.70:9100": "loungeroom"
+  }
+}

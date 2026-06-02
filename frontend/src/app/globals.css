@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+:root {
+  --background: #05070f;
+  --foreground: #d4d9e6;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-teal-mystic: #2dd4bf;
+  --color-teal-mystic-dim: #1a8a7a;
+  --color-solar-gold: #fbbf24;
+  --color-solar-gold-dim: #b8871a;
+  --color-deep-abyss: #05070f;
+  --color-deep-abyss-light: #0c1124;
+  --color-jade-glow: #34d399;
+  --color-jade-glow-dim: #1f8b6a;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.glass-panel {
+  background: rgba(12, 17, 36, 0.6);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(45, 212, 191, 0.15);
+  border-radius: 1.5rem;
+}
+
+.glass-panel:hover {
+  border-color: rgba(45, 212, 191, 0.3);
+}
+
+/* ── Visual State System ────────────────────────────── */
+
+/* Healthy — jade glow */
+.state-healthy {
+  --state-color: #34d399;
+  --state-glow: rgba(52, 211, 153, 0.3);
+}
+
+/* Busy — teal energy */
+.state-busy {
+  --state-color: #2dd4bf;
+  --state-glow: rgba(45, 212, 191, 0.3);
+}
+
+/* Completed — gold radiance */
+.state-completed {
+  --state-color: #fbbf24;
+  --state-glow: rgba(251, 191, 36, 0.3);
+}
+
+/* Warning — amber shimmer */
+.state-warning {
+  --state-color: #f59e0b;
+  --state-glow: rgba(245, 158, 11, 0.25);
+}
+
+/* Offline — fading crimson ember */
+.state-offline {
+  --state-color: #7f1d1d;
+  --state-glow: rgba(239, 68, 68, 0.1);
+}
+
+/* No blinking — all animations use fade + scale instead of opacity-only */
+
+/* Orb pulse animation for vitals panel */
+@keyframes orbPulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.3); }
+}
+
+/* Custom scrollbar for history panel */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 3px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(45, 212, 191, 0.1);
+  border-radius: 2px;
+}
