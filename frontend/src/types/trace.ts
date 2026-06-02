@@ -5,6 +5,19 @@ export interface TraceStep {
   timestamp: string;
   duration_ms: number | null;
   metadata: Record<string, unknown>;
+  model_used: string | null;
+  agent_used: string | null;
+  cpu_before: number | null;
+  mem_before: number | null;
+  cpu_after: number | null;
+  mem_after: number | null;
+}
+
+export interface TelemetryImpact {
+  peak_cpu: number;
+  peak_mem: number;
+  avg_cpu: number;
+  avg_mem: number;
 }
 
 export interface TraceSession {
@@ -17,4 +30,7 @@ export interface TraceSession {
   insight_tags: string[];
   created_at: string;
   completed_at: string | null;
+  model_used: string | null;
+  agent_used: string | null;
+  telemetry_impact: TelemetryImpact | null;
 }

@@ -158,7 +158,6 @@ export default function IntelligencePanel({
   const remotesOnline = telemetry?.remotes.filter((r) => r.status === "ok").length ?? 0;
   const remotesUnreachable = telemetry ? telemetry.remotes.length - remotesOnline : 0;
   const gwStatus = telemetry?.openclaw.status ?? null;
-  const cpu = telemetry?.cpu.percent ?? null;
 
   const currentStage = activeStepIndex !== null && trace ? trace.steps[activeStepIndex] : null;
   const nextStageIndex = activeStepIndex !== null && trace && activeStepIndex < trace.steps.length - 1
@@ -171,25 +170,19 @@ export default function IntelligencePanel({
 
   return (
     <div className="glass-panel p-5 space-y-5">
-      <div className="flex items-center gap-2 text-solar-gold">
+      <div className="flex flex-col items-center gap-1.5 text-solar-gold">
         <Brain size={16} />
-        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">Intelligence</span>
-        <span
-          className={`ml-auto w-2 h-2 rounded-full ${connected ? "bg-jade-glow" : "bg-red-500/50"}`}
-        />
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">Intelligence</span>
+          <span
+            className={`w-2 h-2 rounded-full ${connected ? "bg-jade-glow" : "bg-red-500/50"}`}
+          />
+        </div>
       </div>
 
       {/* IDLE STATE — system overview */}
       {phase === "idle" && (
         <div className="space-y-3">
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
-            <Cpu size={14} className="text-teal-mystic" />
-            <span className="text-xs text-zinc-400 flex-1">CPU</span>
-            <span className="text-sm font-mono text-zinc-200">
-              {cpu !== null ? `${cpu.toFixed(1)}%` : "—"}
-            </span>
-          </div>
-
           <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
             <Network size={14} className="text-teal-mystic" />
             <span className="text-xs text-zinc-400 flex-1">Remotes Online</span>
@@ -332,8 +325,36 @@ export default function IntelligencePanel({
           <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
             <Brain size={14} className="text-zinc-500" />
             <span className="text-xs text-zinc-400 flex-1">Model</span>
-            <span className="text-sm font-mono text-zinc-200">qwen3.5:9B</span>
+            <span className="text-sm font-mono text-zinc-200">{trace.model_used || "qwen3.5:9B"}</span>
           </div>
+
+          {/* Attribution — telemetry impact */}
+          {trace.telemetry_impact && (
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
+              <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-600 flex items-center gap-1.5">
+                <Cpu size={10} />
+                Attribution — Resource Impact
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="text-[8px] font-mono text-zinc-600">Peak CPU</div>
+                  <div className="text-[11px] font-mono text-zinc-300">{trace.telemetry_impact.peak_cpu}%</div>
+                </div>
+                <div>
+                  <div className="text-[8px] font-mono text-zinc-600">Peak RAM</div>
+                  <div className="text-[11px] font-mono text-zinc-300">{trace.telemetry_impact.peak_mem}%</div>
+                </div>
+                <div>
+                  <div className="text-[8px] font-mono text-zinc-600">Avg CPU</div>
+                  <div className="text-[11px] font-mono text-zinc-300">{trace.telemetry_impact.avg_cpu}%</div>
+                </div>
+                <div>
+                  <div className="text-[8px] font-mono text-zinc-600">Avg RAM</div>
+                  <div className="text-[11px] font-mono text-zinc-300">{trace.telemetry_impact.avg_mem}%</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Insight tags */}
           {insightTags.length > 0 && (

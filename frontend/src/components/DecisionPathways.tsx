@@ -22,7 +22,7 @@ export default function DecisionPathways({ telemetry }: Props) {
 
   return (
     <div className="glass-panel p-5 space-y-5">
-      <div className="flex items-center gap-2 text-solar-gold">
+      <div className="flex flex-col items-center gap-1.5 text-solar-gold">
         <GitBranch size={16} />
         <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">Decision Pathways</span>
       </div>

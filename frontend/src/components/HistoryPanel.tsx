@@ -56,16 +56,18 @@ export default function HistoryPanel({ onSelect, refreshTrigger }: Props) {
 
   return (
     <div className="glass-panel p-5 space-y-4">
-      <div className="flex items-center gap-2 text-teal-mystic">
+      <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
         <History size={16} />
-        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">History</span>
-        {loading && (
-          <motion.span
-            className="inline-block w-1.5 h-1.5 rounded-full bg-teal-mystic"
-            animate={{ opacity: [0.3, 1, 0.3] }}
-            transition={{ duration: 1, repeat: Infinity }}
-          />
-        )}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">History</span>
+          {loading && (
+            <motion.span
+              className="inline-block w-1.5 h-1.5 rounded-full bg-teal-mystic"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1, repeat: Infinity }}
+            />
+          )}
+        </div>
       </div>
 
       <div className="space-y-1.5 max-h-64 overflow-y-auto scrollbar-thin">

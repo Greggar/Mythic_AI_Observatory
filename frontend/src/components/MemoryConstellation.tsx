@@ -135,22 +135,24 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
 
   return (
     <div className="glass-panel p-4 space-y-3">
-      <div className="flex items-center gap-2 text-teal-mystic">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M12 2a10 10 0 1010 10" />
           <path d="M12 2v10l6 6" opacity="0.6" />
           <circle cx="12" cy="12" r="2" opacity="0.4" />
         </svg>
-        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-          Memory Retrieval
-        </span>
-        {loading && (
-          <motion.span
-            className="inline-block w-1.5 h-1.5 rounded-full bg-teal-mystic"
-            animate={{ opacity: [0.3, 1, 0.3] }}
-            transition={{ duration: 1, repeat: Infinity }}
-          />
-        )}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
+            Memory Retrieval
+          </span>
+          {loading && (
+            <motion.span
+              className="inline-block w-1.5 h-1.5 rounded-full bg-teal-mystic"
+              animate={{ opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1, repeat: Infinity }}
+            />
+          )}
+        </div>
       </div>
 
       <div

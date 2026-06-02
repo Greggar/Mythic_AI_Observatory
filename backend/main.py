@@ -16,7 +16,7 @@ from prometheus_client import Gauge, generate_latest, REGISTRY
 from pydantic import BaseModel
 
 from models.trace import TraceSession
-from services.orchestrator import orchestrate, get_trace, list_traces
+from services.orchestrator import orchestrate, get_trace, list_traces, get_activity_events
 from services.vitals import collect_vitals
 
 logging.basicConfig(level=logging.INFO)
@@ -229,6 +229,12 @@ async def api_list_traces(limit: int = 50) -> list[TraceSession]:
 @app.get("/api/traces/{trace_id}", response_model=TraceSession | None)
 async def api_get_trace(trace_id: str) -> TraceSession | None:
     return get_trace(trace_id)
+
+
+# ── Activity feed ─────────────────────────────────────────────────
+@app.get("/api/activity")
+async def api_activity(since: str | None = None, limit: int = 50) -> list[dict]:
+    return get_activity_events(since, limit)
 
 # ── Run ──────────────────────────────────────────────────────────
 if __name__ == "__main__":

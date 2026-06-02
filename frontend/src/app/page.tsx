@@ -7,11 +7,10 @@ import PromptInput from "@/components/PromptInput";
 import ObservatoryPanel from "@/components/ObservatoryPanel";
 import TraceTimeline from "@/components/TraceTimeline";
 import IntelligencePanel from "@/components/IntelligencePanel";
-import HistoryPanel from "@/components/HistoryPanel";
 import ResourceConstellation from "@/components/ResourceConstellation";
-import TrendChart from "@/components/TrendChart";
 import DiscoveryEvents from "@/components/DiscoveryEvents";
 import MemoryConstellation from "@/components/MemoryConstellation";
+import ActivityFeed from "@/components/ActivityFeed";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useOrchestrate } from "@/hooks/useOrchestrate";
 import { useTraceReplay } from "@/hooks/useTraceReplay";
@@ -64,23 +63,19 @@ export default function Home() {
 
   return (
     <div className="flex flex-col flex-1 p-6 gap-6 max-w-7xl mx-auto w-full min-h-screen">
-      <header className="flex items-center gap-3 pb-2 border-b border-white/[0.04]">
-        <h1 className="text-lg font-bold tracking-tight text-teal-mystic">
-          Mythic AI Observatory
-        </h1>
-        <span className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest">
-          Solar Interface
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          {replayTrace && (
-            <button
-              onClick={() => setReplayTrace(null)}
-              className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors px-2 py-1 rounded-full border border-white/[0.06]"
-            >
-              Clear replay
-            </button>
-          )}
+      <header className="relative flex items-center justify-center pb-2 border-b border-white/[0.04]">
+        <div className="mythic-heading">
+          <span className="mythic">MYTHIC</span>
+          <span className="sub">AI OBSERVATORY</span>
         </div>
+        {replayTrace && (
+          <button
+            onClick={() => setReplayTrace(null)}
+            className="absolute right-0 text-[10px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors px-2 py-1 rounded-full border border-white/[0.06]"
+          >
+            Clear replay
+          </button>
+        )}
       </header>
 
       {/* Main layout — 3 columns */}
@@ -88,19 +83,20 @@ export default function Home() {
         {/* Left — Telemetry */}
         <aside className="w-64 shrink-0 space-y-4">
           <SystemVitalsPanel />
-          <ResourceConstellation telemetry={telemetry} />
-          <TrendChart telemetry={telemetry} />
         </aside>
 
         {/* Centre — Visualisation + Input */}
         <section className="flex-1 flex flex-col gap-6">
           <SolarNexus
             telemetry={telemetry}
+            trace={activeTrace}
             traceActive={activePhase === "replaying" || activePhase === "complete"}
             activeTraceStep={activePhase === "replaying" ? activeStep : null}
             phase={activePhase}
             observatoryMode={isIdle}
           />
+
+          <ResourceConstellation />
 
           <div className="flex flex-col gap-3">
             <PromptInput onSubmit={handleSubmit} loading={loading} />
@@ -109,6 +105,11 @@ export default function Home() {
 
         {/* Right — Intelligence + History */}
         <aside className="w-64 shrink-0 space-y-4">
+          <ActivityFeed />
+          <MemoryConstellation
+            onSelect={handleHistorySelect}
+            refreshTrigger={historyRefresh}
+          />
           <IntelligencePanel
             telemetry={telemetry}
             connected={connected}
@@ -116,14 +117,6 @@ export default function Home() {
             traceActive={activePhase === "replaying" || activePhase === "complete"}
             activeStepIndex={activeStep}
             phase={activePhase}
-          />
-          <HistoryPanel
-            onSelect={handleHistorySelect}
-            refreshTrigger={historyRefresh}
-          />
-          <MemoryConstellation
-            onSelect={handleHistorySelect}
-            refreshTrigger={historyRefresh}
           />
         </aside>
       </div>

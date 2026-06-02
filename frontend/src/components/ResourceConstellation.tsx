@@ -1,156 +1,276 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Telemetry } from "@/hooks/useWebSocket";
+import { useEffect, useMemo, useState } from "react";
+import { Activity } from "lucide-react";
 
-interface Props {
-  telemetry: Telemetry | null;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
-interface CelestialBody {
+interface Vital {
+  id: string;
   label: string;
-  value: number;
-  color: string;
-  orbitRadius: number;
-  size: number;
-  speed: number;
+  value: string;
+  status: string;
 }
 
-function valueColor(val: number): string {
-  if (val < 40) return "#34d399";
-  if (val < 70) return "#2dd4bf";
-  if (val < 90) return "#f59e0b";
-  return "#ef4444";
+interface Machine {
+  id: string;
+  name: string;
+  desc: string;
+  insight: string;
+  status: "healthy" | "warning" | "critical";
+  vitals: Vital[];
 }
 
-export default function ResourceConstellation({ telemetry }: Props) {
+interface VitalsData {
+  machines: Machine[];
+}
+
+const STATUS_GLOW: Record<string, string> = {
+  healthy: "#34d399",
+  warning: "#f59e0b",
+  critical: "#ef4444",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  green: "#34d399",
+  yellow: "#f59e0b",
+  red: "#ef4444",
+};
+
+function parsePct(value: string): number {
+  const m = value.match(/^([\d.]+)/);
+  return m ? parseFloat(m[1]) : 0;
+}
+
+function getVital(machine: Machine, id: string): Vital | undefined {
+  return machine.vitals.find((v) => v.id === id);
+}
+
+const SERVICE_GLYPHS: Record<string, { x: number; y: number; label: string; color: string }[]> = {
+  Gingerlong: [
+    { x: 0, y: -14, label: "API", color: "#2dd4bf" },
+    { x: 12, y: -7, label: "Ollama", color: "#34d399" },
+    { x: 12, y: 7, label: "OC", color: "#fbbf24" },
+    { x: 0, y: 14, label: "UI", color: "#2dd4bf" },
+    { x: -12, y: 7, label: "FastAPI", color: "#34d399" },
+    { x: -12, y: -7, label: "Conductor", color: "#fbbf24" },
+  ],
+  BackOffice: [
+    { x: 0, y: -11, label: "Hermes", color: "#2dd4bf" },
+    { x: 10, y: 0, label: "ComfyUI", color: "#a78bfa" },
+    { x: 0, y: 11, label: "qwen3.5", color: "#34d399" },
+  ],
+  LoungeRoom: [
+    { x: 0, y: -9, label: "Batch", color: "#2dd4bf" },
+    { x: 0, y: 9, label: "Train", color: "#f59e0b" },
+  ],
+};
+
+export default function ResourceConstellation() {
   const CX = 100;
   const CY = 100;
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const [data, setData] = useState<VitalsData | null>(null);
 
-  const bodies: CelestialBody[] = useMemo(() => [
-    {
-      label: "CPU",
-      value: telemetry?.cpu.percent ?? 0,
-      color: valueColor(telemetry?.cpu.percent ?? 0),
-      orbitRadius: 70,
-      size: 10 + ((telemetry?.cpu.percent ?? 0) / 100) * 12,
-      speed: 35,
-    },
-    {
-      label: "Memory",
-      value: telemetry?.memory.percent ?? 0,
-      color: valueColor(telemetry?.memory.percent ?? 0),
-      orbitRadius: 55,
-      size: 8 + ((telemetry?.memory.percent ?? 0) / 100) * 10,
-      speed: -45,
-    },
-    {
-      label: "GPU",
-      value: telemetry?.gpu.gpu_util ?? 0,
-      color: valueColor(telemetry?.gpu.gpu_util ?? 0),
-      orbitRadius: 85,
-      size: 6 + ((telemetry?.gpu.gpu_util ?? 0) / 100) * 10,
-      speed: 55,
-    },
-    {
-      label: "Network",
-      value: 45,
-      color: "#2dd4bf",
-      orbitRadius: 40,
-      size: 10,
-      speed: -65,
-    },
-  ], [telemetry]);
+  useEffect(() => {
+    setMounted(true);
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval>;
+
+    async function poll() {
+      try {
+        const res = await fetch(`${API_BASE}/api/vitals`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!cancelled) setData(json);
+      } catch {
+        // silently fail
+      }
+      if (!cancelled) interval = setTimeout(poll, 3000);
+    }
+    poll();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(interval);
+    };
+  }, []);
+
+  const sun = useMemo(() => data?.machines.find((m) => m.name === "Gingerlong") ?? null, [data]);
+  const planets = useMemo(
+    () => data?.machines.filter((m) => m.name !== "Gingerlong") ?? [],
+    [data]
+  );
+
+  const ORBIT_RADII = [65, 95, 125];
+  const ORBIT_SPEEDS = [55, -40, 65];
 
   return (
     <div className="glass-panel p-5 flex flex-col items-center gap-3">
-      <div className="flex items-center gap-2 self-start text-teal-mystic">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="12" cy="12" r="3" />
-          <circle cx="12" cy="12" r="8" opacity="0.4" strokeDasharray="2 2" />
-          <circle cx="12" cy="12" r="11" opacity="0.2" strokeDasharray="1 3" />
-        </svg>
-        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">System Orbit</span>
+      <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
+        <Activity size={16} />
+        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
+          System Orbit
+        </span>
       </div>
-      <svg viewBox="0 0 200 200" className="w-full max-w-[200px] h-auto">
+
+      <svg viewBox="0 0 200 200" className="w-full max-w-[400px] h-auto">
         {/* Orbital rings */}
-        {bodies.map((body, i) => (
+        {planets.map((_, i) => (
           <circle
             key={`orbit-${i}`}
             cx={CX}
             cy={CY}
-            r={body.orbitRadius}
+            r={ORBIT_RADII[i] ?? 70}
             fill="none"
-            stroke="rgba(45,212,191,0.04)"
+            stroke="oklch(58% 0.10 75 / 0.15)"
             strokeWidth="0.4"
+            strokeDasharray="2 4"
           />
         ))}
 
-        {/* Central core */}
-        <circle cx={CX} cy={CY} r={8} fill="#0c1124" stroke="rgba(45,212,191,0.15)" strokeWidth="0.5" />
-        <motion.circle
-          cx={CX} cy={CY} r={4}
-          fill="rgba(45,212,191,0.3)"
-          animate={mounted ? { opacity: [0.2, 0.5, 0.2] } : {}}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-        />
+        {/* Solar core — GingerLongServer */}
+        {sun && (
+          <g>
+            {/* Solar aura */}
+            <motion.circle
+              cx={CX} cy={CY} r={22}
+              fill="url(#sunGlow)"
+              animate={mounted ? { scale: [1, 1.08, 1], opacity: [0.3, 0.6, 0.3] } : {}}
+              transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+              style={{ originX: CX, originY: CY }}
+            />
+            {/* Core */}
+            <circle cx={CX} cy={CY} r={8} fill="#0c1124" stroke={STATUS_GLOW[sun.status]} strokeWidth="1" />
+            <motion.circle
+              cx={CX} cy={CY} r={5}
+              fill={STATUS_GLOW[sun.status]}
+              animate={mounted ? { opacity: [0.3, 0.7, 0.3] } : {}}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            />
+            {/* Centre label */}
+            <text x={CX} y={CY + 16} textAnchor="middle" fill={STATUS_GLOW[sun.status]}
+              fontSize="5.5" fontFamily="monospace" fontWeight="bold" letterSpacing="0.1em">
+              {sun.name.toUpperCase()}
+            </text>
+            {/* Services around sun */}
+            {SERVICE_GLYPHS[sun.name]?.map((s, i) => (
+              <g key={`sun-svc-${i}`}>
+                <circle cx={CX + s.x} cy={CY + s.y} r={1.5} fill={s.color} opacity="0.7" />
+                <text x={CX + s.x + 3} y={CY + s.y + 1.5}
+                  fill="oklch(72% 0.11 75 / 0.5)" fontSize="3.5" fontFamily="monospace">
+                  {s.label}
+                </text>
+              </g>
+            ))}
+            {/* Subtitle under sun label */}
+            <text x={CX} y={CY + 22} textAnchor="middle"
+              fill="oklch(52% 0.03 265 / 0.5)" fontSize="3.5" fontFamily="monospace">
+              conductor
+            </text>
+          </g>
+        )}
 
-        {/* Orbiting bodies */}
-        {bodies.map((body, i) => {
-          const cx = CX + body.orbitRadius;
-          const cy = CY;
+        {/* Orbiting planets */}
+        {planets.map((machine, i) => {
+          const cpu = parsePct(getVital(machine, "cpu")?.value ?? "0");
+          const mem = parsePct(getVital(machine, "mem")?.value ?? "0");
+          const planetSize = 4 + (mem / 100) * 10;
+          const brightness = 0.3 + (cpu / 100) * 0.5;
+          const isActive = cpu > 20;
+          const color = STATUS_GLOW[machine.status];
+
+          const orbitR = ORBIT_RADII[i] ?? 70;
+          const speed = ORBIT_SPEEDS[i] ?? 50;
+
           return (
             <motion.g
-              key={`body-${i}`}
+              key={machine.id}
               style={{ originX: CX, originY: CY }}
               animate={mounted ? { rotate: 360 } : { rotate: 0 }}
-              transition={{ duration: body.speed, repeat: Infinity, ease: "linear", delay: i * 3 }}
+              transition={{ duration: speed, repeat: Infinity, ease: "linear", delay: i * 4 }}
             >
               <g>
-                {/* Body aura */}
+                {/* Active workload halo */}
+                {isActive && (
+                  <motion.circle
+                    cx={CX + orbitR} cy={CY}
+                    r={planetSize + 6}
+                    fill={color}
+                    opacity="0.08"
+                    animate={{ opacity: [0.05, 0.15, 0.05] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                )}
+                {/* Planet body */}
                 <circle
-                  cx={cx}
-                  cy={cy}
-                  r={body.size + 4}
-                  fill={`${body.color}15`}
-                />
-                {/* Body core */}
-                <circle
-                  cx={cx}
-                  cy={cy}
-                  r={body.size}
+                  cx={CX + orbitR} cy={CY}
+                  r={planetSize}
                   fill="#0c1124"
-                  stroke={body.color}
-                  strokeWidth="1.5"
+                  stroke={color}
+                  strokeWidth="1"
+                  opacity={brightness}
                 />
-                {/* Body inner */}
+                {/* Planet core glow */}
                 <motion.circle
-                  cx={cx}
-                  cy={cy}
-                  r={body.size * 0.4}
-                  fill={body.color}
-                  animate={mounted ? { opacity: [0.4, 0.8, 0.4] } : {}}
+                  cx={CX + orbitR} cy={CY}
+                  r={planetSize * 0.35}
+                  fill={color}
+                  opacity={brightness}
+                  animate={mounted ? { opacity: [brightness * 0.4, brightness, brightness * 0.4] } : {}}
                   transition={{ duration: 2 + i, repeat: Infinity, ease: "easeInOut" }}
                 />
-                {/* Label — below orbit, static */}
-                <text
-                  x={cx}
-                  y={cy + body.size + 12}
-                  textAnchor="middle"
-                  fill="rgba(161,161,170,0.6)"
-                  fontSize="7"
-                  fontFamily="monospace"
-                >
-                  {body.label} {body.value.toFixed(0)}%
+                {/* Planet label */}
+                <text x={CX + orbitR} y={CY + planetSize + 9}
+                  textAnchor="middle" fill="oklch(72% 0.11 75 / 0.7)"
+                  fontSize="5.5" fontFamily="monospace" fontWeight="bold">
+                  {machine.name.toUpperCase()}
                 </text>
+                {/* CPU/RAM stats under label */}
+                <text x={CX + orbitR} y={CY + planetSize + 14}
+                  textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
+                  fontSize="3.5" fontFamily="monospace">
+                  CPU {cpu.toFixed(0)}% · RAM {mem.toFixed(0)}%
+                </text>
+                {/* Service glyphs around planet */}
+                {SERVICE_GLYPHS[machine.name]?.map((s, j) => (
+                  <circle key={j}
+                    cx={CX + orbitR + s.x}
+                    cy={CY + s.y}
+                    r={1.2} fill={s.color} opacity="0.7"
+                  />
+                ))}
               </g>
             </motion.g>
           );
         })}
+
+        {/* Defs for gradients */}
+        <defs>
+          <radialGradient id="sunGlow">
+            <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.4" />
+            <stop offset="40%" stopColor="#f59e0b" stopOpacity="0.1" />
+            <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0" />
+          </radialGradient>
+        </defs>
       </svg>
+
+      {/* Legend footer */}
+      <div className="flex items-center gap-4 text-[10px] font-mono text-zinc-500">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#34d399]" />
+          Healthy
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#f59e0b]" />
+          Warning
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-[#ef4444]" />
+          Critical
+        </span>
+      </div>
     </div>
   );
 }

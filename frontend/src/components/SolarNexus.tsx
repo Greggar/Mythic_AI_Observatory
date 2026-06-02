@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 import type { Telemetry } from "@/hooks/useWebSocket";
+import type { TraceSession } from "@/types/trace";
 import BackgroundAtmosphere from "./BackgroundAtmosphere";
 import SacredGeometry from "./SacredGeometry";
 import OrchestrationRing from "./OrchestrationRing";
@@ -12,6 +13,7 @@ import ThoughtStream from "./ThoughtStream";
 
 interface Props {
   telemetry: Telemetry | null;
+  trace: TraceSession | null;
   traceActive: boolean;
   activeTraceStep: number | null;
   phase?: "idle" | "replaying" | "complete";
@@ -31,11 +33,11 @@ interface NodeDef {
 }
 
 const ORBIT_NODES: NodeDef[] = [
-  { label: "Ollama", key: "ollama", angle: -90 },
-  { label: "OpenClaw", key: "openclaw", angle: -18 },
-  { label: "Hermes", key: "hermes", angle: 54 },
-  { label: "ComfyUI", key: "comfyui", angle: 126 },
-  { label: "System", key: "system", angle: 198 },
+  { label: "Intent Classifier", key: "Intent Classifier", angle: -90 },
+  { label: "Agent Selector", key: "Agent Selector", angle: -18 },
+  { label: "Memory Retriever", key: "Memory Retriever", angle: 54 },
+  { label: "Context Synthesizer", key: "Context Synthesizer", angle: 126 },
+  { label: "Response Generator", key: "Response Generator", angle: 198 },
 ];
 
 const RINGS = [
@@ -51,18 +53,9 @@ function pos(deg: number, r = OUTER_ORBIT) {
   return { x: CX + r * Math.cos(rad), y: CY + r * Math.sin(rad) };
 }
 
-const STEP_NODE_MAP: Record<number, string | null> = {
-  0: null,
-  1: null,
-  2: "openclaw",
-  3: "ollama",
-  4: null,
-  5: null,
-  6: null,
-};
-
 export default function SolarNexus({
   telemetry,
+  trace,
   traceActive,
   activeTraceStep,
   phase = "idle",
@@ -73,13 +66,11 @@ export default function SolarNexus({
   const [driftAccel, setDriftAccel] = useState(1);
   useEffect(() => setMounted(true), []);
 
-  // Observatory mode: slower drift, but if idle for a while we also slow down
   useEffect(() => {
     if (!mounted) return;
     setDriftAccel(observatoryMode ? 0.5 : 1);
   }, [observatoryMode, mounted]);
 
-  // orbital drift
   useEffect(() => {
     if (!mounted) return;
     const interval = setInterval(() => {
@@ -88,32 +79,47 @@ export default function SolarNexus({
     return () => clearInterval(interval);
   }, [mounted, driftAccel]);
 
-  const highlightedNode =
-    activeTraceStep !== null && activeTraceStep !== undefined
-      ? STEP_NODE_MAP[activeTraceStep] ?? null
-      : null;
+  const currentAgent = useMemo(() => {
+    if (activeTraceStep === null || activeTraceStep === undefined || !trace) return null;
+    const step = trace.steps[activeTraceStep];
+    if (!step) return null;
+    return step.agent_used;
+  }, [activeTraceStep, trace]);
 
-  const activePathways =
-    activeTraceStep !== null && activeTraceStep !== undefined
-      ? [2, 3, 4].includes(activeTraceStep)
-      : false;
+  const highlightedNode = useMemo(() => {
+    if (!currentAgent) return null;
+    const match = ORBIT_NODES.find(
+      (n) => n.key.toLowerCase() === currentAgent.toLowerCase()
+    );
+    return match?.key ?? null;
+  }, [currentAgent]);
+
+  const activePathways = highlightedNode !== null;
 
   const conductorState = (() => {
     if (!telemetry) return "offline";
-    if (telemetry.cpu.percent > 80 || telemetry.gpu.gpu_util > 80)
-      return "heavy_load";
-    if (telemetry.cpu.percent > 50 || telemetry.gpu.gpu_util > 50)
-      return "processing";
+    if (telemetry.cpu.percent > 80 || telemetry.gpu.gpu_util > 80) return "heavy_load";
+    if (telemetry.cpu.percent > 50 || telemetry.gpu.gpu_util > 50) return "processing";
     return "online";
   })();
 
-  // Observatory mode: cycle through phase states periodically
   const observatoryPhase = observatoryMode && phase === "idle"
     ? ((Math.floor(Date.now() / 8000) % 8) as 0 | 1 | 2 | 3 | 4 | 5 | 6)
     : null;
 
   return (
-    <div className="relative glass-panel p-5 flex items-center justify-center overflow-hidden">
+    <div className="relative glass-panel p-5 flex flex-col items-center overflow-hidden">
+      <div className="flex flex-col items-center gap-1.5 mb-3 z-10">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+          className="text-[oklch(72%_0.11_75)]">
+          <circle cx="12" cy="12" r="5" />
+          <circle cx="12" cy="12" r="9" opacity="0.4" strokeDasharray="2 3" />
+          <circle cx="12" cy="12" r="11" opacity="0.2" strokeDasharray="1 4" />
+        </svg>
+        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
+          Agent Nexus
+        </span>
+      </div>
       <BackgroundAtmosphere />
 
       <svg
@@ -121,13 +127,10 @@ export default function SolarNexus({
         className="relative w-full max-w-[600px] h-auto"
         style={{ zIndex: 1 }}
       >
-        {/* Sacred geometry layer */}
         <SacredGeometry size={SIZE} cx={CX} cy={CY} observatoryMode={observatoryMode} />
 
-        {/* Orchestration rings */}
         <OrchestrationRing size={SIZE} rings={RINGS} observatoryMode={observatoryMode} />
 
-        {/* Conductor core */}
         <SolarCore
           size={SIZE}
           traceActive={traceActive}
@@ -136,7 +139,6 @@ export default function SolarNexus({
           observatoryMode={observatoryMode}
         />
 
-        {/* Agent Thought Streams — visualise cognition during each stage (or in observatory mode) */}
         {(phase !== "idle" || observatoryMode) && (
           <ThoughtStream
             size={SIZE}
@@ -148,7 +150,7 @@ export default function SolarNexus({
           />
         )}
 
-        {/* Energy pathways — pentagram chords (agent relationships) */}
+        {/* Energy pathways — pentagram chords between agent nodes */}
         {ORBIT_NODES.map((_, i) => {
           const starIndices = [0, 2, 4, 1, 3, 0];
           if (i >= starIndices.length - 1) return null;
@@ -158,10 +160,7 @@ export default function SolarNexus({
           return (
             <EnergyPath
               key={`star-${i}`}
-              x1={a.x}
-              y1={a.y}
-              x2={b.x}
-              y2={b.y}
+              x1={a.x} y1={a.y} x2={b.x} y2={b.y}
               active={activePathways}
               influence={influence}
               index={i}
@@ -169,19 +168,15 @@ export default function SolarNexus({
           );
         })}
 
-        {/* Energy pathways — conductor to each node */}
+        {/* Energy pathways — conductor to each agent node */}
         {ORBIT_NODES.map((node, i) => {
           const p = pos(node.angle, OUTER_ORBIT);
           const isActive = highlightedNode === node.key;
-          // Influence weighting: active node = 1.0, nodes in trace path = 0.5, rest = 0.1
           const influence = isActive ? 1 : (activePathways ? 0.5 : 0.1);
           return (
             <EnergyPath
               key={`radial-${node.key}`}
-              x1={CX}
-              y1={CY}
-              x2={p.x}
-              y2={p.y}
+              x1={CX} y1={CY} x2={p.x} y2={p.y}
               active={isActive || activePathways}
               influence={influence}
               index={i + 5}

@@ -16,16 +16,26 @@ interface Props {
 export default function EnergyPath({ x1, y1, x2, y2, active, index, influence = 0 }: Props) {
   const [mounted, setMounted] = useState(false);
   const [burst, setBurst] = useState(false);
+  const [fading, setFading] = useState(false);
+  const isActive = active || fading;
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (active) {
       setBurst(true);
       const t = setTimeout(() => setBurst(false), 1200);
+      setFading(false);
       return () => clearTimeout(t);
+    } else if (!fading) {
+      setFading(true);
     }
-    setBurst(false);
   }, [active]);
+
+  useEffect(() => {
+    if (!fading) return;
+    const t = setTimeout(() => setFading(false), 20000);
+    return () => clearTimeout(t);
+  }, [fading]);
 
   const { mx, my, cpx, cpy, revCpx, revCpy } = useMemo(() => {
     const midX = (x1 + x2) / 2;
@@ -45,31 +55,34 @@ export default function EnergyPath({ x1, y1, x2, y2, active, index, influence = 
   const reversePathD = `M ${x2} ${y2} Q ${revCpx} ${revCpy} ${x1} ${y1}`;
 
   const inf = Math.min(Math.max(influence, 0), 1);
-  const baseOpacity = active ? 0.15 + inf * 0.3 : 0.04 + inf * 0.06;
-  const strokeW = active ? 1 + inf * 1.5 : 0.5 + inf * 0.5;
+  const baseOpacity = isActive ? 0.15 + inf * 0.3 : 0.04 + inf * 0.06;
+  const strokeW = isActive ? 1 + inf * 1.5 : 0.5 + inf * 0.5;
+  const fadeRatio = fading ? 0.3 : 1;
 
   return (
     <g>
       <defs>
         <linearGradient id={`energy-${index}`} x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stopColor="rgba(45,212,191,0.02)" />
-          <stop offset="50%" stopColor={active ? `rgba(45,212,191,${0.15 + inf * 0.3})` : "rgba(45,212,191,0.06)"} />
+          <stop offset="50%" stopColor={isActive ? `rgba(45,212,191,${(0.15 + inf * 0.3) * fadeRatio})` : "rgba(45,212,191,0.06)"} />
           <stop offset="100%" stopColor="rgba(45,212,191,0.02)" />
         </linearGradient>
       </defs>
 
       {/* Base luminous curve */}
       <path d={pathD} fill="none" stroke={`url(#energy-${index})`} strokeWidth={strokeW}
-        opacity={active ? 1 : 0.4}
-        style={active ? { filter: `drop-shadow(0 0 ${4 + inf * 4}px rgba(45,212,191,${0.1 + inf * 0.2}))` } : undefined}
+        opacity={isActive ? fadeRatio : 0.4}
+        style={isActive ? { filter: `drop-shadow(0 0 ${4 + inf * 4}px rgba(45,212,191,${(0.1 + inf * 0.2) * fadeRatio}))` } : undefined}
+        className={fading ? "transition-all duration-[20000ms] ease-linear" : ""}
       />
 
       {/* Forward flow — traveling dashes */}
       <path d={pathD} fill="none"
-        stroke={active ? "#2dd4bf" : "rgba(45,212,191,0.04)"}
-        strokeWidth={active ? 0.8 + inf * 0.8 : 0.3}
+        stroke={isActive ? "#2dd4bf" : "rgba(45,212,191,0.04)"}
+        strokeWidth={isActive ? 0.8 + inf * 0.8 : 0.3}
         strokeDasharray={active ? "3 10" : "2 15"}
-        opacity={active ? 0.7 + inf * 0.3 : 0.2}
+        opacity={isActive ? (0.7 + inf * 0.3) * fadeRatio : 0.2}
+        className={fading ? "transition-all duration-[20000ms] ease-linear" : ""}
       >
         {active && (
           <animate attributeName="stroke-dashoffset" from="0" to="-26" dur="2s" repeatCount="indefinite" begin={`${index * 0.2}s`} />

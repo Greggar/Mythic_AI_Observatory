@@ -20,8 +20,8 @@ export default function PromptInput({ onSubmit, loading }: Props) {
 
   return (
     <div className="glass-panel p-4 space-y-3">
-      <div className="flex items-center gap-2 text-teal-mystic/60">
-        <Sparkles size={14} />
+      <div className="flex flex-col items-center gap-1.5 text-teal-mystic/60">
+        <Sparkles size={16} />
         <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
           Orchestration Prompt
         </span>

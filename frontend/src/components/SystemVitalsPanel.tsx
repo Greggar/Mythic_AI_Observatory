@@ -198,8 +198,7 @@ export default function SystemVitalsPanel() {
   }, [drill, closeDrill]);
 
   return (
-    <div className="relative bg-[oklch(14%_0.04_268)] border border-[oklch(58%_0.10_75/0.35)] rounded-[3px] overflow-hidden shadow-[0_0_50px_oklch(0%_0_0/0.5),inset_0_0_60px_oklch(10%_0.03_270/0.5)]">
-      <div className="absolute inset-[3px] border border-[oklch(58%_0.10_75/0.35)] rounded-[1px] pointer-events-none z-[2]" />
+    <div className="relative bg-[oklch(14%_0.04_268)] border border-[oklch(58%_0.10_75/0.35)] rounded-[1.5rem] overflow-hidden shadow-[0_0_50px_oklch(0%_0_0/0.5),inset_0_0_60px_oklch(10%_0.03_270/0.5)]">
 
       <CornerOrnament className="top-0 left-0" />
       <CornerOrnament className="top-0 right-0 -scale-x-100" />

@@ -59,26 +59,18 @@ const STATE_STYLES: Record<
   },
 };
 
+const INFERENCE_AGENTS = new Set(["Intent Classifier", "Context Synthesizer", "Response Generator"]);
+
 function resolveState(key: string, t: Telemetry | null, isActive: boolean): NodeState {
   if (!t) return "unreachable";
   if (isActive) return "active";
   const cpuHigh = t.cpu.percent > 80 || t.gpu.gpu_util > 80;
   const cpuMed = t.cpu.percent > 50 || t.gpu.gpu_util > 50;
 
-  if (key === "ollama") {
+  if (INFERENCE_AGENTS.has(key)) {
     if (t.ollama.status !== "ok") return "unreachable";
     if (cpuHigh) return "processing";
     return cpuMed ? "active" : "idle";
-  }
-  if (key === "openclaw") {
-    if (t.openclaw.status !== "ok") return "unreachable";
-    if (cpuHigh) return "processing";
-    return cpuMed ? "active" : "idle";
-  }
-  if (key === "hermes" || key === "comfyui") {
-    const r = t.remotes.find((x) => x.target === key);
-    if (!r || r.status !== "ok") return "unreachable";
-    return "idle";
   }
   return "idle";
 }

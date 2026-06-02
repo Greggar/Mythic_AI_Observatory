@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import { TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Telemetry } from "@/hooks/useWebSocket";
 
@@ -69,9 +70,12 @@ export default function TrendChart({ telemetry }: Props) {
 
   return (
     <div className="glass-panel p-5 space-y-4">
-      <h1 className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-        Trends
-      </h1>
+      <div className="flex flex-col items-center gap-1.5">
+        <TrendingUp size={16} className="text-[oklch(72%_0.11_75)]" />
+        <h1 className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
+          Trends
+        </h1>
+      </div>
 
       <div className="space-y-3">
         {/* CPU trend */}

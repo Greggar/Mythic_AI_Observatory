@@ -30,12 +30,12 @@ body {
 .glass-panel {
   background: rgba(12, 17, 36, 0.6);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(45, 212, 191, 0.15);
+  border: 1px solid oklch(58% 0.10 75 / 0.35);
   border-radius: 1.5rem;
 }
 
 .glass-panel:hover {
-  border-color: rgba(45, 212, 191, 0.3);
+  border-color: oklch(72% 0.11 75 / 0.5);
 }
 
 /* ── Visual State System ────────────────────────────── */
@@ -90,4 +90,31 @@ body {
 .scrollbar-thin::-webkit-scrollbar-thumb {
   background: rgba(45, 212, 191, 0.1);
   border-radius: 2px;
+}
+
+/* ── Mythic Heading ──────────────────────────────── */
+.mythic-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+.mythic-heading .mythic {
+  font: 700 clamp(56px, 7vw, 96px)/1 var(--font-sans, system-ui, sans-serif);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #2dd4bf, #34d399, #fbbf24);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.mythic-heading .sub {
+  font: 700 clamp(20px, 2.8vw, 36px)/1 var(--font-sans, system-ui, sans-serif);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #2dd4bf, #34d399, #fbbf24);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin-top: 0.08em;
 }

@@ -12,14 +12,16 @@ interface Props {
 export default function TraceTimeline({ trace }: Props) {
   return (
     <div className="glass-panel p-5 space-y-4">
-      <div className="flex items-center gap-2 text-teal-mystic">
+      <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
         <Activity size={16} />
-        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-          Orchestration Trace
-        </span>
-        <span className="ml-auto text-[10px] font-mono text-zinc-600">
-          {trace.id}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
+            Orchestration Trace
+          </span>
+          <span className="text-[10px] font-mono text-zinc-600">
+            {trace.id}
+          </span>
+        </div>
       </div>
 
       {/* prompt */}
