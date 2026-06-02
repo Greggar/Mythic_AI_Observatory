@@ -42,7 +42,12 @@ export default function ActivityFeed() {
       const res = await fetch(`${API_BASE}/api/activity${params}`);
       const data: ActivityEvent[] = await res.json();
       if (data.length > 0) {
-        setEvents((prev) => [...prev, ...data].slice(-100));
+        setEvents((prev) => {
+          const existing = new Set(prev.map((e) => e.id));
+          const newEvents = data.filter((e) => !existing.has(e.id));
+          if (newEvents.length === 0) return prev;
+          return [...prev, ...newEvents].slice(-100);
+        });
       }
     } catch {
       // silently fail
