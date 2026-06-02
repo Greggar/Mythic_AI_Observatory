@@ -68,8 +68,8 @@ const SERVICE_GLYPHS: Record<string, { x: number; y: number; label: string; colo
 };
 
 export default function ResourceConstellation() {
-  const CX = 100;
-  const CY = 100;
+  const CX = 150;
+  const CY = 150;
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<VitalsData | null>(null);
 
@@ -103,7 +103,7 @@ export default function ResourceConstellation() {
     [data]
   );
 
-  const ORBIT_RADII = [65, 95, 125];
+  const ORBIT_RADII = [85, 130, 175];
   const ORBIT_SPEEDS = [55, -40, 65];
 
   return (
@@ -115,7 +115,7 @@ export default function ResourceConstellation() {
         </span>
       </div>
 
-      <svg viewBox="0 0 200 200" className="w-full max-w-[400px] h-auto">
+      <svg viewBox="0 0 300 300" className="w-full max-w-[500px] h-auto">
         {/* Orbital rings */}
         {planets.map((_, i) => (
           <circle
@@ -135,38 +135,38 @@ export default function ResourceConstellation() {
           <g>
             {/* Solar aura */}
             <motion.circle
-              cx={CX} cy={CY} r={22}
+              cx={CX} cy={CY} r={32}
               fill="url(#sunGlow)"
               animate={mounted ? { scale: [1, 1.08, 1], opacity: [0.3, 0.6, 0.3] } : {}}
               transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
               style={{ originX: CX, originY: CY }}
             />
             {/* Core */}
-            <circle cx={CX} cy={CY} r={8} fill="#0c1124" stroke={STATUS_GLOW[sun.status]} strokeWidth="1" />
+            <circle cx={CX} cy={CY} r={12} fill="#0c1124" stroke={STATUS_GLOW[sun.status]} strokeWidth="1.5" />
             <motion.circle
-              cx={CX} cy={CY} r={5}
+              cx={CX} cy={CY} r={7}
               fill={STATUS_GLOW[sun.status]}
               animate={mounted ? { opacity: [0.3, 0.7, 0.3] } : {}}
               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
             />
             {/* Centre label */}
-            <text x={CX} y={CY + 16} textAnchor="middle" fill={STATUS_GLOW[sun.status]}
-              fontSize="5.5" fontFamily="monospace" fontWeight="bold" letterSpacing="0.1em">
+            <text x={CX} y={CY + 24} textAnchor="middle" fill={STATUS_GLOW[sun.status]}
+              fontSize="7" fontFamily="monospace" fontWeight="bold" letterSpacing="0.1em">
               {sun.name.toUpperCase()}
             </text>
             {/* Services around sun */}
             {SERVICE_GLYPHS[sun.name]?.map((s, i) => (
               <g key={`sun-svc-${i}`}>
-                <circle cx={CX + s.x} cy={CY + s.y} r={1.5} fill={s.color} opacity="0.7" />
-                <text x={CX + s.x + 3} y={CY + s.y + 1.5}
-                  fill="oklch(72% 0.11 75 / 0.5)" fontSize="3.5" fontFamily="monospace">
+                <circle cx={CX + s.x * 1.5} cy={CY + s.y * 1.5} r={2} fill={s.color} opacity="0.7" />
+                <text x={CX + s.x * 1.5 + 4} y={CY + s.y * 1.5 + 2}
+                  fill="oklch(72% 0.11 75 / 0.5)" fontSize="4.5" fontFamily="monospace">
                   {s.label}
                 </text>
               </g>
             ))}
             {/* Subtitle under sun label */}
-            <text x={CX} y={CY + 22} textAnchor="middle"
-              fill="oklch(52% 0.03 265 / 0.5)" fontSize="3.5" fontFamily="monospace">
+            <text x={CX} y={CY + 32} textAnchor="middle"
+              fill="oklch(52% 0.03 265 / 0.5)" fontSize="4.5" fontFamily="monospace">
               conductor
             </text>
           </g>
@@ -176,7 +176,7 @@ export default function ResourceConstellation() {
         {planets.map((machine, i) => {
           const cpu = parsePct(getVital(machine, "cpu")?.value ?? "0");
           const mem = parsePct(getVital(machine, "mem")?.value ?? "0");
-          const planetSize = 4 + (mem / 100) * 10;
+          const planetSize = 6 + (mem / 100) * 14;
           const brightness = 0.3 + (cpu / 100) * 0.5;
           const isActive = cpu > 20;
           const color = STATUS_GLOW[machine.status];
@@ -222,15 +222,15 @@ export default function ResourceConstellation() {
                   transition={{ duration: 2 + i, repeat: Infinity, ease: "easeInOut" }}
                 />
                 {/* Planet label */}
-                <text x={CX + orbitR} y={CY + planetSize + 9}
+                <text x={CX + orbitR} y={CY + planetSize + 14}
                   textAnchor="middle" fill="oklch(72% 0.11 75 / 0.7)"
-                  fontSize="5.5" fontFamily="monospace" fontWeight="bold">
+                  fontSize="8" fontFamily="monospace" fontWeight="bold">
                   {machine.name.toUpperCase()}
                 </text>
                 {/* CPU/RAM stats under label */}
-                <text x={CX + orbitR} y={CY + planetSize + 14}
+                <text x={CX + orbitR} y={CY + planetSize + 21}
                   textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
-                  fontSize="3.5" fontFamily="monospace">
+                  fontSize="5.5" fontFamily="monospace">
                   CPU {cpu.toFixed(0)}% · RAM {mem.toFixed(0)}%
                 </text>
                 {/* Service glyphs around planet */}
