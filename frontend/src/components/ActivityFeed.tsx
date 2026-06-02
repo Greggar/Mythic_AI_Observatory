@@ -37,7 +37,7 @@ export default function ActivityFeed() {
 
   const fetchEvents = async () => {
     try {
-      const since = events.length > 0 ? events[events.length - 1].timestamp : undefined;
+      const since = events.length > 0 ? events[events.length - 1].id : undefined;
       const params = since ? `?since=${encodeURIComponent(since)}` : "";
       const res = await fetch(`${API_BASE}/api/activity${params}`);
       const data: ActivityEvent[] = await res.json();

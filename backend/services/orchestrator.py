@@ -121,11 +121,13 @@ def _detect_insights(session: TraceSession) -> list[str]:
 
 # ── Activity event bus ────────────────────────────────────────────
 _activity_events: deque[dict[str, Any]] = deque(maxlen=200)
-
+_event_counter = 0
 
 def emit_event(kind: str, label: str, session_id: str | None = None, detail: str | None = None) -> None:
+    global _event_counter
+    _event_counter += 1
     event = {
-        "id": uuid.uuid4().hex[:8],
+        "id": f"evt-{_event_counter}",
         "kind": kind,
         "label": label,
         "session_id": session_id,
@@ -138,7 +140,14 @@ def emit_event(kind: str, label: str, session_id: str | None = None, detail: str
 def get_activity_events(since: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
     events = list(_activity_events)
     if since:
-        events = [e for e in events if e["timestamp"] > since]
+        if since.startswith("evt-"):
+            try:
+                num = int(since[4:])
+                events = [e for e in events if int(e["id"][4:]) > num]
+            except ValueError:
+                pass
+        else:
+            events = [e for e in events if e["timestamp"] > since]
     return events[-limit:]
 
 
