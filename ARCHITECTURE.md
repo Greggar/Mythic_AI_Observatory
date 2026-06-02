@@ -444,7 +444,65 @@ d={`M ${x1.toFixed(4)} ${y1.toFixed(4)} Q ${CX.toFixed(4)}
 
 ---
 
-## 9. File Index
+## 9. Version Control
+
+The project lives at **https://github.com/Greggar/Mythic_AI_Observatory**
+
+### Workflow
+
+```bash
+# Status
+git status
+
+# Stage changes
+git add -A
+
+# Commit
+git commit -m "description of change"
+
+# Push to GitHub
+git push
+```
+
+### What's tracked vs ignored
+
+**.gitignore** excludes:
+- `node_modules/`, `.next/` — can be rebuilt from `package.json`
+- `.venv/` — Python virtual environment, not portable
+- `backend/data/traces.jsonl` — runtime operational data (trace history)
+- `.env` files — API keys and secrets
+
+Everything else (code, config, `machines.json`, docs) is tracked.
+
+### Adding a machine (no code changes)
+
+1. Add node-exporter on the new PC
+2. Add it to Prometheus scrape config
+3. Optionally add a `hostnames` entry in `backend/data/machines.json` for a friendly name and insight
+4. Done — the backend auto-discovers instances via Prometheus at each `/api/vitals` call
+
+### First-time setup on a new machine
+
+```bash
+git clone git@github.com:Greggar/Mythic_AI_Observatory.git
+cd Mythic_AI_Observatory
+
+# Backend
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt   # or pip install fastapi uvicorn httpx psutil
+
+# Frontend
+cd ../frontend
+pnpm install
+```
+
+The SSH key for this machine (`primary-server`) is registered on GitHub for push access.
+
+---
+
+## 10. File Index
 
 | Path | Purpose |
 |---|---|
