@@ -1,0 +1,64 @@
+{
+  "services": {
+    "ollama": {
+      "label": "Ollama",
+      "host": "127.0.0.1",
+      "port": 11434,
+      "enabled": true
+    },
+    "openclaw": {
+      "label": "OpenClaw Gateway",
+      "host": "127.0.0.1",
+      "port": 18789,
+      "enabled": true
+    },
+    "backoffice_llm": {
+      "label": "Backoffice LLM",
+      "host": "198.51.100.100",
+      "port": 12434,
+      "model": "docker.io/ai/qwen3.5:9B-UD-Q4_K_XL",
+      "enabled": true
+    },
+    "prometheus": {
+      "label": "Prometheus",
+      "host": "100.100.179.99",
+      "port": 9090,
+      "enabled": true
+    },
+    "hermes": {
+      "label": "Hermes Bridge",
+      "host": "198.51.100.100",
+      "port": 9119,
+      "enabled": true
+    },
+    "comfyui": {
+      "label": "ComfyUI",
+      "host": "198.51.100.100",
+      "port": 8188,
+      "enabled": true
+    }
+  },
+  "machines": {
+    "primary-server": {
+      "name": "Gingerlong",
+      "host": "127.0.0.1",
+      "desc": "Primary orchestration server — API, UI, Ollama, OpenClaw",
+      "insight": "The conductor. Hosts the API, UI, Ollama, OpenClaw. All orchestration originates here.",
+      "services": ["ollama", "openclaw"]
+    },
+    "backoffice": {
+      "name": "BackOffice",
+      "host": "198.51.100.100",
+      "desc": "Worker node — inference cluster, Docker Model Runner",
+      "insight": "Compute heart. Runs qwen3.5:9B, Hermes Bridge, ComfyUI. GPU-bound inference specialist.",
+      "services": ["backoffice_llm", "hermes", "comfyui"]
+    },
+    "loungeroom": {
+      "name": "LoungeRoom",
+      "host": "100.89.142.70",
+      "desc": "Worker node — batch tasks, training pipelines",
+      "insight": "Pipeline worker. Handles batch tasks, long-running training loops, and data processing.",
+      "services": []
+    }
+  }
+}

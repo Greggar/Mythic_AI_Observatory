@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Settings } from "lucide-react";
 import SystemVitalsPanel from "@/components/SystemVitalsPanel";
+import SettingsModal from "@/components/SettingsModal";
 import SolarNexus from "@/components/SolarNexus";
 import PromptInput from "@/components/PromptInput";
 import ObservatoryPanel from "@/components/ObservatoryPanel";
@@ -25,6 +27,7 @@ export default function Home() {
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [replayTrace, setReplayTrace] = useState<typeof trace>(null);
   const [discoveryTrigger, setDiscoveryTrigger] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const traceActive = phase === "replaying" || phase === "complete";
 
@@ -68,10 +71,17 @@ export default function Home() {
           <span className="mythic">MYTHIC</span>
           <span className="sub">AI OBSERVATORY</span>
         </div>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="absolute right-0 text-zinc-600 hover:text-teal-mystic transition-colors p-2 rounded-full hover:bg-white/[0.04]"
+          title="Network settings"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
         {replayTrace && (
           <button
             onClick={() => setReplayTrace(null)}
-            className="absolute right-0 text-[10px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors px-2 py-1 rounded-full border border-white/[0.06]"
+            className="absolute right-10 text-[10px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors px-2 py-1 rounded-full border border-white/[0.06]"
           >
             Clear replay
           </button>
@@ -120,6 +130,8 @@ export default function Home() {
           />
         </aside>
       </div>
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {/* Discovery Events overlay */}
       <DiscoveryEvents

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from models.trace import TraceSession
 from services.orchestrator import orchestrate, get_trace, list_traces, get_activity_events
 from services.vitals import collect_vitals
+from services import config_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("conductor")
@@ -39,15 +40,6 @@ gpu_mem_gauge = Gauge("gpu_memory_percent", "GPU memory usage %")
 gpu_util_gauge = Gauge("gpu_util_percent", "GPU compute utilization %")
 ollama_models_gauge = Gauge("ollama_models_count", "Number of Ollama models available")
 openclaw_uptime_gauge = Gauge("openclaw_uptime_seconds", "OpenClaw gateway uptime")
-
-# ── Polling targets ──────────────────────────────────────────────
-OLLAMA_URL = "http://127.0.0.1:11434/api/tags"
-OPENCLAW_HEALTH = "http://127.0.0.1:18789/health"
-
-REMOTE_TARGETS: dict[str, str] = {
-    "hermes": "http://198.51.100.100:9119/health",
-    "comfyui": "http://198.51.100.100:8188/health",
-}
 
 # ── WebSocket connection manager ─────────────────────────────────
 class ConnectionManager:
@@ -110,13 +102,19 @@ def _fetch_json(url: str, timeout: float = 4.0) -> dict[str, Any] | None:
         return None
 
 def _poll_ollama() -> dict[str, Any]:
-    data = _fetch_json(OLLAMA_URL)
+    url = config_manager.get_ollama_tags_url()
+    if not url:
+        return {"status": "disabled", "models": [], "count": 0}
+    data = _fetch_json(url)
     if data and "models" in data:
         return {"status": "ok", "models": data["models"], "count": len(data["models"])}
     return {"status": "error", "models": [], "count": 0}
 
 def _poll_openclaw() -> dict[str, Any]:
-    data = _fetch_json(OPENCLAW_HEALTH)
+    url = config_manager.get_openclaw_health_url()
+    if not url:
+        return {"status": "disabled"}
+    data = _fetch_json(url)
     if data:
         return {"status": "ok", **data}
     return {"status": "error"}
@@ -136,7 +134,7 @@ async def collect_telemetry() -> dict[str, Any]:
     oc = await loop.run_in_executor(executor, _poll_openclaw)
 
     remotes: list[dict[str, Any]] = []
-    for name, url in REMOTE_TARGETS.items():
+    for name, url in config_manager.get_remote_targets().items():
         res = await loop.run_in_executor(executor, _poll_remote, name, url)
         remotes.append(res)
 
@@ -210,6 +208,18 @@ async def api_telemetry() -> dict[str, Any]:
 async def api_vitals() -> dict:
     return await collect_vitals()
 
+# ── Network Config ───────────────────────────────────────────────────
+@app.get("/api/network-config")
+async def get_network_config() -> dict[str, Any]:
+    return config_manager.get_all()
+
+class NetworkConfigBody(BaseModel):
+    config: dict[str, Any]
+
+@app.put("/api/network-config")
+async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
+    return config_manager.save(body.config)
+
 # ── Orchestration models ──────────────────────────────────────────
 class OrchestrateRequest(BaseModel):
     prompt: str
@@ -239,4 +249,6 @@ async def api_activity(since: str | None = None, limit: int = 50) -> list[dict]:
 # ── Run ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)
+    import os
+    host = os.getenv("CONDUCTOR_HOST", "127.0.0.1")
+    uvicorn.run("main:app", host=host, port=8001, reload=True)

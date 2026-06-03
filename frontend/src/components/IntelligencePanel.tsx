@@ -49,7 +49,7 @@ function ConfidenceRing({ confidence, cx, cy, r }: { confidence: number; cx: num
           opacity: [0.5, 0.9, 0.5],
         } : {}}
         transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-        style={{ originX: cx, originY: cy }}
+        style={{ transformOrigin: "50% 50%" }}
       />
       {/* Corona rays */}
       {mounted && [0, 45, 90, 135, 180, 225, 270, 315].map((angle, i) => (
@@ -75,7 +75,7 @@ function ConfidenceRing({ confidence, cx, cy, r }: { confidence: number; cx: num
             opacity: { duration: 5 + i, repeat: Infinity, ease: "easeInOut" },
             rotate: { duration: 30 + i * 10, repeat: Infinity, ease: "linear" },
           }}
-          style={{ originX: cx, originY: cy }}
+          style={{ transformOrigin: "50% 50%" }}
         />
       ))}
       {/* Confidence arc */}
@@ -99,7 +99,7 @@ function ConfidenceRing({ confidence, cx, cy, r }: { confidence: number; cx: num
           scale: [1, 1.03, 1],
         } : {}}
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-        style={{ filter: `drop-shadow(0 0 4px ${color})`, originX: cx, originY: cy }}
+        style={{ filter: `drop-shadow(0 0 4px ${color})`, transformOrigin: "50% 50%" }}
       />
       {/* Planetary confidence indicators */}
       {mounted && [
@@ -325,7 +325,7 @@ export default function IntelligencePanel({
           <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
             <Brain size={14} className="text-zinc-500" />
             <span className="text-xs text-zinc-400 flex-1">Model</span>
-            <span className="text-sm font-mono text-zinc-200">{trace.model_used || "qwen3.5:9B"}</span>
+            <span className="text-xs font-mono text-zinc-400">{trace.model_used || "qwen3.5:9B"}</span>
           </div>
 
           {/* Attribution — telemetry impact */}

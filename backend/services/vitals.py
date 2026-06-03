@@ -13,7 +13,7 @@ import psutil
 
 logger = logging.getLogger("conductor")
 
-PROMETHEUS_URL = "http://100.100.179.99:9090"
+from services import config_manager
 
 LOCAL_HOSTNAME = socket.gethostname().split(".")[0].lower()
 
@@ -24,18 +24,17 @@ try:
 except Exception:
     pass
 
-MACHINE_CONFIG = os.path.join(os.path.dirname(__file__), "..", "data", "machines.json")
 
 def _load_machine_config() -> dict[str, dict[str, str]]:
-    try:
-        with open(MACHINE_CONFIG) as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return config_manager.get_machines_config()
+
 
 async def _discover_instances() -> dict[str, dict[str, str]]:
     """Query Prometheus for all node-exporter instances and return {hostname: {instance, ...}}."""
-    results = await _promql('node_uname_info')
+    prometheus_url = config_manager.get_prometheus_url()
+    if not prometheus_url:
+        return {"primary": {"instance": "127.0.0.1:9100"}}
+    results = await _promql(prometheus_url, 'node_uname_info')
     instances: dict[str, dict[str, str]] = {}
     for r in results:
         inst = r["metric"].get("instance", "")
@@ -48,19 +47,20 @@ async def _discover_instances() -> dict[str, dict[str, str]]:
     return instances
 
 def _build_machine_map(instances: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
-    config = _load_machine_config()
-    hosts_cfg = config.get("hostnames", {})
-    inst_cfg = config.get("instances", {})
+    machines = _load_machine_config()
     machine_map: dict[str, dict[str, str]] = {}
     for hostname, info in instances.items():
-        # Match by hostname first, then by instance address
         mid = hostname
-        friendly = hosts_cfg.get(hostname)
-        if not friendly:
-            mapped_id = inst_cfg.get(info["instance"])
-            if mapped_id:
-                mid = mapped_id
-                friendly = hosts_cfg.get(mid)
+        friendly = machines.get(hostname)
+        if friendly:
+            mid = hostname
+        else:
+            # Try to match by instance IP
+            for key, cfg in machines.items():
+                if cfg.get("host") and cfg["host"] in info.get("instance", ""):
+                    mid = key
+                    friendly = cfg
+                    break
         machine_map[info["instance"]] = {
             "id": mid,
             "name": friendly.get("name", hostname.capitalize()) if friendly else hostname.capitalize(),
@@ -69,12 +69,11 @@ def _build_machine_map(instances: dict[str, dict[str, str]]) -> dict[str, dict[s
     return machine_map
 
 def _build_machine_insights(machine_map: dict[str, dict[str, str]]) -> dict[str, str]:
-    config = _load_machine_config()
-    hosts_cfg = config.get("hostnames", {})
+    machines = _load_machine_config()
     insights: dict[str, str] = {}
     for inst, info in machine_map.items():
         mid = info["id"]
-        cfg = hosts_cfg.get(mid, {})
+        cfg = machines.get(mid, {})
         insights[mid] = cfg.get("insight", f"Auto-discovered node at {inst}. No description configured.")
     return insights
 
@@ -83,11 +82,11 @@ _history: dict[str, dict[str, deque[float]]] = defaultdict(
 )
 
 
-async def _promql(query: str) -> list[dict[str, Any]]:
+async def _promql(base_url: str, query: str) -> list[dict[str, Any]]:
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
             resp = await client.get(
-                f"{PROMETHEUS_URL}/api/v1/query",
+                f"{base_url}/api/v1/query",
                 params={"query": query},
             )
             resp.raise_for_status()
@@ -150,6 +149,8 @@ def _get_gpu_stats_local() -> dict[str, float]:
 async def collect_vitals() -> list[dict[str, Any]]:
     now = time()
 
+    prometheus_url = config_manager.get_prometheus_url()
+
     cpu_q = '(1 - avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[1m]))) * 100'
     mem_q = '(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100'
     disk_q = 'sum by(instance)(rate(node_disk_read_bytes_total{device!~"loop.*|snap.*"}[1m])) + sum by(instance)(rate(node_disk_written_bytes_total{device!~"loop.*|snap.*"}[1m]))'
@@ -163,11 +164,16 @@ async def collect_vitals() -> list[dict[str, Any]]:
     cpu_local = await loop.run_in_executor(None, lambda: psutil.cpu_percent(interval=0))
     mem_local = await loop.run_in_executor(None, lambda: psutil.virtual_memory().percent)
 
-    # Also get Orion's CPU/mem via Prometheus (psutil interval=0 returns 0 on first call)
-    cpu_res, mem_res, disk_res, net_res, load_res, ds_res, up_res = await asyncio.gather(
-        _promql(cpu_q), _promql(mem_q), _promql(disk_q), _promql(net_q),
-        _promql(load_q), _promql(disk_space_q), _promql(uptime_q),
-    )
+    # Also get remote CPU/mem via Prometheus
+    if prometheus_url:
+        cpu_res, mem_res, disk_res, net_res, load_res, ds_res, up_res = await asyncio.gather(
+            _promql(prometheus_url, cpu_q), _promql(prometheus_url, mem_q),
+            _promql(prometheus_url, disk_q), _promql(prometheus_url, net_q),
+            _promql(prometheus_url, load_q), _promql(prometheus_url, disk_space_q),
+            _promql(prometheus_url, uptime_q),
+        )
+    else:
+        cpu_res = mem_res = disk_res = net_res = load_res = ds_res = up_res = []
 
     cpu_map = _by_instance(cpu_res)
     mem_map = _by_instance(mem_res)

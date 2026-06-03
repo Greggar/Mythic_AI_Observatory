@@ -1,0 +1,248 @@
+# Development Workflow
+
+**Known issue:** `pnpm dev` (Turbopack) is unstable on this machine due to slow filesystem I/O. The reliable testing path is `build + start` — see below.
+
+This project has two modes:
+
+| Mode | Binding | Access | Primary Command | Stable? |
+|---|---|---|---|---|
+| **Development** | `127.0.0.1` | localhost only | `pnpm dev` | Unstable — use for quick HMR edits on the server |
+| **Production preview** | `127.0.0.1` | localhost only | `pnpm build && next start` | ✅ Stable — use for testing with the user |
+| **Production** | `0.0.0.0` | LAN-wide | `build + start -H 0.0.0.0` | ✅ Stable |
+
+---
+
+## 1. Sprint Lifecycle — Dev First, Prod Second
+
+Only ONE mode runs at a time. Never run dev and prod simultaneously — they'll conflict on ports.
+
+### Sprint start: Kill prod, start dev or preview
+
+```bash
+# 1. Kill anything on the ports
+fuser -k 3001/tcp 2>/dev/null
+fuser -k 8001/tcp 2>/dev/null
+
+# 2. Start backend
+cd ~/mythic-ai-observatory/backend
+source .venv/bin/activate
+python main.py
+
+# 3. Frontend — choose one:
+#    A) Dev mode (unstable, HMR only works on server browser)
+#    B) Production preview (stable, preferred for user testing)
+#
+# Option A — dev mode:
+cd ~/mythic-ai-observatory/frontend
+NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm dev
+
+# Option B — production preview (RECOMMENDED for testing):
+cd ~/mythic-ai-observatory/frontend
+NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm build
+next start -p 3001
+```
+
+### Sprint work loop
+
+```
+   ┌──────────────────┐
+   │  Make code change │
+   └────────┬─────────┘
+            ▼
+   ┌──────────────────┐
+   │  pnpm build      │  ← catches type errors
+   │  next start      │  ← stable preview
+   └────────┬─────────┘
+            ▼
+   ┌──────────────────┐
+   │  Test in browser │  ← localhost or LAN
+   │  User verifies   │
+   └────────┬─────────┘
+            │
+     ┌──────┴──────┐
+     ▼             ▼
+   More work    All good →
+                 deploy
+```
+
+**Key rule:** Before any commit or deploy, always run `pnpm build` first. The build step catches TypeScript errors that dev mode hides.
+
+### Sprint end: Test together, then deploy prod
+
+When done, run the pre-production test checklist (section 3). Only if all checks pass, kill preview and start prod (section 4).
+
+---
+
+## 2. Development Mode (localhost-only)
+
+### Backend
+
+```bash
+cd ~/mythic-ai-observatory/backend
+source .venv/bin/activate
+python main.py
+# → http://127.0.0.1:8001
+```
+
+### Frontend — dev mode (hot reload, but can crash)
+
+```bash
+cd ~/mythic-ai-observatory/frontend
+pnpm dev
+# → http://localhost:3001
+```
+
+Only use this when you're on the server's own browser and need fast HMR. For anything else, use production preview.
+
+### Frontend — production preview (stable, preferred)
+
+```bash
+cd ~/mythic-ai-observatory/frontend
+pnpm build
+next start -p 3001
+# → http://localhost:3001
+```
+
+The frontend talks to `http://localhost:8001` by default — no env file needed when testing from the server's own browser.
+
+### LAN access during testing (testing from another machine)
+
+Set `NEXT_PUBLIC_API_URL` to the server's LAN IP so the frontend JS calls the right backend:
+
+```bash
+cd ~/mythic-ai-observatory/frontend
+NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm build
+next start -p 3001 -H 0.0.0.0
+```
+
+Then open `http://192.168.0.237:3001` from your workstation.
+
+---
+
+## 3. Pre-Production Test Checklist
+
+Before deploying to production (LAN-accessible), the AI assistant MUST run through these tests WITH you:
+
+```bash
+# Kill any dev servers first
+fuser -k 3001/tcp 2>/dev/null
+fuser -k 8001/tcp 2>/dev/null
+
+# Build frontend (catches type errors)
+cd ~/mythic-ai-observatory/frontend
+pnpm build
+```
+
+Then start a local-only production preview:
+
+```bash
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8001 pnpm start
+```
+
+And the backend:
+
+```bash
+cd ~/mythic-ai-observatory/backend
+source .venv/bin/activate
+python main.py
+```
+
+Visit `http://localhost:3001` on the server and verify with the user:
+
+- [ ] **Page loads without errors** — Open browser console, confirm 0 errors
+- [ ] **Settings gear icon** visible top-right, click opens the modal
+- [ ] **Telemetry loads** — System Vitals show CPU/Memory/GPU data
+- [ ] **Solar Nexus** shows the 7-stage pipeline visualization
+- [ ] **Orchestration works** — Submit a prompt, trace completes with output
+- [ ] **Activity feed populates** — Events appear during orchestration
+- [ ] **Memory Retrieval** traces appear in the constellation view
+- [ ] **Network Settings** — Open the settings modal, edit a service host, save, verify telemetry reflects the change
+- [ ] **Build passes** — `pnpm build` exits 0 with no warnings
+
+Only after ALL checks pass, proceed to production deploy.
+
+---
+
+## 4. Production Mode (LAN-accessible)
+
+### Sprint end: Kill dev, deploy prod
+
+```bash
+# 1. Kill dev servers
+fuser -k 3001/tcp 2>/dev/null
+fuser -k 8001/tcp 2>/dev/null
+
+# 2. Backend
+cd ~/mythic-ai-observatory/backend
+source .venv/bin/activate
+CONDUCTOR_HOST=0.0.0.0 nohup python main.py > /tmp/backend-prod.log 2>&1 &
+
+# 3. Frontend — build with LAN IP baked in
+cd ~/mythic-ai-observatory/frontend
+NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm build
+next start -p 3001 -H 0.0.0.0
+```
+
+### Frontend (detailed)
+
+Build once, then start the production server:
+
+```bash
+cd ~/mythic-ai-observatory/frontend
+pnpm build
+
+# Bind to LAN so remote machines can reach it:
+next start -p 3001 -H 0.0.0.0
+```
+
+Set the API URL to the server's LAN IP so the built frontend knows where to find the backend:
+
+```bash
+NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 next build
+```
+
+Or create `frontend/.env.production` (not committed — see `.env.example`):
+
+```
+NEXT_PUBLIC_API_URL=http://192.168.0.237:8001
+```
+
+---
+
+## 5. Test Workflow — Always Test Before Production
+
+```
+ ┌─────────────────────────────────────────────────┐
+ │                 SPRINT START                     │
+ │  Kill prod → Start dev → Make changes            │
+ └─────────────────────┬───────────────────────────┘
+                       │
+                       ▼
+ ┌─────────────────────────────────────────────────┐
+ │           PRE-PRODUCTION TEST (with user)        │
+ │  Kill dev → pnpm build → next start (localhost)  │
+ │  Run checklist → Verify with user in browser     │
+ └─────────────────────┬───────────────────────────┘
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+         Pass all?          Failed?
+              │                 │
+              ▼                 ▼
+    ┌─────────────────┐  ┌─────────────────┐
+    │  DEPLOY PROD     │  │  Fix & re-test   │
+    │  next start      │  │  (back to dev)   │
+    │  -H 0.0.0.0     │  │                  │
+    └─────────────────┘  └─────────────────┘
+```
+
+**Golden rule:** Never skip the `pnpm build && next start` test on localhost before enabling LAN access. The build step catches type errors, the production start catches SSR/routing issues that dev mode hides.
+
+---
+
+## 6. Environment Variables
+
+| Variable | Dev default | Dev LAN test | Production | Where used |
+|---|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8001` | `http://192.168.0.237:8001` | Server LAN IP | `useWebSocket.ts`, `useOrchestrate.ts`, `page.tsx` |
+| `CONDUCTOR_HOST` | `127.0.0.1` | `127.0.0.1` | `0.0.0.0` | `backend/main.py` |

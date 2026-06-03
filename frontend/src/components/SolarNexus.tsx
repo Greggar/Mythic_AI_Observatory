@@ -166,7 +166,7 @@ export default function SolarNexus({
             <motion.path
               key={`arc-${i}`}
               d={`M ${a.x} ${a.y} Q ${CX} ${CY} ${b.x} ${b.y}`}
-              fill="none" stroke="rgba(52,211,153,0.15)" strokeWidth="0.8"
+              fill="none" stroke="rgba(52,211,153,0.25)" strokeWidth="2.5"
               initial={{ pathLength: 0, opacity: 0 }}
               animate={{ pathLength: 1, opacity: 1 }}
               transition={{ duration: 0.5, delay: i * 0.1 }}
@@ -198,26 +198,26 @@ export default function SolarNexus({
                 transition={{ duration: isActive ? 1.5 : 3, repeat: Infinity, ease: "easeInOut" }}
               />
               {/* Stage number */}
-              <text x={p.x} y={p.y + 1.5} textAnchor="middle" fill={s.text}
-                fontSize="7" fontFamily="monospace" fontWeight="bold">
+              <text x={p.x} y={p.y + 2} textAnchor="middle" fill={s.text}
+                fontSize="10" fontFamily="monospace" fontWeight="bold">
                 {i + 1}
               </text>
               {/* Label below node */}
               <text x={p.x} y={p.y + nodeR + 14} textAnchor="middle" fill={s.text}
-                fontSize="7.5" fontFamily="monospace" letterSpacing="0.04em">
+                fontSize="10" fontFamily="monospace" letterSpacing="0.04em">
                 {label}
               </text>
               {/* Agent name */}
               {agent && (
-                <text x={p.x} y={p.y + nodeR + 25} textAnchor="middle"
-                  fill="oklch(52% 0.03 265 / 0.4)" fontSize="6" fontFamily="monospace">
+                <text x={p.x} y={p.y + nodeR + 27} textAnchor="middle"
+                  fill="oklch(52% 0.03 265 / 0.4)" fontSize="9" fontFamily="monospace">
                   {agent}
                 </text>
               )}
               {/* Duration */}
               {duration !== null && status !== "pending" && (
-                <text x={p.x} y={p.y + nodeR + 35} textAnchor="middle"
-                  fill="oklch(52% 0.03 265 / 0.35)" fontSize="5.5" fontFamily="monospace">
+                <text x={p.x} y={p.y + nodeR + 38} textAnchor="middle"
+                  fill="oklch(52% 0.03 265 / 0.35)" fontSize="8" fontFamily="monospace">
                   {formatTime(duration)}
                 </text>
               )}

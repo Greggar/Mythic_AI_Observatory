@@ -13,16 +13,10 @@ import psutil
 logger = logging.getLogger("conductor")
 
 from models.trace import TraceSession, TraceStep, TelemetryImpact
-
-
-BACKOFFICE_URL = "http://198.51.100.100:12434"
-FAST_MODEL = "docker.io/ai/qwen3.5:9B-UD-Q4_K_XL"
-
-LOCAL_OLLAMA_URL = "http://127.0.0.1:11434"
-LOCAL_MODEL = "qwen2.5:7b"
+from services import config_manager
 
 # Set to "local" to use Gingerlong's CPU, "backoffice" for GPU worker
-MODEL_PROVIDER = os.environ.get("ORCHESTRATOR_MODEL", "backoffice").lower()
+MODEL_PROVIDER = os.environ.get("ORCHESTRATOR_MODEL", "local").lower()
 
 LLM_TIMEOUT = 180.0  # longer timeout for CPU-bound local inference
 
@@ -32,35 +26,41 @@ HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "traces.jso
 
 STAGES: list[dict[str, Any]] = [
     {"id": "step-1", "label": "Request Received", "model": None, "system": None},
-    {"id": "step-2", "label": "Intent Classification", "model": FAST_MODEL,
+    {"id": "step-2", "label": "Intent Classification", "model": "backoffice",
      "system": "You are an intent classifier. Respond with one short sentence classifying the user request."},
     {"id": "step-3", "label": "Agent Selection", "model": None, "system": None},
     {"id": "step-4", "label": "Memory Retrieval", "model": None, "system": None},
-    {"id": "step-5", "label": "Context Synthesis", "model": FAST_MODEL,
+    {"id": "step-5", "label": "Context Synthesis", "model": "backoffice",
      "system": "You are a synthesizer. In one sentence, note the key context for responding to this request."},
-    {"id": "step-6", "label": "Response Generation", "model": FAST_MODEL,
+    {"id": "step-6", "label": "Response Generation", "model": "backoffice",
      "system": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user."},
     {"id": "step-7", "label": "Final Response", "model": None, "system": None},
 ]
 
+LOCAL_MODEL = "qwen2.5:3b"
+
+
+def _resolve_model_url(model_key: str) -> tuple[str, str]:
+    if MODEL_PROVIDER == "local":
+        base_url = config_manager.get_ollama_url()
+        model_name = LOCAL_MODEL
+    else:
+        base_url = config_manager.get_backoffice_url()
+        model_name = config_manager.get_backoffice_model()
+    return base_url, model_name
+
 
 async def _call_model(model: str, prompt: str, system: str | None = None) -> str:
+    base_url, model_name = _resolve_model_url(model)
+
+    payload: dict[str, Any] = {
+        "model": model_name,
+        "prompt": prompt,
+        "stream": False,
+    }
+
     if MODEL_PROVIDER == "local":
-        base_url = LOCAL_OLLAMA_URL
-        model = LOCAL_MODEL
-        payload: dict[str, Any] = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"num_ctx": 4096},
-        }
-    else:
-        base_url = BACKOFFICE_URL
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "stream": False,
-        }
+        payload["options"] = {"num_ctx": 4096}
 
     if system:
         payload["system"] = system
@@ -232,7 +232,9 @@ async def orchestrate(prompt: str) -> TraceSession:
     mem_samples: list[float] = []
 
     emit_event("session_start", "Orchestration started", trace_id, prompt[:80])
-    resolved_model = LOCAL_MODEL if MODEL_PROVIDER == "local" else FAST_MODEL
+    _, resolved_model = _resolve_model_url("backoffice")
+    if MODEL_PROVIDER == "local":
+        resolved_model = LOCAL_MODEL
     session.model_used = resolved_model
 
     for i, stage in enumerate(STAGES):

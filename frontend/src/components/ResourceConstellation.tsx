@@ -68,8 +68,8 @@ const SERVICE_GLYPHS: Record<string, { x: number; y: number; label: string; colo
 };
 
 export default function ResourceConstellation() {
-  const CX = 150;
-  const CY = 150;
+  const CX = 500;
+  const CY = 500;
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<VitalsData | null>(null);
 
@@ -103,7 +103,7 @@ export default function ResourceConstellation() {
     [data]
   );
 
-  const ORBIT_RADII = [85, 130, 175];
+  const ORBIT_RADII = [255, 390, 525];
   const ORBIT_SPEEDS = [55, -40, 65];
 
   return (
@@ -115,7 +115,7 @@ export default function ResourceConstellation() {
         </span>
       </div>
 
-      <svg viewBox="0 0 300 300" className="w-full max-w-[500px] h-auto">
+      <svg viewBox="0 0 1000 1000" className="w-full max-w-[500px] h-auto">
         {/* Orbital rings */}
         {planets.map((_, i) => (
           <circle
@@ -124,9 +124,9 @@ export default function ResourceConstellation() {
             cy={CY}
             r={ORBIT_RADII[i] ?? 70}
             fill="none"
-            stroke="oklch(58% 0.10 75 / 0.15)"
-            strokeWidth="0.4"
-            strokeDasharray="2 4"
+            stroke="oklch(58% 0.15 75 / 0.25)"
+            strokeWidth="1.5"
+            strokeDasharray="6 10"
           />
         ))}
 
@@ -135,38 +135,38 @@ export default function ResourceConstellation() {
           <g>
             {/* Solar aura */}
             <motion.circle
-              cx={CX} cy={CY} r={32}
+              cx={CX} cy={CY} r={100}
               fill="url(#sunGlow)"
               animate={mounted ? { scale: [1, 1.08, 1], opacity: [0.3, 0.6, 0.3] } : {}}
               transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-              style={{ originX: CX, originY: CY }}
+              style={{ transformOrigin: "50% 50%" }}
             />
             {/* Core */}
-            <circle cx={CX} cy={CY} r={12} fill="#0c1124" stroke={STATUS_GLOW[sun.status]} strokeWidth="1.5" />
+            <circle cx={CX} cy={CY} r={40} fill="#0c1124" stroke={STATUS_GLOW[sun.status]} strokeWidth="5" />
             <motion.circle
-              cx={CX} cy={CY} r={7}
+              cx={CX} cy={CY} r={24}
               fill={STATUS_GLOW[sun.status]}
               animate={mounted ? { opacity: [0.3, 0.7, 0.3] } : {}}
               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
             />
             {/* Centre label */}
-            <text x={CX} y={CY + 24} textAnchor="middle" fill={STATUS_GLOW[sun.status]}
-              fontSize="7" fontFamily="monospace" fontWeight="bold" letterSpacing="0.1em">
+            <text x={CX} y={CY + 80} textAnchor="middle" fill={STATUS_GLOW[sun.status]}
+              fontSize="24" fontFamily="monospace" fontWeight="bold" letterSpacing="0.1em">
               {sun.name.toUpperCase()}
             </text>
             {/* Services around sun */}
             {SERVICE_GLYPHS[sun.name]?.map((s, i) => (
               <g key={`sun-svc-${i}`}>
-                <circle cx={CX + s.x * 1.5} cy={CY + s.y * 1.5} r={2} fill={s.color} opacity="0.7" />
-                <text x={CX + s.x * 1.5 + 4} y={CY + s.y * 1.5 + 2}
-                  fill="oklch(72% 0.11 75 / 0.5)" fontSize="4.5" fontFamily="monospace">
+                <circle cx={CX + s.x * 10} cy={CY + s.y * 10} r={8} fill={s.color} opacity="0.7" />
+                <text x={CX + s.x * 10} y={CY + s.y * 10 - 16}
+                  textAnchor="middle" fill="oklch(72% 0.11 75 / 0.5)" fontSize="22" fontFamily="monospace">
                   {s.label}
                 </text>
               </g>
             ))}
             {/* Subtitle under sun label */}
-            <text x={CX} y={CY + 32} textAnchor="middle"
-              fill="oklch(52% 0.03 265 / 0.5)" fontSize="4.5" fontFamily="monospace">
+            <text x={CX} y={CY + 108} textAnchor="middle"
+              fill="oklch(52% 0.03 265 / 0.5)" fontSize="16" fontFamily="monospace">
               conductor
             </text>
           </g>
@@ -176,8 +176,8 @@ export default function ResourceConstellation() {
         {planets.map((machine, i) => {
           const cpu = parsePct(getVital(machine, "cpu")?.value ?? "0");
           const mem = parsePct(getVital(machine, "mem")?.value ?? "0");
-          const planetSize = 6 + (mem / 100) * 14;
-          const brightness = 0.3 + (cpu / 100) * 0.5;
+          const planetSize = 20 + (mem / 100) * 46;
+          const brightness = 0.6 + (cpu / 100) * 0.35;
           const isActive = cpu > 20;
           const color = STATUS_GLOW[machine.status];
 
@@ -187,16 +187,17 @@ export default function ResourceConstellation() {
           return (
             <motion.g
               key={machine.id}
-              style={{ originX: CX, originY: CY }}
-              animate={mounted ? { rotate: 360 } : { rotate: 0 }}
-              transition={{ duration: speed, repeat: Infinity, ease: "linear", delay: i * 4 }}
+              style={{ transformOrigin: "50% 50%" }}
+              initial={{ rotate: i * (360 / planets.length) }}
+              animate={mounted ? { rotate: i * (360 / planets.length) + 360 } : { rotate: i * (360 / planets.length) }}
+              transition={{ duration: Math.abs(speed), repeat: Infinity, ease: "linear", delay: 0 }}
             >
               <g>
                 {/* Active workload halo */}
                 {isActive && (
                   <motion.circle
                     cx={CX + orbitR} cy={CY}
-                    r={planetSize + 6}
+                    r={planetSize + 20}
                     fill={color}
                     opacity="0.08"
                     animate={{ opacity: [0.05, 0.15, 0.05] }}
@@ -209,37 +210,46 @@ export default function ResourceConstellation() {
                   r={planetSize}
                   fill="#0c1124"
                   stroke={color}
-                  strokeWidth="1"
+                  strokeWidth="3"
                   opacity={brightness}
                 />
                 {/* Planet core glow */}
                 <motion.circle
                   cx={CX + orbitR} cy={CY}
-                  r={planetSize * 0.35}
+                  r={planetSize * 0.4}
                   fill={color}
-                  opacity={brightness}
-                  animate={mounted ? { opacity: [brightness * 0.4, brightness, brightness * 0.4] } : {}}
+                  opacity={1}
+                  animate={mounted ? { opacity: [0.5, brightness + 0.2, 0.5] } : {}}
                   transition={{ duration: 2 + i, repeat: Infinity, ease: "easeInOut" }}
                 />
                 {/* Planet label */}
-                <text x={CX + orbitR} y={CY + planetSize + 14}
+                <text x={CX + orbitR} y={CY + planetSize + 46}
                   textAnchor="middle" fill="oklch(72% 0.11 75 / 0.7)"
-                  fontSize="8" fontFamily="monospace" fontWeight="bold">
+                  fontSize="26" fontFamily="monospace" fontWeight="bold">
                   {machine.name.toUpperCase()}
                 </text>
                 {/* CPU/RAM stats under label */}
-                <text x={CX + orbitR} y={CY + planetSize + 21}
+                <text x={CX + orbitR} y={CY + planetSize + 70}
                   textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
-                  fontSize="5.5" fontFamily="monospace">
+                  fontSize="18" fontFamily="monospace">
                   CPU {cpu.toFixed(0)}% · RAM {mem.toFixed(0)}%
                 </text>
                 {/* Service glyphs around planet */}
                 {SERVICE_GLYPHS[machine.name]?.map((s, j) => (
-                  <circle key={j}
-                    cx={CX + orbitR + s.x}
-                    cy={CY + s.y}
-                    r={1.2} fill={s.color} opacity="0.7"
-                  />
+                  <g key={j}>
+                    <circle
+                      cx={CX + orbitR + s.x * 3.3}
+                      cy={CY + s.y * 3.3}
+                      r={4} fill={s.color} opacity="0.7"
+                    />
+                    <text
+                      x={CX + orbitR + s.x * 3.3}
+                      y={CY + s.y * 3.3 - 9}
+                      textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
+                      fontSize="8" fontFamily="monospace">
+                      {s.label}
+                    </text>
+                  </g>
                 ))}
               </g>
             </motion.g>
@@ -248,9 +258,9 @@ export default function ResourceConstellation() {
 
         {/* Defs for gradients */}
         <defs>
-          <radialGradient id="sunGlow">
+          <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.4" />
-            <stop offset="40%" stopColor="#f59e0b" stopOpacity="0.1" />
+            <stop offset="40%" stopColor="#f59e0b" stopOpacity="0.15" />
             <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0" />
           </radialGradient>
         </defs>

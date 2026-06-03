@@ -13,7 +13,8 @@ export interface Telemetry {
   remotes: { status: string; target: string }[];
 }
 
-const POLL_URL = "http://192.168.0.237:8001/api/telemetry";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const POLL_URL = `${API_BASE}/api/telemetry`;
 const POLL_INTERVAL = 1500;
 
 export function useWebSocket(_url?: string) {
