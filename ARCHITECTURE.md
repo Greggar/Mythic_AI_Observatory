@@ -98,6 +98,38 @@ Using Pydantic `BaseModel` with sensible defaults (auto-timestamps, empty metada
 
 **Design reasoning:** Real LLM calls make the trace timeline authentic — each step's duration reflects actual model inference time, and the final output is a genuine model response rather than a canned string. The `gpt-oss:20B` model on the backoffice was too large to respond reliably (timed out), so all model stages use `qwen3.5:9B`.
 
+### 3.4 Living Orchestration — Async Background Tasks
+
+The orchestration endpoint was changed from a synchronous POST (block until all 7 stages complete) to an **async background task** pattern:
+
+1. `POST /api/orchestrate` creates a `TraceSession`, stores it in `_store`, starts `asyncio.create_task(orchestrate(...))`, and immediately returns `{"trace_id": "...", "status": "started"}`.
+2. The background task runs the 7 stages, updating `_store[trace_id]` incrementally as each stage completes.
+3. The frontend polls `GET /api/traces/{trace_id}` every 1.5s for incremental updates.
+4. Activity events (`emit_event` in `orchestrator.py`) are written to the in-memory deque during processing, so `GET /api/activity` returns live events even before the trace finishes.
+
+This decouples the orchestration runtime from the HTTP request lifecycle, enabling real-time streaming of stage progress to the UI without WebSocket or SSE infrastructure.
+
+```python
+# main.py — async orchestration
+@app.post("/api/orchestrate")
+async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
+    session = TraceSession(id=uuid.uuid4().hex[:12], prompt=req.prompt)
+    _store[session.id] = session
+    task = asyncio.create_task(orchestrate(req.prompt, session.id))
+    return {"trace_id": session.id, "status": "started"}
+```
+
+### 3.5 Model Provider Selection
+
+Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`):
+
+| Value | Base URL | Model | Suitable for |
+|---|---|---|---|
+| `local` | `http://127.0.0.1:11434` (Ollama) | `qwen2.5:3b` | CPU inference on primary (moderate quality, slow) |
+| `backoffice` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen3.5:9B` | GPU inference on BackOffice (high quality, fast) |
+
+When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the 3B model's context window. When `backoffice`, the context limit is handled by the remote server.
+
 ---
 
 ## 4. Frontend Architecture
@@ -123,7 +155,8 @@ layout.tsx          — Root layout, Geist fonts, dark background
 | Hook | Purpose |
 |---|---|
 | `useWebSocket(url)` | Polls `http://{server}:8001/api/telemetry` every 1.5s via `fetch()`, returns `{data, connected}` |
-| `useOrchestrate()` | Manages `POST /api/orchestrate` lifecycle: loading, trace state, error |
+| `useOrchestrate()` | POSTs prompt, receives `trace_id`, polls `GET /api/traces/{id}` every 1.5s for incremental updates. Stops polling when status is `complete` or `error`. |
+| `useTraceReplay(trace)` | Animates through steps sequentially using each step's `duration_ms` as delay. Returns `{activeStepIndex, phase}`. Used for history replay; live traces bypass replay and use live step index. |
 
 **Note on transport:** Despite its name, `useWebSocket` **does not use WebSocket**. See §6.7 for why. The hook polls the HTTP endpoint `GET /api/telemetry` every 1.5 seconds. The `connected` field is `true` when the last poll succeeded.
 
@@ -203,6 +236,64 @@ npx next start -p 3001 -H 0.0.0.0
 ### Accessing Remotely
 
 The Next.js server is bound to `0.0.0.0` via the `-H 0.0.0.0` flag. The backend FastAPI also binds to `0.0.0.0`. Both are accessible from any machine on the LAN.
+
+---
+
+### Custom Hook — `useOrchestrate` Polling Flow
+
+```typescript
+// Frontend polls trace state every 1.5s
+const poll = async () => {
+  const res = await fetch(`/api/traces/${trace_id}`);
+  const data = await res.json();
+  setTrace(data);
+  if (data.status === "complete" || data.status === "error") {
+    setLoading(false);    // stop polling
+    return;
+  }
+  setTimeout(poll, 1500);
+};
+```
+
+The hook tracks three states:
+- `loading: true, trace: null` — submission in progress, waiting for POST response
+- `loading: true, trace: TraceSession` — actively polling (stages appearing incrementally)
+- `loading: false, trace: TraceSession` — completed, final trace displayed
+
+### Agent Nexus — Visual States
+
+The SVG ring visualization has three distinct visual modes:
+
+| Phase | Core | Arcs | Nodes | Particles |
+|---|---|---|---|---|
+| Idle | STANDBY text, slow breathing glow | Dashed orbital ring, drifting dots | All dim | None |
+| Replaying/Live | PROCESSING or COMPLETE, elapsed time | Green arcs between completed stages | Active node gold pulse + glow | Gold particles travel along active arc |
+| Complete | COMPLETE, total duration, confidence | All arcs green | All nodes green | None |
+
+### System Orbit — Service Satellite Glyphs
+
+Each machine in `ResourceConstellation.tsx` has orbiting service glyphs defined in `SERVICE_GLYPHS`:
+
+```typescript
+const SERVICE_GLYPHS = {
+  Gingerlong: [
+    { label: "API", color: "#2dd4bf" },
+    { label: "Ollama", color: "#34d399" },
+    { label: "OC", color: "#fbbf24" },
+    { label: "UI", color: "#2dd4bf" },
+    { label: "FastAPI", color: "#34d399" },
+    { label: "Conductor", color: "#fbbf24" },
+  ],
+  BackOffice: [
+    { label: "Hermes", color: "#2dd4bf" },
+    { label: "ComfyUI", color: "#a78bfa" },
+    { label: "qwen3.5", color: "#34d399" },
+  ],
+  // ...
+};
+```
+
+When the `active` prop is true (live orchestration in progress), glyphs pulse via Framer Motion with staggered delays, providing a visual cue that the system is working.
 
 ---
 
@@ -340,7 +431,72 @@ A `GET /api/telemetry` endpoint was added to the backend that returns the latest
 - WebSocket connections traversing network boundaries are fragile. If a WebSocket fails to stay open from remote machines, the problem is likely a router/firewall killing the connection after the HTTP upgrade, not a code issue.
 - When WebSocket is unreliable, HTTP polling is a robust fallback. For a 1.5s polling interval, the overhead is negligible.
 
-### 6.8 Hydration Mismatch Due to Floating-Point Precision in SVG
+### 6.8 Orchestration POST Blocks Activity Feed
+
+**Symptom:** Activity feed showed no events until the full trace completed, even though the backend emitted events during processing.
+
+**Root cause:** The original `POST /api/orchestrate` handler awaited the full `orchestrate()` coroutine before returning. Although `emit_event()` was called during processing, the HTTP response wasn't sent until all 7 stages finished, so the frontend's polling of `/api/activity` received no new data.
+
+**Fix:** Split into two steps:
+1. `POST /api/orchestrate` creates the trace in `_store` and launches `asyncio.create_task(orchestrate(...))`, returning `trace_id` immediately.
+2. Frontend polls `GET /api/traces/{trace_id}` every 1.5s for incremental updates.
+
+```python
+# Before (synchronous):
+@app.post("/api/orchestrate")
+async def api_orchestrate(req):
+    return await orchestrate(req.prompt)
+
+# After (async task):
+@app.post("/api/orchestrate")
+async def api_orchestrate(req):
+    session = TraceSession(id=uuid.uuid4().hex[:12], prompt=req.prompt)
+    _store[session.id] = session
+    asyncio.create_task(orchestrate(req.prompt, session.id))
+    return {"trace_id": session.id, "status": "started"}
+```
+
+**Lesson:** Any endpoint that emits events consumed by a polling frontend must return immediately. Blocking until background work completes starves the event bus of visibility.
+
+### 6.9 useTraceReplay Conflicts with Live Polling
+
+**Symptom:** During live polling, `useTraceReplay` would restart its animation sequence every time the trace updated (every 1.5s), causing visual flickering as steps reset.
+
+**Root cause:** `useTraceReplay` was called unconditionally with the live trace. Each polling update triggered a new trace reference, which the hook interpreted as a new replay session.
+
+**Fix:** Separate the live step index (derived directly from `trace.steps` during polling) from the replay index (used only for history traces and completed live traces):
+
+```typescript
+// During live processing: derive step index from trace status
+const liveStepIndex = loading && trace !== null
+  ? trace.steps.findLastIndex((s) => s.status !== "pending")
+  : null;
+
+// Replay only triggers for completed or history traces
+const triggerReplay = (replayTrace || (liveComplete && trace)) ? (replayTrace || trace) : null;
+const { activeStepIndex: replayStep, phase: replayPhase } = useTraceReplay(triggerReplay);
+```
+
+**Lesson:** Don't feed rapidly-mutating data into replay/timeline hooks. Distinguish between live incremental state and post-hoc animation.
+
+### 6.10 Environment Variable Not Inherited by Background Processes
+
+**Symptom:** `ORCHESTRATOR_MODEL=local` had no effect — the backend still used the backoffice URL.
+
+**Root cause:** When starting uvicorn via `nohup ... &` or a shell wrapper script, the environment variable was set in the parent shell but not inherited by the child process due to shell scoping rules. Multiple failed attempts included `export` in one bash invocation and the actual command in another.
+
+**Fix:** Use `env ORCHESTRATOR_MODEL=local uvicorn ...` as a single command, or hardcode the default in the Python source:
+
+```python
+# orchestrator.py — environment with hardcoded fallback
+MODEL_PROVIDER = os.environ.get("ORCHESTRATOR_MODEL", "local").lower()
+```
+
+The default was changed from `backoffice` to `local` to make the local-only experience work out of the box.
+
+**Lesson:** Shell environment variables do not persist across separate `bash` tool calls. Always set the env var in the same command that launches the process, or hardcode sensible defaults.
+
+### 6.11 Hydration Mismatch Due to Floating-Point Precision in SVG
 
 **Symptom:** React hydration warning about mismatched attributes. The error pointed to `<path d="...">` in `OrchestrationRing.tsx:80`:
 
@@ -412,6 +568,16 @@ d={`M ${x1.toFixed(4)} ${y1.toFixed(4)} Q ${CX.toFixed(4)}
 
 11. The frontend uses `NEXT_PUBLIC_WS_URL` and `NEXT_PUBLIC_API_URL` environment variables with sensible defaults (`ws://localhost:8001/ws/telemetry`, `http://localhost:8001`). These should be set to the server's LAN IP when accessing from remote machines.
 
+### Living Orchestration
+
+12. **Async background tasks for blocking endpoints.** Any endpoint that emits activity events must return immediately. Use `asyncio.create_task()` to run heavy work in the background and let the frontend poll for results. The synchronous POST pattern starves the event bus.
+
+13. **Separate live state from replay state.** The `useTraceReplay` hook should not receive rapidly-mutating live data. Derive the active step index from the trace's step statuses during polling, and only trigger the replay animation for completed or historical traces.
+
+14. **Environment vars must be set in the same command as the process.** `env VAR=value uvicorn ...` or hardcoded defaults are reliable. `export` in a separate shell invocation is not inherited by background processes.
+
+15. **Small CPU-bound models are viable for orchestration.** The qwen2.5:3b on an i7-6700 takes ~40s per inference call (77s total trace), which is slow but acceptable for an observatory demo where the pacing makes the process visible. The ActivityFeed streaming live events during processing compensates for the wait time.
+
 ---
 
 ## 8. Future Considerations
@@ -421,9 +587,12 @@ d={`M ${x1.toFixed(4)} ${y1.toFixed(4)} Q ${CX.toFixed(4)}
 - **[Backend] Add proper error handling** for when the backoffice PC is unreachable. Currently, failed HTTP polls silently return `"status": "error"` — the frontend should surface this more clearly.
 - **[Frontend] Move telemetry and API URLs to environment variables.** Currently, `http://192.168.0.237:8001` is hardcoded in the build. Use `NEXT_PUBLIC_API_URL` for deploy-time configuration.
 
+### Done ✓
+
+- **[Backend] Streaming orchestration.** Implemented via async background task + polling pattern. POST returns trace_id immediately, frontend polls `/api/traces/{id}` every 1.5s. Activity events stream live during processing. (2026-06-03)
+
 ### Medium Priority
 
-- **[Backend] Streaming orchestration.** Instead of returning the full trace at once, stream each step completion over HTTP SSE or a persistent connection so the frontend animates steps in real-time as they complete.
 - **[Frontend + Backend] Investigate WebSocket-killing network issue.** The router/firewall between the server and backoffice drops WebSocket connections after HTTP upgrade. Identifying the exact device and rule would allow re-enabling WebSocket for lower-latency telemetry.
 - **[Frontend] Use shared telemetry/API base URL.** Currently `useWebSocket` and `useOrchestrate` have independent URL configuration. Unify behind a single config object.
 
@@ -505,28 +674,39 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 ## 10. File Index
 
 | Path | Purpose |
-|---|---|
-| `backend/main.py` | FastAPI app, telemetry loop, WebSocket, REST endpoints |
+|---|---|---|
+| `backend/main.py` | FastAPI app, telemetry loop, WebSocket, REST endpoints; async orchestration with background tasks |
 | `backend/models/trace.py` | Pydantic models for trace steps and sessions |
-| `backend/services/orchestrator.py` | Mocked orchestration logic with 7 stages |
+| `backend/services/orchestrator.py` | 7-stage orchestration pipeline with activity event bus, async background task support |
+| `backend/services/config_manager.py` | Network config persistence (machines.json) for dynamic endpoint resolution |
 | `frontend/package.json` | Dependencies and scripts (`dev` on port 3001) |
 | `frontend/src/app/globals.css` | Tailwind v4 theme with custom colours + glassmorphism |
 | `frontend/src/app/layout.tsx` | Root layout with Geist fonts |
-| `frontend/src/app/page.tsx` | Main dashboard: vitals + nexus + pathways + prompt + timeline |
+| `frontend/src/app/page.tsx` | Main dashboard: vitals + nexus + system orbit + prompt + timeline + session ID display |
 | `frontend/src/components/PromptInput.tsx` | Textarea with submit, Cmd+Enter, loading state |
 | `frontend/src/components/TraceTimeline.tsx` | Full timeline: steps + resolution output |
 | `frontend/src/components/TimelineStep.tsx` | Single step row with status icon, duration |
 | `frontend/src/components/ObservatoryPanel.tsx` | Animated container for trace output |
 | `frontend/src/components/SystemVitals.tsx` | CPU/Memory/GPU gauge bars |
-| `frontend/src/components/SolarNexus.tsx` | Animated SVG pentagram orchestration visualisation |
-| `frontend/src/components/DecisionPathways.tsx` | Quick-glance status cards |
-| `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect |
-| `frontend/src/hooks/useOrchestrate.ts` | Orchestration API call hook |
+| `frontend/src/components/SolarNexus.tsx` | Agent Nexus — animated SVG ring with 7 pipeline stages, energy particles, live step tracking |
+| `frontend/src/components/ResourceConstellation.tsx` | System Orbit — solar system viz with machines as planets, orbiting service glyphs that pulse on activity |
+| `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution |
+| `frontend/src/components/ActivityFeed.tsx` | Real-time event stream from backend activity bus (polls every 2s) |
+| `frontend/src/components/MemoryConstellation.tsx` | History browser — past trace selector with confidence/insight display |
+| `frontend/src/components/DiscoveryEvents.tsx` | Toast overlay for discovery events on orchestration completion |
+| `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs |
+| `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect (currently HTTP polling) |
+| `frontend/src/hooks/useOrchestrate.ts` | Orchestration hook — async POST returns trace_id, polls for incremental updates every 1.5s |
+| `frontend/src/hooks/useTraceReplay.ts` | Step-by-step animation hook for historical trace replay |
 | `frontend/src/types/trace.ts` | TypeScript types mirroring backend Pydantic models |
+| `backend/data/network.json` | Persistent network config (machines, remotes, endpoints) |
+| `DEVELOPMENT.md` | Quick-start guide for local dev |
+| `LVM-ROOT-EXPAND.md` | Instructions for expanding the root LVM volume |
+| `Innovation.md` | Ideas log for practical experiments with the local 3B model |
 | `~/.openclaw/openclaw.json` | OpenClaw configuration (models, channels, skills) |
 | `~/.config/systemd/user/openclaw-gateway.service` | Systemd user service for OpenClaw |
 | `/var/snap/prometheus/current/prometheus.yml` | Prometheus Snap config (currently broken) |
 
 ---
 
-*Generated 2026-05-29. Update this document when making architectural changes.*
+*Generated 2026-06-03. Update this document when making architectural changes.*
