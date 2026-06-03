@@ -154,23 +154,39 @@ export default function SolarNexus({
         {/* Outer orbital ring */}
         <circle cx={CX} cy={CY} r={RING_R} fill="none" stroke="oklch(58% 0.10 75 / 0.08)" strokeWidth="0.5" strokeDasharray="2 6" />
 
-        {/* Connection arcs between consecutive completed stages */}
+        {/* Connection arcs between consecutive completed / active stages */}
         {trace && ANGLES.map((_, i) => {
           if (i >= 6) return null;
           const status = stepStatus(i, activeTraceStep, phase);
           const nextStatus = stepStatus(i + 1, activeTraceStep, phase);
-          if (status !== "complete" || nextStatus === "pending") return null;
+          if (status === "pending" || nextStatus === "pending") return null;
           const a = pos(ANGLES[i], RING_R);
           const b = pos(ANGLES[i + 1], RING_R);
+          const isActiveArc = status === "active" || nextStatus === "active";
+          const arcColor = isActiveArc ? "rgba(251,191,36,0.4)" : "rgba(52,211,153,0.25)";
           return (
-            <motion.path
-              key={`arc-${i}`}
-              d={`M ${a.x} ${a.y} Q ${CX} ${CY} ${b.x} ${b.y}`}
-              fill="none" stroke="rgba(52,211,153,0.25)" strokeWidth="2.5"
-              initial={{ pathLength: 0, opacity: 0 }}
-              animate={{ pathLength: 1, opacity: 1 }}
-              transition={{ duration: 0.5, delay: i * 0.1 }}
-            />
+            <g key={`arc-${i}`}>
+              <motion.path
+                d={`M ${a.x} ${a.y} Q ${CX} ${CY} ${b.x} ${b.y}`}
+                fill="none" stroke={arcColor} strokeWidth={isActiveArc ? 3 : 2.5}
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ duration: 0.5, delay: i * 0.1 }}
+              />
+              {/* Energy particle travelling along active arc */}
+              {isActiveArc && mounted && (
+                <motion.circle
+                  r={3}
+                  fill="#fbbf24"
+                  initial={{ offsetDistance: "0%" }}
+                  animate={{ offsetDistance: "100%" }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                  style={{
+                    offsetPath: `path('M ${a.x} ${a.y} Q ${CX} ${CY} ${b.x} ${b.y}')`,
+                  }}
+                />
+              )}
+            </g>
           );
         })}
 
@@ -270,14 +286,23 @@ export default function SolarNexus({
             </text>
           )}
 
-          {/* Model-based state indicator */}
+          {/* Model-based state indicator / energy field */}
           {trace && phase !== "complete" && (
-            <motion.circle
-              cx={CX + 50} cy={CY - 30} r={3}
-              fill="#fbbf24"
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-            />
+            <>
+              {/* Pulsing energy field */}
+              <motion.circle
+                cx={CX} cy={CY} r={35}
+                fill="#fbbf24"
+                animate={{ r: [35, 50, 35], opacity: [0.04, 0.1, 0.04] }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <motion.circle
+                cx={CX + 50} cy={CY - 30} r={3}
+                fill="#fbbf24"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+              />
+            </>
           )}
         </g>
       </svg>

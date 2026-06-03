@@ -67,7 +67,11 @@ const SERVICE_GLYPHS: Record<string, { x: number; y: number; label: string; colo
   ],
 };
 
-export default function ResourceConstellation() {
+interface ConstellationProps {
+  active?: boolean;
+}
+
+export default function ResourceConstellation({ active }: ConstellationProps) {
   const CX = 500;
   const CY = 500;
   const [mounted, setMounted] = useState(false);
@@ -157,7 +161,16 @@ export default function ResourceConstellation() {
             {/* Services around sun */}
             {SERVICE_GLYPHS[sun.name]?.map((s, i) => (
               <g key={`sun-svc-${i}`}>
-                <circle cx={CX + s.x * 10} cy={CY + s.y * 10} r={8} fill={s.color} opacity="0.7" />
+                {active ? (
+                  <motion.circle
+                    cx={CX + s.x * 10} cy={CY + s.y * 10} r={8}
+                    fill={s.color}
+                    animate={{ opacity: [0.4, 1, 0.4], r: [8, 10, 8] }}
+                    transition={{ duration: 2, delay: i * 0.2, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                ) : (
+                  <circle cx={CX + s.x * 10} cy={CY + s.y * 10} r={8} fill={s.color} opacity="0.7" />
+                )}
                 <text x={CX + s.x * 10} y={CY + s.y * 10 - 16}
                   textAnchor="middle" fill="oklch(72% 0.11 75 / 0.5)" fontSize="22" fontFamily="monospace">
                   {s.label}
@@ -237,11 +250,21 @@ export default function ResourceConstellation() {
                 {/* Service glyphs around planet */}
                 {SERVICE_GLYPHS[machine.name]?.map((s, j) => (
                   <g key={j}>
-                    <circle
-                      cx={CX + orbitR + s.x * 3.3}
-                      cy={CY + s.y * 3.3}
-                      r={4} fill={s.color} opacity="0.7"
-                    />
+                    {active ? (
+                      <motion.circle
+                        cx={CX + orbitR + s.x * 3.3}
+                        cy={CY + s.y * 3.3}
+                        r={4} fill={s.color}
+                        animate={{ opacity: [0.4, 1, 0.4], r: [4, 6, 4] }}
+                        transition={{ duration: 2.5, delay: j * 0.3, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                    ) : (
+                      <circle
+                        cx={CX + orbitR + s.x * 3.3}
+                        cy={CY + s.y * 3.3}
+                        r={4} fill={s.color} opacity="0.7"
+                      />
+                    )}
                     <text
                       x={CX + orbitR + s.x * 3.3}
                       y={CY + s.y * 3.3 - 9}

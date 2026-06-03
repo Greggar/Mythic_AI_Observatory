@@ -4,6 +4,7 @@ import logging
 import platform
 import subprocess
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -224,11 +225,19 @@ async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
 class OrchestrateRequest(BaseModel):
     prompt: str
 
+_async_tasks: dict[str, asyncio.Task] = {}
+
 # ── Orchestration endpoints ───────────────────────────────────────
-@app.post("/api/orchestrate", response_model=TraceSession)
-async def api_orchestrate(req: OrchestrateRequest) -> TraceSession:
+@app.post("/api/orchestrate")
+async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
     logger.info("Orchestration request: %s", req.prompt[:80])
-    return await orchestrate(req.prompt)
+    session = TraceSession(id=uuid.uuid4().hex[:12], prompt=req.prompt)
+    from services.orchestrator import _store
+    _store[session.id] = session
+    task = asyncio.create_task(orchestrate(req.prompt, session.id))
+    _async_tasks[session.id] = task
+    task.add_done_callback(lambda _: _async_tasks.pop(session.id, None))
+    return {"trace_id": session.id, "status": "started"}
 
 
 @app.get("/api/traces", response_model=list[TraceSession])

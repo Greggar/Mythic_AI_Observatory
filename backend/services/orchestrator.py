@@ -222,9 +222,9 @@ def _compute_similarity(a: str, b: str) -> float:
     return round(len(intersection) / max(len(words_a | words_b), 1), 4)
 
 
-async def orchestrate(prompt: str) -> TraceSession:
-    trace_id = uuid.uuid4().hex[:12]
-    session = TraceSession(id=trace_id, prompt=prompt)
+async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
+    trace_id = trace_id or uuid.uuid4().hex[:12]
+    session = _store.get(trace_id) or TraceSession(id=trace_id, prompt=prompt)
     _store[trace_id] = session
 
     context: list[str] = []

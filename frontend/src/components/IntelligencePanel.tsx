@@ -328,6 +328,17 @@ export default function IntelligencePanel({
             <span className="text-xs font-mono text-zinc-400">{trace.model_used || "qwen3.5:9B"}</span>
           </div>
 
+          {/* Token estimate */}
+          {trace.output && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
+              <Sparkles size={14} className="text-purple-400" />
+              <span className="text-xs text-zinc-400 flex-1">Tokens</span>
+              <span className="text-xs font-mono text-zinc-400">
+                ~{Math.ceil(trace.output.length / 4)}
+              </span>
+            </div>
+          )}
+
           {/* Attribution — telemetry impact */}
           {trace.telemetry_impact && (
             <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">

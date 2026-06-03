@@ -24,17 +24,32 @@ export default function Home() {
   const { data: telemetry, connected } = useWebSocket();
   const { trace, loading, submit } = useOrchestrate();
   const { activeStepIndex, phase } = useTraceReplay(trace);
+  const [liveComplete, setLiveComplete] = useState(false);
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [replayTrace, setReplayTrace] = useState<typeof trace>(null);
   const [discoveryTrigger, setDiscoveryTrigger] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const traceActive = phase === "replaying" || phase === "complete";
+  // Track live polling completion
+  useEffect(() => {
+    if (trace && trace.status === "complete" && !loading) {
+      setLiveComplete(true);
+    }
+  }, [trace?.status, loading]);
+
+  const isLiveProcessing = loading && trace !== null;
+  const traceActive = phase === "replaying" || phase === "complete" || isLiveProcessing || liveComplete;
+
+  // Derive live step index from the trace itself when polling
+  const liveStepIndex = isLiveProcessing
+    ? trace!.steps.findLastIndex((s) => s.status !== "pending")
+    : null;
 
   // Emit audio events for orchestration lifecycle
   const handleSubmit = useCallback(async (prompt: string) => {
     emitAudioEvent("orchestration-start", { prompt });
     setDiscoveryTrigger(0);
+    setLiveComplete(false);
     await submit(prompt);
   }, [submit]);
 
@@ -56,13 +71,28 @@ export default function Home() {
     }
   }, []);
 
-  // Use replay trace if set, otherwise use live trace
-  const activeTrace = replayTrace || trace;
-  const { activeStepIndex: replayStep, phase: replayPhase } = useTraceReplay(activeTrace);
-  const activePhase = replayTrace ? replayPhase : phase;
-  const activeStep = replayTrace ? replayStep : activeStepIndex;
+  // Determine active display state
+  // During live processing: use liveStepIndex from the incremental trace
+  // After live completion: trigger replay on the completed trace
+  // For history replays: use the replay directly
+  const triggerReplay = (replayTrace || (liveComplete && trace?.status === "complete")) ? (replayTrace || trace) : null;
+  const { activeStepIndex: replayStep, phase: replayPhase } = useTraceReplay(triggerReplay);
+  const activePhase = replayTrace
+    ? replayPhase
+    : isLiveProcessing
+      ? "replaying"
+      : liveComplete
+        ? replayPhase
+        : phase;
+  const activeStep = replayTrace
+    ? replayStep
+    : isLiveProcessing
+      ? liveStepIndex
+      : (liveComplete ? replayStep : activeStepIndex);
 
-  const isIdle = activePhase === "idle";
+  const activeTrace = replayTrace || trace;
+
+  const isIdle = !activeTrace && !loading;
 
   return (
     <div className="flex flex-col flex-1 p-6 gap-6 max-w-7xl mx-auto w-full min-h-screen">
@@ -71,21 +101,37 @@ export default function Home() {
           <span className="mythic">MYTHIC</span>
           <span className="sub">AI OBSERVATORY</span>
         </div>
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="absolute right-0 text-zinc-600 hover:text-teal-mystic transition-colors p-2 rounded-full hover:bg-white/[0.04]"
-          title="Network settings"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
-        {replayTrace && (
-          <button
-            onClick={() => setReplayTrace(null)}
-            className="absolute right-10 text-[10px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors px-2 py-1 rounded-full border border-white/[0.06]"
-          >
-            Clear replay
-          </button>
+
+        {/* Session ID badge */}
+        {activeTrace && (
+          <div className="absolute left-0 flex items-center gap-2">
+            <span className="text-[9px] font-mono tracking-wider px-2 py-1 rounded-full
+              bg-teal-mystic/[0.08] text-teal-mystic border border-teal-mystic/[0.15]">
+              ORCH-{activeTrace.id}
+            </span>
+            {isLiveProcessing && (
+              <span className="text-[9px] font-mono text-solar-gold animate-pulse">● LIVE</span>
+            )}
+          </div>
         )}
+
+        <div className="absolute right-0 flex items-center gap-2">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="text-zinc-600 hover:text-teal-mystic transition-colors p-2 rounded-full hover:bg-white/[0.04]"
+            title="Network settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+          {replayTrace && (
+            <button
+              onClick={() => setReplayTrace(null)}
+              className="text-[10px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors px-2 py-1 rounded-full border border-white/[0.06]"
+            >
+              Clear replay
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Main layout — 3 columns */}
@@ -106,7 +152,7 @@ export default function Home() {
             observatoryMode={isIdle}
           />
 
-          <ResourceConstellation />
+          <ResourceConstellation active={isLiveProcessing} />
 
           <div className="flex flex-col gap-3">
             <PromptInput onSubmit={handleSubmit} loading={loading} />
