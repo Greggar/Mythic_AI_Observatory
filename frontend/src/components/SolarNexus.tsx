@@ -1,8 +1,10 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import { X } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
 import type { Telemetry } from "@/hooks/useWebSocket";
-import type { TraceSession } from "@/types/trace";
+import type { TraceSession, TraceStep } from "@/types/trace";
 
 interface Props {
   telemetry: Telemetry | null;
@@ -27,6 +29,26 @@ const STEP_LABELS = [
   "Response Generation",
   "Final Response",
 ];
+
+const AGENT_NAMES: Record<string, string> = {
+  "step-2": "Intent Classifier",
+  "step-3": "Agent Selector",
+  "step-4": "Memory Retriever",
+  "step-5": "Context Synthesizer",
+  "step-6": "Response Generator",
+};
+
+const SYSTEM_PROMPTS: Record<string, string | null> = {
+  "step-2": "You are an intent classifier. Respond with one short sentence classifying the user request.",
+  "step-5": "You are a synthesizer. In one sentence, note the key context for responding to this request.",
+  "step-6": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user.",
+};
+
+const CTX_WINDOW = 4096;
+
+function estimateTokens(text: string): number {
+  return Math.round(text.length / 4);
+}
 
 function pos(deg: number, r: number) {
   const rad = (deg * Math.PI) / 180;
@@ -59,6 +81,48 @@ const STATUS_COLORS = {
   complete: { stroke: "#34d399", fill: "rgba(52,211,153,0.06)", text: "#34d399", pulse: [0.3, 0.6] },
 };
 
+function TokenMeter({ text }: { text: string }) {
+  const tokens = estimateTokens(text);
+  const pct = Math.min((tokens / CTX_WINDOW) * 100, 100);
+  const color = pct > 85 ? "#ef4444" : pct > 60 ? "#fbbf24" : "#34d399";
+  return (
+    <div className="mt-3">
+      <div className="flex justify-between text-[10px] font-mono mb-1">
+        <span className="text-zinc-500">Token budget</span>
+        <span className="text-zinc-400">{tokens.toLocaleString()} / {CTX_WINDOW.toLocaleString()}</span>
+      </div>
+      <div className="h-1.5 bg-black/40 rounded-full overflow-hidden">
+        <motion.div
+          className="h-full rounded-full"
+          style={{ backgroundColor: color }}
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.min(pct, 100)}%` }}
+          transition={{ duration: 0.4, ease: "easeOut" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ContextPane({ step, systemPrompt }: { step: TraceStep; systemPrompt: string | null }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 text-xs font-mono">
+      <div className="bg-black/40 rounded-lg p-3 border border-white/[0.04]">
+        <div className="text-[10px] text-teal-mystic/60 uppercase tracking-wider mb-2">System Prompt</div>
+        <div className="text-zinc-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto scrollbar-thin">
+          {systemPrompt || "(no system prompt for this stage)"}
+        </div>
+      </div>
+      <div className="bg-black/40 rounded-lg p-3 border border-white/[0.04]">
+        <div className="text-[10px] text-teal-mystic/60 uppercase tracking-wider mb-2">Assembled Context</div>
+        <div className="text-zinc-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto scrollbar-thin">
+          {step.context_assembled || "(no context assembled)"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SolarNexus({
   telemetry,
   trace,
@@ -68,6 +132,8 @@ export default function SolarNexus({
 }: Props) {
   const [mounted, setMounted] = useState(false);
   const [timeOffset, setTimeOffset] = useState(0);
+  const [selectedStep, setSelectedStep] = useState<number | null>(null);
+
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
@@ -76,13 +142,16 @@ export default function SolarNexus({
     return () => clearInterval(interval);
   }, [mounted]);
 
+  const handleNodeClick = useCallback((i: number) => {
+    setSelectedStep((prev) => (prev === i ? null : i));
+  }, []);
+
   const totalDuration = trace?.steps.reduce((a, s) => a + (s.duration_ms || 0), 0) ?? 0;
   const conductorState = !telemetry?.cpu ? "offline"
     : telemetry.cpu.percent > 80 ? "busy"
     : telemetry.cpu.percent > 50 ? "processing"
     : "online";
 
-  // Build ring orbit angle with a slow steady drift
   const driftAngle = timeOffset;
 
   if (phase === "idle" && !trace && !traceActive) {
@@ -101,10 +170,8 @@ export default function SolarNexus({
         </div>
 
         <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="relative w-full max-w-[600px] h-auto" style={{ zIndex: 1 }}>
-          {/* Orbital ring */}
           <circle cx={CX} cy={CY} r={RING_R} fill="none" stroke="oklch(58% 0.10 75 / 0.08)" strokeWidth="0.5" strokeDasharray="2 6" />
 
-          {/* Drifting orbital dots */}
           {[0, 72, 144, 216, 288].map((base, i) => {
             const a = base + driftAngle;
             const p = pos(a, RING_R);
@@ -119,7 +186,6 @@ export default function SolarNexus({
             );
           })}
 
-          {/* Core */}
           <circle cx={CX} cy={CY} r={30} fill="oklch(14% 0.04 268)" stroke="oklch(58% 0.10 75 / 0.15)" strokeWidth="0.5" />
           <motion.circle
             cx={CX} cy={CY} r={12}
@@ -136,6 +202,9 @@ export default function SolarNexus({
     );
   }
 
+  const selectedTraceStep = selectedStep !== null ? trace?.steps[selectedStep] ?? null : null;
+  const selectedSystemPrompt = selectedStep !== null ? SYSTEM_PROMPTS[`step-${selectedStep + 1}`] ?? null : null;
+
   return (
     <div className="glass-panel p-5 flex flex-col items-center overflow-hidden">
       <div className="flex flex-col items-center gap-1.5 mb-3 z-10">
@@ -151,10 +220,8 @@ export default function SolarNexus({
       </div>
 
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="relative w-full max-w-[600px] h-auto" style={{ zIndex: 1 }}>
-        {/* Outer orbital ring */}
         <circle cx={CX} cy={CY} r={RING_R} fill="none" stroke="oklch(58% 0.10 75 / 0.08)" strokeWidth="0.5" strokeDasharray="2 6" />
 
-        {/* Connection arcs between consecutive completed / active stages */}
         {trace && ANGLES.map((_, i) => {
           if (i >= 6) return null;
           const status = stepStatus(i, activeTraceStep, phase);
@@ -173,7 +240,6 @@ export default function SolarNexus({
                 animate={{ pathLength: 1, opacity: 1 }}
                 transition={{ duration: 0.5, delay: i * 0.1 }}
               />
-              {/* Energy particle travelling along active arc */}
               {isActiveArc && mounted && (
                 <motion.circle
                   r={3}
@@ -190,7 +256,6 @@ export default function SolarNexus({
           );
         })}
 
-        {/* Pipeline stage nodes around the ring */}
         {ANGLES.map((angle, i) => {
           const p = pos(angle, RING_R);
           const status = stepStatus(i, activeTraceStep, phase);
@@ -201,49 +266,48 @@ export default function SolarNexus({
           const agent = step?.agent_used;
           const isActive = status === "active";
           const nodeR = isActive ? 18 : 14;
+          const isSelected = selectedStep === i;
 
           return (
             <g key={`stage-${i}`}>
-              {/* Node */}
-              <circle cx={p.x} cy={p.y} r={nodeR} fill={s.fill} stroke={s.stroke} strokeWidth={isActive ? 2 : 1} />
-              {/* Inner glow */}
+              <circle cx={p.x} cy={p.y} r={nodeR} fill={s.fill} stroke={isSelected ? "#2dd4bf" : s.stroke} strokeWidth={isSelected ? 2.5 : (isActive ? 2 : 1)} />
               <motion.circle
                 cx={p.x} cy={p.y} r={isActive ? 6 : 4}
                 fill={s.stroke}
                 animate={mounted ? { opacity: s.pulse } : {}}
                 transition={{ duration: isActive ? 1.5 : 3, repeat: Infinity, ease: "easeInOut" }}
               />
-              {/* Stage number */}
               <text x={p.x} y={p.y + 2} textAnchor="middle" fill={s.text}
                 fontSize="10" fontFamily="monospace" fontWeight="bold">
                 {i + 1}
               </text>
-              {/* Label below node */}
               <text x={p.x} y={p.y + nodeR + 14} textAnchor="middle" fill={s.text}
                 fontSize="10" fontFamily="monospace" letterSpacing="0.04em">
                 {label}
               </text>
-              {/* Agent name */}
               {agent && (
                 <text x={p.x} y={p.y + nodeR + 27} textAnchor="middle"
                   fill="oklch(52% 0.03 265 / 0.4)" fontSize="9" fontFamily="monospace">
                   {agent}
                 </text>
               )}
-              {/* Duration */}
               {duration !== null && status !== "pending" && (
                 <text x={p.x} y={p.y + nodeR + 38} textAnchor="middle"
                   fill="oklch(52% 0.03 265 / 0.35)" fontSize="8" fontFamily="monospace">
                   {formatTime(duration)}
                 </text>
               )}
+              <circle
+                cx={p.x} cy={p.y} r={nodeR + 6}
+                fill="transparent"
+                style={{ cursor: "pointer" }}
+                onClick={() => handleNodeClick(i)}
+              />
             </g>
           );
         })}
 
-        {/* Centre core — summary */}
         <g>
-          {/* Core ring */}
           <circle cx={CX} cy={CY} r={55} fill="oklch(14% 0.04 268)" stroke="oklch(58% 0.10 75 / 0.1)" strokeWidth="0.5" />
           <motion.circle
             cx={CX} cy={CY} r={55}
@@ -252,62 +316,111 @@ export default function SolarNexus({
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
           />
 
-          {/* Status */}
-          <text x={CX} y={CY - 20} textAnchor="middle"
-            fill="oklch(72% 0.11 75 / 0.6)" fontSize="7" fontFamily="monospace" letterSpacing="0.1em">
-            {phase === "complete" ? "COMPLETE" : "PROCESSING"}
-          </text>
-
-          {/* Model */}
-          {trace?.model_used && (
-            <text x={CX} y={CY - 6} textAnchor="middle"
-              fill="oklch(52% 0.03 265 / 0.5)" fontSize="6.5" fontFamily="monospace">
-              {trace.model_used}
-            </text>
-          )}
-
-          {/* Elapsed time */}
-          <text x={CX} y={CY + 10} textAnchor="middle"
-            fill="oklch(72% 0.11 75)" fontSize="16" fontFamily="monospace" fontWeight="bold">
-            {phase === "complete" ? formatTime(totalDuration) : "…"}
-          </text>
-
-          {/* Step count */}
-          <text x={CX} y={CY + 26} textAnchor="middle"
-            fill="oklch(52% 0.03 265 / 0.4)" fontSize="6.5" fontFamily="monospace">
-            {activeTraceStep !== null ? `${activeTraceStep + 1} / ${ANGLES.length} stages` : `${ANGLES.length} stages`}
-          </text>
-
-          {/* Confidence when complete */}
-          {phase === "complete" && trace?.confidence !== null && trace && (
-            <text x={CX} y={CY + 38} textAnchor="middle"
-              fill="oklch(72% 0.11 75 / 0.5)" fontSize="7" fontFamily="monospace">
-              Confidence {Math.round(trace.confidence * 100)}%
-            </text>
-          )}
-
-          {/* Model-based state indicator / energy field */}
-          {trace && phase !== "complete" && (
+          {selectedStep !== null ? (
             <>
-              {/* Pulsing energy field */}
-              <motion.circle
-                cx={CX} cy={CY} r={35}
-                fill="#fbbf24"
-                animate={{ r: [35, 50, 35], opacity: [0.04, 0.1, 0.04] }}
-                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              />
-              <motion.circle
-                cx={CX + 50} cy={CY - 30} r={3}
-                fill="#fbbf24"
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-              />
+              <text x={CX} y={CY - 20} textAnchor="middle"
+                fill="#2dd4bf" fontSize="8" fontFamily="monospace" letterSpacing="0.08em">
+                {STEP_LABELS[selectedStep]}
+              </text>
+              <text x={CX} y={CY - 6} textAnchor="middle"
+                fill="oklch(52% 0.03 265 / 0.5)" fontSize="6.5" fontFamily="monospace">
+                {AGENT_NAMES[`step-${selectedStep + 1}`] || ""}
+              </text>
+              <text x={CX} y={CY + 12} textAnchor="middle"
+                fill="oklch(72% 0.11 75 / 0.4)" fontSize="7" fontFamily="monospace">
+                Clicked — context below
+              </text>
+              <text
+                x={CX + 48} y={CY - 30}
+                fill="oklch(52% 0.03 265 / 0.3)"
+                fontSize="14" fontFamily="monospace"
+                style={{ cursor: "pointer" }}
+                onClick={() => setSelectedStep(null)}
+              >✕</text>
+            </>
+          ) : (
+            <>
+              <text x={CX} y={CY - 20} textAnchor="middle"
+                fill="oklch(72% 0.11 75 / 0.6)" fontSize="7" fontFamily="monospace" letterSpacing="0.1em">
+                {phase === "complete" ? "COMPLETE" : "PROCESSING"}
+              </text>
+              {trace?.model_used && (
+                <text x={CX} y={CY - 6} textAnchor="middle"
+                  fill="oklch(52% 0.03 265 / 0.5)" fontSize="6.5" fontFamily="monospace">
+                  {trace.model_used}
+                </text>
+              )}
+              <text x={CX} y={CY + 10} textAnchor="middle"
+                fill="oklch(72% 0.11 75)" fontSize="16" fontFamily="monospace" fontWeight="bold">
+                {phase === "complete" ? formatTime(totalDuration) : "…"}
+              </text>
+              <text x={CX} y={CY + 26} textAnchor="middle"
+                fill="oklch(52% 0.03 265 / 0.4)" fontSize="6.5" fontFamily="monospace">
+                {activeTraceStep !== null ? `${activeTraceStep + 1} / ${ANGLES.length} stages` : `${ANGLES.length} stages`}
+              </text>
+              {phase === "complete" && trace?.confidence !== null && trace && (
+                <text x={CX} y={CY + 38} textAnchor="middle"
+                  fill="oklch(72% 0.11 75 / 0.5)" fontSize="7" fontFamily="monospace">
+                  Confidence {Math.round(trace.confidence * 100)}%
+                </text>
+              )}
+              {trace && phase !== "complete" && (
+                <>
+                  <motion.circle
+                    cx={CX} cy={CY} r={35}
+                    fill="#fbbf24"
+                    animate={{ r: [35, 50, 35], opacity: [0.04, 0.1, 0.04] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                  <motion.circle
+                    cx={CX + 50} cy={CY - 30} r={3}
+                    fill="#fbbf24"
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                </>
+              )}
             </>
           )}
         </g>
       </svg>
+
+      <AnimatePresence>
+        {selectedTraceStep && (
+          <motion.div
+            className="w-full mt-4"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+          >
+            <div className="glass-panel !rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-teal-mystic uppercase tracking-wider">
+                    {selectedTraceStep.label}
+                  </span>
+                  {selectedTraceStep.agent_used && (
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                      {selectedTraceStep.agent_used}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setSelectedStep(null)}
+                  className="text-zinc-600 hover:text-zinc-400 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <ContextPane step={selectedTraceStep} systemPrompt={selectedSystemPrompt} />
+              {selectedTraceStep.context_assembled && (
+                <TokenMeter text={selectedTraceStep.context_assembled} />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-
-import { useEffect, useState } from "react";

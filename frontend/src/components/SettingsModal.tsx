@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Save, Server, Wifi, RefreshCw, Plus, Trash2 } from "lucide-react";
+import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2 } from "lucide-react";
 
 interface ServiceConfig {
   label: string;
@@ -37,7 +37,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [tab, setTab] = useState<"services" | "machines">("services");
+  const [tab, setTab] = useState<"services" | "machines" | "models">("services");
+  const [modelProvider, setModelProvider] = useState<string>("local");
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -52,12 +53,23 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   }, []);
 
+  const fetchModelProvider = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/config/model`);
+      const data = await res.json();
+      setModelProvider(data.provider || "local");
+    } catch {
+      // silently fail
+    }
+  }, []);
+
   useEffect(() => {
     if (open) {
       fetchConfig();
+      fetchModelProvider();
       setSaved(false);
     }
-  }, [open, fetchConfig]);
+  }, [open, fetchConfig, fetchModelProvider]);
 
   const updateService = (id: string, field: string, value: string | number | boolean) => {
     if (!config) return;
@@ -172,6 +184,17 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               >
                 <Server className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
                 Machines
+              </button>
+              <button
+                onClick={() => setTab("models")}
+                className={`px-4 py-1.5 text-sm rounded-full transition-colors ${
+                  tab === "models"
+                    ? "bg-teal-mystic/20 text-teal-mystic border border-teal-mystic/30"
+                    : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+                }`}
+              >
+                <Cpu className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
+                Models
               </button>
             </div>
 
@@ -288,6 +311,90 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                     <Plus className="w-4 h-4" />
                     Add Machine
                   </button>
+                </div>
+              )}
+
+              {!loading && tab === "models" && (
+                <div className="space-y-4">
+                  <div className="glass-panel !rounded-xl p-4">
+                    <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-3">
+                      Inference Provider
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mb-4">
+                      Choose where model inference runs. Changes take effect on the next orchestration.
+                    </p>
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        modelProvider === "local"
+                          ? "border-teal-mystic/40 bg-teal-mystic/5"
+                          : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
+                      }`}>
+                        <input
+                          type="radio"
+                          name="provider"
+                          value="local"
+                          checked={modelProvider === "local"}
+                          onChange={() => setModelProvider("local")}
+                          className="accent-teal-mystic"
+                        />
+                        <div>
+                          <div className="text-sm text-zinc-200 font-medium">Local (CPU)</div>
+                          <div className="text-[10px] text-zinc-500">qwen2.5:3b on Gingerlong — slow but self-contained</div>
+                        </div>
+                      </label>
+                      <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        modelProvider === "backoffice"
+                          ? "border-teal-mystic/40 bg-teal-mystic/5"
+                          : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
+                      }`}>
+                        <input
+                          type="radio"
+                          name="provider"
+                          value="backoffice"
+                          checked={modelProvider === "backoffice"}
+                          onChange={() => setModelProvider("backoffice")}
+                          className="accent-teal-mystic"
+                        />
+                        <div>
+                          <div className="text-sm text-zinc-200 font-medium">BackOffice (GPU)</div>
+                          <div className="text-[10px] text-zinc-500">qwen3.5:9B on BackOffice PC — fast, requires LAN connection</div>
+                        </div>
+                      </label>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setSaving(true);
+                        try {
+                          const res = await fetch(`${API_BASE}/api/config/model`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ provider: modelProvider }),
+                          });
+                          if (res.ok) {
+                            setSaved(true);
+                            setTimeout(() => setSaved(false), 2000);
+                          }
+                        } catch {
+                          // silently fail
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                      disabled={saving}
+                      className="mt-4 px-4 py-1.5 text-sm bg-teal-mystic/20 text-teal-mystic border border-teal-mystic/30 rounded-lg hover:bg-teal-mystic/30 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {saving ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : saved ? (
+                        <span className="text-jade-glow">Saved!</span>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          Switch Provider
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

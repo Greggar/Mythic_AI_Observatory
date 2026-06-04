@@ -157,6 +157,8 @@ Visit `http://localhost:3001` on the server and verify with the user:
 - [ ] **Activity feed populates** — Events appear during orchestration
 - [ ] **Memory Retrieval** traces appear in the constellation view
 - [ ] **Network Settings** — Open the settings modal, edit a service host, save, verify telemetry reflects the change
+- [ ] **Model Switcher** — Settings → Models tab, switch from local → backoffice → local, verify model changes
+- [ ] **Context pane** — Click a model-calling step node in SolarNexus, confirm the split-pane shows system prompt + assembled context + token meter
 - [ ] **Build passes** — `pnpm build` exits 0 with no warnings
 
 Only after ALL checks pass, proceed to production deploy.
@@ -246,3 +248,36 @@ NEXT_PUBLIC_API_URL=http://192.168.0.237:8001
 |---|---|---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8001` | `http://192.168.0.237:8001` | Server LAN IP | `useWebSocket.ts`, `useOrchestrate.ts`, `page.tsx` |
 | `CONDUCTOR_HOST` | `127.0.0.1` | `127.0.0.1` | `0.0.0.0` | `backend/main.py` |
+| `ORCHESTRATOR_MODEL` | `local` | `local` | `local` | `orchestrator.py` — model provider default |
+
+## 7. Model Provider API
+
+Switch between local and backoffice LLM inference at runtime without restarting the backend:
+
+```bash
+# Check current provider
+curl http://localhost:8001/api/config/model
+
+# Switch to backoffice
+curl -X POST http://localhost:8001/api/config/model \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "backoffice"}'
+
+# Switch back to local
+curl -X POST http://localhost:8001/api/config/model \
+  -H "Content-Type: application/json" \
+  -d '{"provider": "local"}'
+```
+
+The frontend SettingsModal exposes this via the "Models" tab. No restart needed — the next LLM call picks up the new provider.
+
+## 8. Context Assembly Breakdown
+
+Each trace step that calls a model stores `context_assembled` — the exact concatenated text sent to the inference endpoint. This is visible by clicking a node in the SolarNexus visualization during or after a trace.
+
+The split-pane shows:
+- **Left pane:** The stage's system prompt
+- **Right pane:** The assembled context (accumulated previous outputs + current user prompt)
+- **Token meter:** Estimated token count (`Math.round(text.length / 4)`) versus the model's context window (4096 for local 3B)
+
+This makes the opaque LLM call transparent and debuggable.

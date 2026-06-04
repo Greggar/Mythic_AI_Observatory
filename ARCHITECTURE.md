@@ -73,9 +73,13 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 ### Trace Models: `backend/models/trace.py`
 
 ```python
-TraceStep     — id, label, status, timestamp, duration_ms, metadata
-TraceSession  — id, prompt, status, steps[], output, created_at, completed_at
+TraceStep     — id, label, status, timestamp, duration_ms, metadata, context_assembled
+TraceSession  — id, prompt, status, steps[], output, created_at, completed_at, model_used
 ```
+
+**`context_assembled`** — a new field added for transparency. At each model-calling stage (steps 2, 5, 6), the concatenated context (`"\n".join(context + [prompt])`) is stored on the step so the frontend can display exactly what was sent to the model. Non-model stages store `"[non-model stage — no context assembly]"`.
+
+**`model_used`** on the session records which model name wound up being called (e.g. `qwen2.5:3b` or `qwen3.5:9B`).
 
 Using Pydantic `BaseModel` with sensible defaults (auto-timestamps, empty metadata).
 
@@ -121,7 +125,7 @@ async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
 
 ### 3.5 Model Provider Selection
 
-Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`):
+Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and also **hot-swappable at runtime** via `set_model_provider("local"|"backoffice")`.
 
 | Value | Base URL | Model | Suitable for |
 |---|---|---|---|
@@ -129,6 +133,13 @@ Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`):
 | `backoffice` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen3.5:9B` | GPU inference on BackOffice (high quality, fast) |
 
 When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the 3B model's context window. When `backoffice`, the context limit is handled by the remote server.
+
+**Runtime hot-swap** — implemented as a mutable module-level global `_MODEL_PROVIDER` with `get_model_provider()` / `set_model_provider()` accessors. Two REST endpoints expose this:
+
+- `GET /api/config/model` — returns `{"provider": "local"|"backoffice"}`
+- `POST /api/config/model` — accepts `{"provider": "local"|"backoffice"}`, switches on the fly, returns 400 on invalid value
+
+No restart or reload needed — the next `_call_model()` invocation reads the current provider. This lets the frontend SettingsModal switch models without a server restart.
 
 ---
 
@@ -138,13 +149,15 @@ When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the
 
 ```
 layout.tsx          — Root layout, Geist fonts, dark background
-  page.tsx          — Three-column dashboard + trace timeline
+  page.tsx          — Three-column dashboard + trace timeline, SettingsModal
 
-  ├── SystemVitals       — CPU/GPU/Memory gauges with animated bars
-  ├── SolarNexus         — Animated SVG pentagram orchestration viz
-  ├── DecisionPathways   — Quick-status cards (Ollama count, remotes, gateway)
+  ├── SystemVitalsPanel  — Machine health cards with drill-down overlay
+  ├── SolarNexus         — Animated SVG orchestration viz + ContextPane
+  │   └── ContextPane    — Split-pane: system prompt / assembled context, TokenMeter
+  ├── ResourceConstellation — Solar system viz with machine planets
 
   ├── PromptInput        — Textarea + submit button with Cmd+Enter
+  ├── SettingsModal      — Network config + Models tab (provider hot-swap)
   ├── ObservatoryPanel   — Animated container (reveals on trace)
   │   └── TraceTimeline  — Step-by-step timeline with status markers
   │       └── TimelineStep — Individual step row (icon, label, duration)
@@ -552,6 +565,38 @@ const conductorState = !telemetry?.cpu ? "offline"
 
 **Lesson:** When deriving state from an API response object, always guard against partially-populated data — not just the top-level null/undefined check. A response object can exist without all its nested fields being populated, especially during the first polling cycle. Use optional chaining (`?.`) on every nested access path where the shape is not guaranteed.
 
+### 6.13 Undefined Variable Crashes Orchestration Silently
+
+**Symptom:** Submitting a prompt via the dashboard returned immediately with `trace_id`, but the trace never progressed past "Intent Classification" (step 2). The frontend polled `/api/traces/{id}` every 1.5s but step 2 remained stuck at "processing" indefinitely. No error appeared in the backend logs beyond the initial POST.
+
+**Root cause:** A typo in `orchestrator.py:_call_model()` at line 74:
+
+```python
+# Before (broken — MODEL_PROVIDER is undefined):
+if MODEL_PROVIDER == "local":
+    payload["options"] = {"num_ctx": 4096}
+```
+
+The module-level variable is `_MODEL_PROVIDER` (with underscore prefix). The bare `MODEL_PROVIDER` raised a `NameError` *outside* the `try/except` block in `_call_model()`, causing the entire `asyncio.create_task(orchestrate(...))` to crash silently. The trace in `_store` was left with step 2 in "processing" status — the exception handler in `orchestrate()` never ran because the error occurred at the callee level.
+
+**Why it was silent:**
+- `asyncio.create_task` wraps the coroutine in a Task; unhandled exceptions in the task are logged as `Task exception was never retrieved` but do **not** propagate to any caller.
+- The `POST /api/orchestrate` handler had already returned `{"trace_id": "..."}` before the task started, so the HTTP response was fine.
+- No middleware or global exception handler caught background task failures.
+
+**Fix:** Changed `MODEL_PROVIDER` to `_MODEL_PROVIDER` on line 74:
+
+```python
+# After (correct):
+if _MODEL_PROVIDER == "local":
+    payload["options"] = {"num_ctx": 4096}
+```
+
+**Lesson:**
+- A `NameError` for a misspelled global looks obvious in review but is invisible at runtime when it happens inside `asyncio.create_task`. Always write a small smoke test that exercises the full model-call path before declaring a feature done.
+- When using `asyncio.create_task`, attach a done callback that checks `task.exception()` or wrap the task body in a try/except that logs any crash. Without this, background task failures are indistinguishable from a slow model call.
+- Python's `_MODEL_PROVIDER` vs `MODEL_PROVIDER` underscore convention is easy to get wrong when writing defensive conditions inside long functions. Consider using a typed configuration object with IDE support instead of a bare module-level `str`.
+
 ---
 
 
@@ -604,6 +649,12 @@ const conductorState = !telemetry?.cpu ? "offline"
 
 16. **Guard nested fields in API responses, not just the top-level object.** A response can be truthy while its nested fields are still undefined — e.g. `telemetry` exists but `telemetry.cpu` hasn't populated yet. Always use optional chaining (`?.`) on every access path where the shape isn't guaranteed between mount and first data arrival.
 
+17. **Expose assembled context on each trace step for transparency.** Storing `context_assembled` on model-calling steps lets the UI show exactly what the model received — system prompt + accumulated context + user prompt — in a split-pane view. This turns the black-box LLM call into an inspectable artifact, which helps debugging prompt construction and context-window overflow. The token budget meter (`Math.round(text.length / 4)` vs context window) gives a visual indicator of headroom at a glance.
+
+18. **Runtime-mutable globals enable hot-swapping without restart.** Using a module-level `_MODEL_PROVIDER` with accessor functions (`get/set_model_provider`) lets the operator switch between local and backoffice models via the SettingsModal without restarting uvicorn. The pattern works because the model resolution happens at call time (`_resolve_model_url()`) rather than at import time. The trade-off is thread safety — the global is not behind a lock, but for a single-async-thread FastAPI app this is not a concern.
+
+19. **Background `asyncio.create_task` failures are silent by default.** A `NameError` inside a background task produces no log output or HTTP error — just a `Task exception was never retrieved` warning that's easy to miss. Always either: (a) attach a done callback that logs `task.exception()`, (b) wrap the entire task body in try/except with explicit logging, or (c) add a smoke test that runs the orchestration end-to-end before merging.
+
 ---
 
 ## 8. Future Considerations
@@ -616,6 +667,9 @@ const conductorState = !telemetry?.cpu ? "offline"
 ### Done ✓
 
 - **[Backend] Streaming orchestration.** Implemented via async background task + polling pattern. POST returns trace_id immediately, frontend polls `/api/traces/{id}` every 1.5s. Activity events stream live during processing. (2026-06-03)
+- **[Backend + Frontend] Context Assembly Breakdown.** Each trace step now stores `context_assembled` — the exact text sent to the model. The frontend `SolarNexus` shows a split-pane (system prompt / assembled context) on node click, with a token budget meter. (2026-06-04)
+- **[Backend + Frontend] Model Provider Hot-Swap.** `GET/POST /api/config/model` endpoints added. `SettingsModal` has a "Models" tab with radio buttons for local/backoffice. No restart required. (2026-06-04)
+- **[Backend] Fix `MODEL_PROVIDER` → `_MODEL_PROVIDER` typo.** The missing underscore caused a silent `NameError` that froze traces at Intent Classification indefinitely. (2026-06-04)
 
 ### Medium Priority
 
@@ -714,7 +768,8 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/components/TimelineStep.tsx` | Single step row with status icon, duration |
 | `frontend/src/components/ObservatoryPanel.tsx` | Animated container for trace output |
 | `frontend/src/components/SystemVitals.tsx` | CPU/Memory/GPU gauge bars |
-| `frontend/src/components/SolarNexus.tsx` | Agent Nexus — animated SVG ring with 7 pipeline stages, energy particles, live step tracking |
+| `frontend/src/components/SolarNexus.tsx` | Agent Nexus — animated SVG ring with 7 pipeline stages, energy particles, live step tracking; clickable nodes show ContextPane (split-pane prompt/context) + TokenMeter |
+| `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs + Models tab for runtime provider hot-swap |
 | `frontend/src/components/ResourceConstellation.tsx` | System Orbit — solar system viz with machines as planets, orbiting service glyphs that pulse on activity |
 | `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution |
 | `frontend/src/components/ActivityFeed.tsx` | Real-time event stream from backend activity bus (polls every 2s) |
@@ -724,7 +779,7 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect (currently HTTP polling) |
 | `frontend/src/hooks/useOrchestrate.ts` | Orchestration hook — async POST returns trace_id, polls for incremental updates every 1.5s |
 | `frontend/src/hooks/useTraceReplay.ts` | Step-by-step animation hook for historical trace replay |
-| `frontend/src/types/trace.ts` | TypeScript types mirroring backend Pydantic models |
+| `frontend/src/types/trace.ts` | TypeScript types mirroring backend Pydantic models — includes `context_assembled` on TraceStep |
 | `backend/data/network.json` | Persistent network config (machines, remotes, endpoints) |
 | `DEVELOPMENT.md` | Quick-start guide for local dev |
 | `LVM-ROOT-EXPAND.md` | Instructions for expanding the root LVM volume |
@@ -735,4 +790,4 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 
 ---
 
-*Generated 2026-06-03. Update this document when making architectural changes.*
+*Generated 2026-06-04. Update this document when making architectural changes.*

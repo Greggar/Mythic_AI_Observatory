@@ -17,6 +17,7 @@ class TraceStep(BaseModel):
     mem_before: float | None = None
     cpu_after: float | None = None
     mem_after: float | None = None
+    context_assembled: str | None = None
 
 
 class TelemetryImpact(BaseModel):

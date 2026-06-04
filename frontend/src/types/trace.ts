@@ -11,6 +11,7 @@ export interface TraceStep {
   mem_before: number | null;
   cpu_after: number | null;
   mem_after: number | null;
+  context_assembled: string | null;
 }
 
 export interface TelemetryImpact {

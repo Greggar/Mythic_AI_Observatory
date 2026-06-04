@@ -16,7 +16,19 @@ from models.trace import TraceSession, TraceStep, TelemetryImpact
 from services import config_manager
 
 # Set to "local" to use Gingerlong's CPU, "backoffice" for GPU worker
-MODEL_PROVIDER = os.environ.get("ORCHESTRATOR_MODEL", "local").lower()
+# Use set_model_provider() to change at runtime
+_MODEL_PROVIDER: str = os.environ.get("ORCHESTRATOR_MODEL", "local").lower()
+
+def get_model_provider() -> str:
+    return _MODEL_PROVIDER
+
+def set_model_provider(value: str) -> None:
+    global _MODEL_PROVIDER
+    value = value.lower()
+    if value not in ("local", "backoffice"):
+        raise ValueError(f"Invalid model provider: {value!r}. Must be 'local' or 'backoffice'.")
+    _MODEL_PROVIDER = value
+    logger.info("Model provider switched to: %s", value)
 
 LLM_TIMEOUT = 180.0  # longer timeout for CPU-bound local inference
 
@@ -41,7 +53,7 @@ LOCAL_MODEL = "qwen2.5:3b"
 
 
 def _resolve_model_url(model_key: str) -> tuple[str, str]:
-    if MODEL_PROVIDER == "local":
+    if _MODEL_PROVIDER == "local":
         base_url = config_manager.get_ollama_url()
         model_name = LOCAL_MODEL
     else:
@@ -59,7 +71,7 @@ async def _call_model(model: str, prompt: str, system: str | None = None) -> str
         "stream": False,
     }
 
-    if MODEL_PROVIDER == "local":
+    if _MODEL_PROVIDER == "local":
         payload["options"] = {"num_ctx": 4096}
 
     if system:
@@ -233,7 +245,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
 
     emit_event("session_start", "Orchestration started", trace_id, prompt[:80])
     _, resolved_model = _resolve_model_url("backoffice")
-    if MODEL_PROVIDER == "local":
+    if _MODEL_PROVIDER == "local":
         resolved_model = LOCAL_MODEL
     session.model_used = resolved_model
 
@@ -264,11 +276,13 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
 
         if model:
             combined = "\n".join(context + [prompt])
+            step.context_assembled = combined
             output = await _call_model(model, combined, system)
             context.append(f"[{label}]: {output}")
             step.metadata["output"] = output[:200]
             emit_event("inference", f"Inference: {label}", trace_id, resolved_model)
         else:
+            step.context_assembled = f"[non-model stage — no context assembly]"
             await asyncio.sleep(0.05)
 
         elapsed_ms = int((asyncio.get_event_loop().time() - start) * 1000)
@@ -280,6 +294,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
         session.steps[i].duration_ms = elapsed_ms
         session.steps[i].cpu_after = cpu_after
         session.steps[i].mem_after = mem_after
+        session.steps[i].context_assembled = step.context_assembled
 
         emit_event("stage_complete", f"{label} completed", trace_id, f"{elapsed_ms}ms")
 

@@ -17,7 +17,7 @@ from prometheus_client import Gauge, generate_latest, REGISTRY
 from pydantic import BaseModel
 
 from models.trace import TraceSession
-from services.orchestrator import orchestrate, get_trace, list_traces, get_activity_events
+from services.orchestrator import orchestrate, get_trace, list_traces, get_activity_events, get_model_provider, set_model_provider
 from services.vitals import collect_vitals
 from services import config_manager
 
@@ -220,6 +220,23 @@ class NetworkConfigBody(BaseModel):
 @app.put("/api/network-config")
 async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
     return config_manager.save(body.config)
+
+class ModelConfigBody(BaseModel):
+    provider: str  # "local" or "backoffice"
+
+# ── Model config ──────────────────────────────────────────────────
+@app.get("/api/config/model")
+async def get_model_config() -> dict[str, str]:
+    return {"provider": get_model_provider()}
+
+@app.post("/api/config/model")
+async def post_model_config(body: ModelConfigBody) -> dict[str, str]:
+    try:
+        set_model_provider(body.provider)
+        return {"provider": get_model_provider(), "status": "ok"}
+    except ValueError as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"error": str(e)})
 
 # ── Orchestration models ──────────────────────────────────────────
 class OrchestrateRequest(BaseModel):
