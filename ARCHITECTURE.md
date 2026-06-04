@@ -655,6 +655,10 @@ if _MODEL_PROVIDER == "local":
 
 19. **Background `asyncio.create_task` failures are silent by default.** A `NameError` inside a background task produces no log output or HTTP error — just a `Task exception was never retrieved` warning that's easy to miss. Always either: (a) attach a done callback that logs `task.exception()`, (b) wrap the entire task body in try/except with explicit logging, or (c) add a smoke test that runs the orchestration end-to-end before merging.
 
+20. **TypeScript strict mode infers `Set<unknown>` from `Array.filter()` on `any[]`.** When chaining `.filter()` and `.map()` on the result of `fetch().json()` (typed `any`), the intermediate array is `any[]`, and `filter()` returns `unknown[]`. Explicitly type the parameter: `new Set<string>((data as HistoryEntry[]).filter(...).map(...))`. The error message (`Set<unknown>` not assignable to `Set<string>`) points to a misleading line — always check the call chain. (2026-06-04)
+
+21. **`refreshTrigger` must be wired to actually fire.** The `historyRefresh` state was declared in `page.tsx` and passed to `MemoryConstellation` as `refreshTrigger`, but nothing ever incremented it. Until a `useEffect` watched for trace completion and called `setHistoryRefresh(n => n + 1)`, the constellation never re-fetched after a new trace finished. (2026-06-04)
+
 ---
 
 ## 8. Future Considerations
@@ -670,6 +674,7 @@ if _MODEL_PROVIDER == "local":
 - **[Backend + Frontend] Context Assembly Breakdown.** Each trace step now stores `context_assembled` — the exact text sent to the model. The frontend `SolarNexus` shows a split-pane (system prompt / assembled context) on node click, with a token budget meter. (2026-06-04)
 - **[Backend + Frontend] Model Provider Hot-Swap.** `GET/POST /api/config/model` endpoints added. `SettingsModal` has a "Models" tab with radio buttons for local/backoffice. No restart required. (2026-06-04)
 - **[Backend] Fix `MODEL_PROVIDER` → `_MODEL_PROVIDER` typo.** The missing underscore caused a silent `NameError` that froze traces at Intent Classification indefinitely. (2026-06-04)
+- **[Frontend] New-trace glow burst on MemoryConstellation.** When a new trace completes, `page.tsx` increments `historyRefresh`, triggering a re-fetch. The constellation detects which entries are new (by diffing IDs against the previous fetch) and animates them with an amber expanding ring (5s) + three quick amber pulses on the core dot. Colour is `#f59e0b` (solar gold) — complementary to the teal galaxy palette. (2026-06-04)
 
 ### Medium Priority
 
@@ -762,7 +767,7 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/package.json` | Dependencies and scripts (`dev` on port 3001) |
 | `frontend/src/app/globals.css` | Tailwind v4 theme with custom colours + glassmorphism |
 | `frontend/src/app/layout.tsx` | Root layout with Geist fonts |
-| `frontend/src/app/page.tsx` | Main dashboard: vitals + nexus + system orbit + prompt + timeline + session ID display |
+| `frontend/src/app/page.tsx` | Main dashboard: vitals + nexus + system orbit + prompt + timeline + session ID display; increments `historyRefresh` on trace completion to trigger MemoryConstellation re-fetch |
 | `frontend/src/components/PromptInput.tsx` | Textarea with submit, Cmd+Enter, loading state |
 | `frontend/src/components/TraceTimeline.tsx` | Full timeline: steps + resolution output |
 | `frontend/src/components/TimelineStep.tsx` | Single step row with status icon, duration |
@@ -773,7 +778,7 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/components/ResourceConstellation.tsx` | System Orbit — solar system viz with machines as planets, orbiting service glyphs that pulse on activity |
 | `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution |
 | `frontend/src/components/ActivityFeed.tsx` | Real-time event stream from backend activity bus (polls every 2s) |
-| `frontend/src/components/MemoryConstellation.tsx` | History browser — past trace selector with confidence/insight display |
+| `frontend/src/components/MemoryConstellation.tsx` | History browser — spiral galaxy SVG: past traces as orbiting dots clustered semantically along a spiral arm with orbital drift, connection filaments, theme labels outside rotation; new traces get an amber expanding glow burst (5s) + flashing core; click any dot to replay that trace in the timeline |
 | `frontend/src/components/DiscoveryEvents.tsx` | Toast overlay for discovery events on orchestration completion |
 | `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs |
 | `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect (currently HTTP polling) |

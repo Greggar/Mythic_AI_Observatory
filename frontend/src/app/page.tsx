@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Settings } from "lucide-react";
 import SystemVitalsPanel from "@/components/SystemVitalsPanel";
 import SettingsModal from "@/components/SettingsModal";
@@ -29,6 +29,14 @@ export default function Home() {
   const [replayTrace, setReplayTrace] = useState<typeof trace>(null);
   const [discoveryTrigger, setDiscoveryTrigger] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to timeline when a history trace is selected
+  useEffect(() => {
+    if (replayTrace && timelineRef.current) {
+      timelineRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [replayTrace]);
 
   // Track live polling completion
   useEffect(() => {
@@ -36,6 +44,13 @@ export default function Home() {
       setLiveComplete(true);
     }
   }, [trace?.status, loading]);
+
+  // Refresh memory constellation when a new trace completes
+  useEffect(() => {
+    if (trace && trace.status === "complete") {
+      setHistoryRefresh((n) => n + 1);
+    }
+  }, [trace?.status]);
 
   const isLiveProcessing = loading && trace !== null;
   const traceActive = phase === "replaying" || phase === "complete" || isLiveProcessing || liveComplete;
@@ -189,7 +204,7 @@ export default function Home() {
 
       {/* Orchestration trace output */}
       {activeTrace && (
-        <div className="max-w-3xl mx-auto w-full">
+        <div ref={timelineRef} className="max-w-3xl mx-auto w-full">
           <ObservatoryPanel active={!!activeTrace}>
             <TraceTimeline trace={activeTrace} />
           </ObservatoryPanel>

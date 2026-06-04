@@ -322,6 +322,9 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
 def get_trace(trace_id: str) -> TraceSession | None:
     if trace_id in _store:
         return _store[trace_id]
+    for session in load_history(limit=500):
+        if session.id == trace_id:
+            return session
     return None
 
 
