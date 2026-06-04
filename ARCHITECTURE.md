@@ -530,7 +530,31 @@ d={`M ${x1.toFixed(4)} ${y1.toFixed(4)} Q ${CX.toFixed(4)}
 
 **Lesson:** Any SVG `d` attribute built from floating-point arithmetic (`Math.cos`, `Math.sin`, `Math.random`, division) is at risk of hydration mismatch. Always round to a fixed precision (4–6 decimals) when embedding computed coordinates in JSX.
 
+### 6.12 Telemetry.cpu Undefined Before First Poll
+
+**Symptom:** Browser console error — `Cannot read properties of undefined (reading 'percent')` at `SolarNexus.tsx:81`.
+
+**Root cause:** The `conductorState` derivation checked `!telemetry` (the whole object) but not `telemetry.cpu`. During the brief window between page mount and the first successful telemetry poll (1.5s), `telemetry` was an empty/partial object — the backend hadn't returned CPU data yet. The guard `!telemetry ? "offline"` passed because the object was truthy, then `telemetry.cpu.percent` crashed because `cpu` was undefined.
+
+```typescript
+// Before (crashes if telemetry exists but cpu hasn't populated):
+const conductorState = !telemetry ? "offline"
+    : telemetry.cpu.percent > 80 ? "busy"
+    : ...
+
+// After (safe — checks for cpu sub-object):
+const conductorState = !telemetry?.cpu ? "offline"
+    : telemetry.cpu.percent > 80 ? "busy"
+    : ...
+```
+
+**Fix:** Replaced `!telemetry` with `!telemetry?.cpu` using optional chaining. If `cpu` is undefined, the expression short-circuits to `"offline"` without accessing `.percent`.
+
+**Lesson:** When deriving state from an API response object, always guard against partially-populated data — not just the top-level null/undefined check. A response object can exist without all its nested fields being populated, especially during the first polling cycle. Use optional chaining (`?.`) on every nested access path where the shape is not guaranteed.
+
 ---
+
+
 
 
 
@@ -577,6 +601,8 @@ d={`M ${x1.toFixed(4)} ${y1.toFixed(4)} Q ${CX.toFixed(4)}
 14. **Environment vars must be set in the same command as the process.** `env VAR=value uvicorn ...` or hardcoded defaults are reliable. `export` in a separate shell invocation is not inherited by background processes.
 
 15. **Small CPU-bound models are viable for orchestration.** The qwen2.5:3b on an i7-6700 takes ~40s per inference call (77s total trace), which is slow but acceptable for an observatory demo where the pacing makes the process visible. The ActivityFeed streaming live events during processing compensates for the wait time.
+
+16. **Guard nested fields in API responses, not just the top-level object.** A response can be truthy while its nested fields are still undefined — e.g. `telemetry` exists but `telemetry.cpu` hasn't populated yet. Always use optional chaining (`?.`) on every access path where the shape isn't guaranteed between mount and first data arrival.
 
 ---
 

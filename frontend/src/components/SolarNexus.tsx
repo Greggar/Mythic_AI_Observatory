@@ -77,7 +77,7 @@ export default function SolarNexus({
   }, [mounted]);
 
   const totalDuration = trace?.steps.reduce((a, s) => a + (s.duration_ms || 0), 0) ?? 0;
-  const conductorState = !telemetry ? "offline"
+  const conductorState = !telemetry?.cpu ? "offline"
     : telemetry.cpu.percent > 80 ? "busy"
     : telemetry.cpu.percent > 50 ? "processing"
     : "online";
