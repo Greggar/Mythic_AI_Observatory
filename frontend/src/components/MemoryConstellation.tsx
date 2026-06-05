@@ -183,6 +183,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
   const [noteText, setNoteText] = useState("");
   const [noteTags, setNoteTags] = useState("");
   const [noteRating, setNoteRating] = useState<number>(0);
+  const [searchQuery, setSearchQuery] = useState("");
   useEffect(() => setMounted(true), []);
 
   const fetchAnnotations = useCallback(async (traceId: string) => {
@@ -244,7 +245,11 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
     return () => { cancelled = true; };
   }, [refreshTrigger]);
 
-  const clusters = useMemo(() => clusterEntries(entries), [entries]);
+  const filteredEntries = useMemo(
+    () => searchQuery ? entries.filter((e) => e.prompt.toLowerCase().includes(searchQuery.toLowerCase())) : entries,
+    [entries, searchQuery]
+  );
+  const clusters = useMemo(() => clusterEntries(filteredEntries), [filteredEntries]);
   const galaxy = useMemo(() => layoutGalaxy(clusters), [clusters]);
 
   const handleDelete = async (traceId: string) => {
@@ -324,6 +329,30 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
             />
           )}
         </div>
+      </div>
+
+      {/* Search filter */}
+      <div className="relative">
+        <svg className="absolute left-2 top-1/2 -translate-y-1/2" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <circle cx="11" cy="11" r="8" />
+          <path d="M21 21l-4.35-4.35" />
+        </svg>
+        <input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Filter traces..."
+          className="w-full bg-white/[0.04] border border-white/[0.08] rounded text-[10px] pl-7 pr-2 py-1.5 text-zinc-400 placeholder-zinc-600 focus:outline-none focus:border-teal-mystic/30"
+        />
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-600 hover:text-zinc-400"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <div
