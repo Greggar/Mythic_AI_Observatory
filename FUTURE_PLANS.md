@@ -12,32 +12,33 @@ Legend: ★☆☆ = quick win, ★★☆ = moderate effort, ★★★ = signific
 | 2 | **Search/filter input** — filter constellation by keyword match against prompt text | List 1 | ★☆☆ | 20 min |
 | 3 | **Click to highlight a spiral arm** — when clicking a galaxy arm, dim all other arms | List 1 | ★☆☆ | 15 min |
 | 4 | **Token Velocity Graph** — line chart tracking generation speed (tok/s) in IntelligencePanel | List 1 | ★★☆ | 1 h |
-| 5 | **Real-time Log Tailing** — dark terminal streaming FastAPI + OpenClaw logs | List 1 | ★★☆ | 1.5 h |
+| 5 | **Delete trace on constellation** — right-click or context action on a dot to delete the trace and its persisted data; essential for clearing test data | List 1 | ★☆☆ | 30 min |
+| 6 | **Real-time Log Tailing** — dark terminal streaming FastAPI + OpenClaw logs | List 1 | ★★☆ | 1.5 h |
 
 ## Phase 2 — Moderate (★★☆)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 6 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
-| 7 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
-| 8 | **Engine Status Panel** — clicking a remote machine reveals active Docker containers, memory footprints, live packet-rate chart | List 1 | ★★☆ | 1.5 h |
-| 9 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
+| 7 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
+| 8 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
+| 9 | **Engine Status Panel** — clicking a remote machine reveals active Docker containers, memory footprints, live packet-rate chart | List 1 | ★★☆ | 1.5 h |
+| 10 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
 
 ## Phase 3 — Deep Work (★★★)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 10 | **3D Galaxy (Four-Arm Spiral)** — full Three.js 4-arm logarithmic spiral galaxy with OrbitControls, auto-rotation, dense constellation clusters per arm, zoom-dependent label fading | List 2 | ★★★ | 6–8 h |
-| 11 | **Single Galaxy with 4 Coloured Arms** — Natural Sciences (blue), Social Sciences (teal), Arts (purple/magenta), Applied Sciences (orange/gold). Core = Universal Knowledge. Particles distributed by log-spiral formula. | List 2 | ★★★ | 4–6 h |
-| 12 | **OrbitControls + Zoom-to-Cluster** — smooth camera zoom into an arm to reveal sub-domain constellation clusters with fade labels | List 2 | ★★★ | 4–5 h |
-| 13 | **"Thought Stream" Full-Screen Terminal** — clicking the Intelligence panel expands to a full-screen live log viewer with both backend logs and token-velocity chart overlaid | List 1 | ★★★ | 3–4 h |
+| 11 | **3D Galaxy (Four-Arm Spiral)** — full Three.js 4-arm logarithmic spiral galaxy with OrbitControls, auto-rotation, dense constellation clusters per arm, zoom-dependent label fading | List 2 | ★★★ | 6–8 h |
+| 12 | **Single Galaxy with 4 Coloured Arms** — Natural Sciences (blue), Social Sciences (teal), Arts (purple/magenta), Applied Sciences (orange/gold). Core = Universal Knowledge. Particles distributed by log-spiral formula. | List 2 | ★★★ | 4–6 h |
+| 13 | **OrbitControls + Zoom-to-Cluster** — smooth camera zoom into an arm to reveal sub-domain constellation clusters with fade labels | List 2 | ★★★ | 4–5 h |
+| 14 | **"Thought Stream" Full-Screen Terminal** — clicking the Intelligence panel expands to a full-screen live log viewer with both backend logs and token-velocity chart overlaid | List 1 | ★★★ | 3–4 h |
 
 ## Phase 4 — Polish & Transition Aesthetic (★★☆)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 14 | **Smooth modal transitions** — modals don't pop; SVG geometric lines slide apart and reassemble to frame new data windows | List 1 | ★★☆ | 2 h |
-| 15 | **Cluster density along arms** — within each arm, denser particle groups to represent sub-domain constellations (Physics cluster, Biology cluster, etc.) | List 2 | ★★☆ | 2 h |
+| 15 | **Smooth modal transitions** — modals don't pop; SVG geometric lines slide apart and reassemble to frame new data windows | List 1 | ★★☆ | 2 h |
+| 16 | **Cluster density along arms** — within each arm, denser particle groups to represent sub-domain constellations (Physics cluster, Biology cluster, etc.) | List 2 | ★★☆ | 2 h |
 
 ---
 
@@ -51,11 +52,12 @@ Legend: ★☆☆ = quick win, ★★☆ = moderate effort, ★★★ = signific
 5. Real-time Log Tailing — dual backend terminal stream
 6. Token Velocity Graph — tok/s chart with confidence score
 7. Smooth modal transitions — geometric line slide-apart animation
-8. Floating hover tooltip — glass card on dot hover
+8. Floating hover tooltip — glass card on dot hover ✓ *(implemented 2026-06-05)*
 9. Click-to-highlight arm — dim inactive arms
 10. Search filter input — keyword match on prompts
 11. New-trace glow burst ✓ *(implemented 2026-06-04)*
-12. Core glow refinement
+12. Delete trace from constellation — right-click or context action to clean up test data
+13. Core glow refinement
 
 ### From "Visual & Interaction Galaxy" (List 2)
 1. Four-arm logarithmic spiral — 4 TLDs of knowledge as arms
