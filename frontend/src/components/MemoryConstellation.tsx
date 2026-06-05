@@ -18,6 +18,16 @@ interface HistoryEntry {
   steps: { duration_ms: number | null }[];
 }
 
+interface Annotation {
+  id: string;
+  trace_id: string;
+  content: string;
+  tags: string[];
+  rating: number | null;
+  author: string;
+  created_at: string;
+}
+
 interface Props {
   onSelect: (traceId: string) => void;
   refreshTrigger: number;
@@ -168,7 +178,24 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
   const [highlightedCluster, setHighlightedCluster] = useState<number | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [annotations, setAnnotations] = useState<Map<string, Annotation[]>>(new Map());
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const [noteTags, setNoteTags] = useState("");
+  const [noteRating, setNoteRating] = useState<number>(0);
   useEffect(() => setMounted(true), []);
+
+  const fetchAnnotations = useCallback(async (traceId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/traces/${traceId}/annotations`);
+      const data: Annotation[] = await res.json();
+      setAnnotations((prev) => {
+        const next = new Map(prev);
+        next.set(traceId, data);
+        return next;
+      });
+    } catch {}
+  }, []);
 
   const clearHover = useCallback(() => {
     hoverTimeout.current = setTimeout(() => setHovered(null), 120);
@@ -236,6 +263,46 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [hovered]);
+
+  const handleDotClick = (dotEntry: HistoryEntry) => {
+    setNewIds((prev) => { const c = new Set(prev); c.delete(dotEntry.id); return c; });
+    setSelectedTraceId(dotEntry.id);
+    onSelect(dotEntry.id);
+    fetchAnnotations(dotEntry.id);
+  };
+
+  const handleAddAnnotation = async () => {
+    if (!selectedTraceId || !noteText.trim()) return;
+    const tags = noteTags.split(",").map((t) => t.trim()).filter(Boolean);
+    try {
+      const res = await fetch(`${API_BASE}/api/traces/${selectedTraceId}/annotations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: noteText.trim(),
+          tags,
+          rating: noteRating || null,
+          author: "human",
+        }),
+      });
+      if (res.ok) {
+        setNoteText("");
+        setNoteTags("");
+        setNoteRating(0);
+        fetchAnnotations(selectedTraceId);
+      }
+    } catch {}
+  };
+
+  const handleDeleteAnnotation = async (annotationId: string) => {
+    if (!selectedTraceId) return;
+    try {
+      await fetch(`${API_BASE}/api/traces/${selectedTraceId}/annotations/${annotationId}`, { method: "DELETE" });
+      fetchAnnotations(selectedTraceId);
+    } catch {}
+  };
+
+  const getAnnotations = (traceId: string) => annotations.get(traceId) || [];
 
   return (
     <div className="glass-panel p-4 space-y-3">
@@ -321,13 +388,11 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                   cl.dots.map((dot, ei) => {
                     const isNew = newIds.has(dot.entry.id);
                     const dim = highlightedCluster !== null && highlightedCluster !== ci;
+                    const dotAnnotations = getAnnotations(dot.entry.id);
                     return (
                       <motion.g
                         key={dot.entry.id}
-                        onClick={() => {
-                          setNewIds((prev) => { const c = new Set(prev); c.delete(dot.entry.id); return c; });
-                          onSelect(dot.entry.id);
-                        }}
+                        onClick={() => handleDotClick(dot.entry)}
                         style={{ cursor: "pointer" }}
                         initial={{ opacity: 0, scale: 0 }}
                         animate={mounted ? { opacity: dim ? 0.15 : 1, scale: 1 } : {}}
@@ -335,10 +400,9 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                         whileHover={{ scale: dim ? 1 : 1.8 }}
                         onMouseEnter={(e) => {
                           keepHover();
-                          const rect = (e.currentTarget.closest("svg") as SVGElement)!.getBoundingClientRect();
-                          const svgRect = containerRef.current?.getBoundingClientRect();
-                          if (svgRect) {
-                            setHovered({ entry: dot.entry, x: e.clientX - svgRect.left, y: e.clientY - svgRect.top });
+                          const rect = containerRef.current?.getBoundingClientRect();
+                          if (rect) {
+                            setHovered({ entry: dot.entry, x: e.clientX - rect.left, y: e.clientY - rect.top });
                           }
                         }}
                         onMouseLeave={clearHover}
@@ -403,19 +467,20 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
         </svg>
 
           {hovered && (() => {
-            const tipW = 180;
             const gap = 8;
             const cx = containerRef.current;
             const cw = cx?.clientWidth ?? W;
             const ch = cx?.clientHeight ?? H;
-            let left = hovered.x + gap;
-            let top = hovered.y - 10;
-            if (left + tipW > cw - 4) left = hovered.x - tipW - gap;
-            if (top < 0) top = 10;
+            const midX = cw / 2;
+            const onRight = hovered.x > midX;
+            const left = onRight ? hovered.x - 180 - gap : hovered.x + gap;
+            const onBottom = hovered.y > ch / 2;
+            const top = onBottom ? hovered.y - 10 : hovered.y + 10;
+            const dotAnnotations = getAnnotations(hovered.entry.id);
             return (
               <div
                 className="absolute z-10"
-                style={{ left, top, transform: "translateY(-100%)" }}
+                style={{ left, top, transform: onBottom ? "translateY(-100%)" : "none" }}
                 onMouseEnter={keepHover}
                 onMouseLeave={clearHover}
               >
@@ -439,12 +504,94 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                     {hovered.entry.steps.length > 0 && (
                       <span>· {Math.round(hovered.entry.steps.reduce((s, st) => s + (st.duration_ms || 0), 0) / 1000)}s</span>
                     )}
+                    {dotAnnotations.length > 0 && (
+                      <span>· {dotAnnotations.length} note{dotAnnotations.length > 1 ? "s" : ""}</span>
+                    )}
                   </div>
                 </div>
               </div>
             );
           })()}
       </div>
+
+      {/* Annotations section */}
+      {selectedTraceId && (
+        <div className="border-t border-teal-mystic/10 pt-2 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono tracking-wider text-teal-mystic/50 uppercase">
+              Notes
+            </span>
+            {annotations.get(selectedTraceId)?.length ? (
+              <span className="text-[9px] text-zinc-500">
+                {annotations.get(selectedTraceId)!.length}
+              </span>
+            ) : null}
+          </div>
+
+          {/* Existing annotations */}
+          {annotations.get(selectedTraceId)?.map((ann) => (
+            <div key={ann.id} className="bg-white/[0.03] rounded px-2 py-1.5 relative group">
+              <p className="text-[10px] leading-tight text-zinc-300 pr-4">{ann.content}</p>
+              <div className="flex items-center gap-2 mt-1">
+                {ann.tags.map((tag) => (
+                  <span key={tag} className="text-[8px] px-1 py-0.5 rounded bg-teal-mystic/10 text-teal-mystic/60">{tag}</span>
+                ))}
+                {ann.rating && (
+                  <span className="text-[9px] text-solar-gold/60">{ann.rating}/5</span>
+                )}
+                <span className="text-[8px] text-zinc-600">{ann.author}</span>
+              </div>
+              <button
+                onClick={() => handleDeleteAnnotation(ann.id)}
+                className="absolute top-1 right-1 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="Delete note"
+              >
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+
+          {/* Add annotation form */}
+          <div className="space-y-1.5">
+            <textarea
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              placeholder="Note about this trace..."
+              rows={2}
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-300 placeholder-zinc-600 resize-none focus:outline-none focus:border-teal-mystic/30"
+            />
+            <div className="flex items-center gap-2">
+              <input
+                value={noteTags}
+                onChange={(e) => setNoteTags(e.target.value)}
+                placeholder="tags (comma-separated)"
+                className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded text-[9px] px-2 py-1 text-zinc-400 placeholder-zinc-600 focus:outline-none focus:border-teal-mystic/30"
+              />
+              <select
+                value={noteRating}
+                onChange={(e) => setNoteRating(Number(e.target.value))}
+                className="bg-white/[0.04] border border-white/[0.08] rounded text-[9px] px-1 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30"
+              >
+                <option value={0}>☆</option>
+                <option value={1}>★</option>
+                <option value={2}>★★</option>
+                <option value={3}>★★★</option>
+                <option value={4}>★★★★</option>
+                <option value={5}>★★★★★</option>
+              </select>
+              <button
+                onClick={handleAddAnnotation}
+                disabled={!noteText.trim()}
+                className="text-[9px] px-2 py-1 rounded bg-teal-mystic/10 text-teal-mystic/70 hover:bg-teal-mystic/20 disabled:opacity-30 transition-colors"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

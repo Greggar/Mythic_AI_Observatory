@@ -59,8 +59,9 @@ Legend: ★☆☆ = quick win, ★★☆ = moderate effort, ★★★ = signific
 9. Click-to-highlight arm — dim inactive arms
 10. Search filter input — keyword match on prompts
 11. New-trace glow burst ✓ *(implemented 2026-06-04)*
-12. Delete trace from constellation — right-click or context action to clean up test data
+12. Delete trace from constellation — hover trash icon or press Delete key ✓ *(implemented 2026-06-05)*
 13. Core glow refinement
+14. **Trace Annotations & Collaborative Memory** ✓ *(implemented 2026-06-05)*
 
 ### From "Visual & Interaction Galaxy" (List 2)
 1. Four-arm logarithmic spiral — 4 TLDs of knowledge as arms

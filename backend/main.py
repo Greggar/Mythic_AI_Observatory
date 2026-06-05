@@ -17,7 +17,9 @@ from prometheus_client import Gauge, generate_latest, REGISTRY
 from pydantic import BaseModel
 
 from models.trace import TraceSession
+from models.annotation import Annotation
 from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, get_activity_events, get_model_provider, set_model_provider
+from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
 
@@ -270,6 +272,36 @@ async def api_get_trace(trace_id: str) -> TraceSession | None:
 @app.delete("/api/traces/{trace_id}")
 async def api_delete_trace(trace_id: str) -> dict:
     ok = delete_trace(trace_id)
+    return {"deleted": ok}
+
+
+# ── Annotations ───────────────────────────────────────────────────
+@app.get("/api/traces/{trace_id}/annotations", response_model=list[Annotation])
+async def api_get_annotations(trace_id: str) -> list[Annotation]:
+    return annotation_service.get_annotations(trace_id)
+
+
+class CreateAnnotationBody(BaseModel):
+    content: str
+    tags: list[str] = []
+    rating: int | None = None
+    author: str = "human"
+
+
+@app.post("/api/traces/{trace_id}/annotations", response_model=Annotation)
+async def api_create_annotation(trace_id: str, body: CreateAnnotationBody) -> Annotation:
+    return annotation_service.create_annotation(
+        trace_id=trace_id,
+        content=body.content,
+        tags=body.tags,
+        rating=body.rating,
+        author=body.author,
+    )
+
+
+@app.delete("/api/traces/{trace_id}/annotations/{annotation_id}")
+async def api_delete_annotation(trace_id: str, annotation_id: str) -> dict:
+    ok = annotation_service.delete_annotation(annotation_id)
     return {"deleted": ok}
 
 

@@ -675,6 +675,7 @@ if _MODEL_PROVIDER == "local":
 - **[Backend + Frontend] Model Provider Hot-Swap.** `GET/POST /api/config/model` endpoints added. `SettingsModal` has a "Models" tab with radio buttons for local/backoffice. No restart required. (2026-06-04)
 - **[Backend] Fix `MODEL_PROVIDER` → `_MODEL_PROVIDER` typo.** The missing underscore caused a silent `NameError` that froze traces at Intent Classification indefinitely. (2026-06-04)
 - **[Frontend] New-trace glow burst on MemoryConstellation.** When a new trace completes, `page.tsx` increments `historyRefresh`, triggering a re-fetch. The constellation detects which entries are new (by diffing IDs against the previous fetch) and animates them with an amber expanding ring (5s) + three quick amber pulses on the core dot. Colour is `#f59e0b` (solar gold) — complementary to the teal galaxy palette. (2026-06-04)
+- **[Backend + Frontend] Trace Annotations & Collaborative Memory.** Users can add notes, tags, and ratings to any trace via the MemoryConstellation panel. Persisted server-side in `annotations.jsonl`. Annotation count shown in hover tooltip. Full CRUD supported. (2026-06-05)
 
 ### Medium Priority
 
@@ -762,7 +763,9 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 |---|---|---|
 | `backend/main.py` | FastAPI app, telemetry loop, WebSocket, REST endpoints; async orchestration with background tasks |
 | `backend/models/trace.py` | Pydantic models for trace steps and sessions |
+| `backend/models/annotation.py` | Pydantic model for Annotation (content, tags, rating, author) |
 | `backend/services/orchestrator.py` | 7-stage orchestration pipeline with activity event bus, async background task support |
+| `backend/services/annotation_service.py` | Annotation CRUD with jsonl persistence (annotations.jsonl) |
 | `backend/services/config_manager.py` | Network config persistence (machines.json) for dynamic endpoint resolution |
 | `frontend/package.json` | Dependencies and scripts (`dev` on port 3001) |
 | `frontend/src/app/globals.css` | Tailwind v4 theme with custom colours + glassmorphism |
