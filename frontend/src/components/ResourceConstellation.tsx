@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
@@ -67,6 +67,20 @@ const SERVICE_GLYPHS: Record<string, { x: number; y: number; label: string; colo
   ],
 };
 
+const SERVICE_INFO: Record<string, { name: string; desc: string }> = {
+  Conductor: { name: "Conductor", desc: "FastAPI backend — orchestrates 7-stage AI pipeline, manages telemetry, serves REST API" },
+  API: { name: "API", desc: "REST API endpoints for frontend communication, trace management, and config" },
+  Ollama: { name: "Ollama", desc: "Local LLM inference server — runs qwen2.5:3b for CPU-bound orchestration calls" },
+  OC: { name: "OpenClaw Gateway", desc: "Agent gateway — connects to Telegram, manages multi-model routing; amber = degraded or disconnected channel" },
+  UI: { name: "Solar Interface", desc: "Next.js frontend — glassmorphic dashboard served on port 3001" },
+  FastAPI: { name: "FastAPI", desc: "ASGI web framework powering the Conductor backend" },
+  Hermes: { name: "Hermes Agent", desc: "AI agent on BackOffice — handles prompt processing and tool calls" },
+  ComfyUI: { name: "ComfyUI", desc: "Image generation interface running on BackOffice" },
+  "qwen3.5": { name: "Qwen 3.5", desc: "Local LLM model (3B params) running on BackOffice for inference offload" },
+  Batch: { name: "Batch Processor", desc: "Background batch job runner on LoungeRoom" },
+  Train: { name: "Train Worker", desc: "Model fine-tuning / training worker on LoungeRoom" },
+};
+
 interface ConstellationProps {
   active?: boolean;
 }
@@ -76,6 +90,25 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
   const CY = 500;
   const [mounted, setMounted] = useState(false);
   const [data, setData] = useState<VitalsData | null>(null);
+  const [hovered, setHovered] = useState<{ label: string; x: number; y: number; target?: string } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const clearHover = useCallback(() => {
+    hoverTimeout.current = setTimeout(() => setHovered(null), 150);
+  }, []);
+
+  const keepHover = useCallback(() => {
+    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+  }, []);
+
+  const handleMouseEnter = useCallback((e: React.MouseEvent, label: string, target?: string) => {
+    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setHovered({ label, x: e.clientX - rect.left, y: e.clientY - rect.top, target });
+    }
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -111,7 +144,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
   const ORBIT_SPEEDS = [55, -40, 65];
 
   return (
-    <div className="glass-panel p-5 flex flex-col items-center gap-3">
+    <div className="glass-panel p-5 flex flex-col items-center gap-3" ref={containerRef}>
       <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
         <Activity size={16} />
         <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
@@ -160,7 +193,11 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
             </text>
             {/* Services around sun */}
             {SERVICE_GLYPHS[sun.name]?.map((s, i) => (
-              <g key={`sun-svc-${i}`}>
+              <g key={`sun-svc-${i}`}
+                onMouseEnter={(e) => handleMouseEnter(e, s.label, sun.name)}
+                onMouseLeave={clearHover}
+                style={{ cursor: "pointer" }}
+              >
                 {active ? (
                   <motion.circle
                     cx={CX + s.x * 10} cy={CY + s.y * 10} r={8}
@@ -205,7 +242,11 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
               animate={mounted ? { rotate: i * (360 / planets.length) + 360 } : { rotate: i * (360 / planets.length) }}
               transition={{ duration: Math.abs(speed), repeat: Infinity, ease: "linear", delay: 0 }}
             >
-              <g>
+              <g
+                onMouseEnter={(e) => handleMouseEnter(e, machine.name)}
+                onMouseLeave={clearHover}
+                style={{ cursor: "pointer" }}
+              >
                 {/* Active workload halo */}
                 {isActive && (
                   <motion.circle
@@ -249,7 +290,11 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                 </text>
                 {/* Service glyphs around planet */}
                 {SERVICE_GLYPHS[machine.name]?.map((s, j) => (
-                  <g key={j}>
+                  <g key={j}
+                    onMouseEnter={(e) => handleMouseEnter(e, s.label, machine.name)}
+                    onMouseLeave={clearHover}
+                    style={{ cursor: "pointer" }}
+                  >
                     {active ? (
                       <motion.circle
                         cx={CX + orbitR + s.x * 3.3}
@@ -288,6 +333,39 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
           </radialGradient>
         </defs>
       </svg>
+
+      {/* Tooltip */}
+      {hovered && (() => {
+        const info = SERVICE_INFO[hovered.label];
+        const gap = 10;
+        const cw = containerRef.current?.clientWidth ?? 500;
+        const midX = cw / 2;
+        const onRight = hovered.x > midX;
+        const left = onRight ? hovered.x - 220 - gap : hovered.x + gap;
+        const ch = containerRef.current?.clientHeight ?? 400;
+        const onBottom = hovered.y > ch / 2;
+        const top = onBottom ? hovered.y - 10 : hovered.y + 10;
+        return (
+          <div
+            className="absolute z-10"
+            style={{ left, top, transform: onBottom ? "translateY(-100%)" : "none" }}
+            onMouseEnter={keepHover}
+            onMouseLeave={clearHover}
+          >
+            <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-3 py-2 shadow-lg max-w-[220px]">
+              <p className="text-[11px] font-semibold text-teal-mystic/90">
+                {info?.name || hovered.label}
+              </p>
+              {info?.desc && (
+                <p className="text-[9px] leading-tight text-zinc-400 mt-0.5">{info.desc}</p>
+              )}
+              {hovered.target && hovered.label !== hovered.target && (
+                <p className="text-[8px] text-zinc-600 mt-1">on {hovered.target}</p>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Legend footer */}
       <div className="flex items-center gap-4 text-[10px] font-mono text-zinc-500">
