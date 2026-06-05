@@ -15,15 +15,16 @@ Legend: ★☆☆ = quick win, ★★☆ = moderate effort, ★★★ = signific
 | 5 | **Delete trace on constellation** — right-click, hover trash icon, or press Delete key ✓ *(2026-06-05)* | List 1 | ★☆☆ | 30 min |
 | 6 | **Expand Memory panel on interaction** — when hovering a dot or browsing, the panel smoothly enlarges (e.g. slides over neighbours or enters a full-viewport overlay) so the galaxy and tooltip have room to breathe | List 1 | ★★☆ | 1 h |
 | 7 | **Real-time Log Tailing** — dark terminal streaming FastAPI + OpenClaw logs | List 1 | ★★☆ | 1.5 h |
+| 8 | **LAN-distributed architecture research** — investigate best practices for running the observatory over a small network with multiple AI nodes: service discovery (mDNS/ZeroConf vs static config), secure inter-node communication (mTLS vs Tailscale vs WireGuard), agent-to-agent transport protocols, heartbeat/failure detection, and coordinated trace routing across machines | — | ★★☆ | research + implement |
 
 ## Phase 2 — Moderate (★★☆)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 8 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
-| 9 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
-| 10 | **Engine Status Panel** — clicking a remote machine reveals active Docker containers, memory footprints, live packet-rate chart | List 1 | ★★☆ | 1.5 h |
-| 11 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
+| 9 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
+| 10 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
+| 11 | **Engine Status Panel** — clicking a remote machine reveals active Docker containers, memory footprints, live packet-rate chart | List 1 | ★★☆ | 1.5 h |
+| 12 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
 
 ## Phase 3 — Deep Work (★★★)
 
