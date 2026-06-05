@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const W = 280;
@@ -166,7 +166,17 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
   const prevCount = useRef(0);
   const [hovered, setHovered] = useState<{ entry: HistoryEntry; x: number; y: number } | null>(null);
   const [highlightedCluster, setHighlightedCluster] = useState<number | null>(null);
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const containerRef = useRef<HTMLDivElement>(null);
   useEffect(() => setMounted(true), []);
+
+  const clearHover = useCallback(() => {
+    hoverTimeout.current = setTimeout(() => setHovered(null), 120);
+  }, []);
+
+  const keepHover = useCallback(() => {
+    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+  }, []);
 
   const fetchEntries = useRef(() => {});
   fetchEntries.current = () => {
@@ -216,6 +226,17 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
     setEntries((prev) => prev.filter((e) => e.id !== traceId));
   };
 
+  // Delete key removes hovered trace
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key === "Delete" || e.key === "Backspace") && hovered) {
+        handleDelete(hovered.entry.id);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hovered]);
+
   return (
     <div className="glass-panel p-4 space-y-3">
       <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
@@ -239,6 +260,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
       </div>
 
       <div
+        ref={containerRef}
         className="relative overflow-hidden rounded-lg"
         style={{ background: "linear-gradient(180deg, #041824 0%, #0a2d38 50%, #06303d 100%)" }}
       >
@@ -312,14 +334,14 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                         transition={{ duration: 0.4 }}
                         whileHover={{ scale: dim ? 1 : 1.8 }}
                         onMouseEnter={(e) => {
+                          keepHover();
                           const rect = (e.currentTarget.closest("svg") as SVGElement)!.getBoundingClientRect();
-                          setHovered({ entry: dot.entry, x: e.clientX - rect.left, y: e.clientY - rect.top });
+                          const svgRect = containerRef.current?.getBoundingClientRect();
+                          if (svgRect) {
+                            setHovered({ entry: dot.entry, x: e.clientX - svgRect.left, y: e.clientY - svgRect.top });
+                          }
                         }}
-                        onMouseMove={(e) => {
-                          const rect = (e.currentTarget.closest("svg") as SVGElement)!.getBoundingClientRect();
-                          setHovered((h) => h ? { ...h, x: e.clientX - rect.left, y: e.clientY - rect.top } : null);
-                        }}
-                        onMouseLeave={() => setHovered(null)}
+                        onMouseLeave={clearHover}
                       >
                         {isNew && (
                           <motion.circle
@@ -380,39 +402,48 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
           <circle cx={CX} cy={CY} r={2} fill="rgba(45,212,191,0.15)" />
         </svg>
 
-          {hovered && (
-            <div
-              className="absolute z-10"
-              style={{
-                left: hovered.x + 12,
-                top: hovered.y - 10,
-                transform: "translateY(-100%)",
-              }}
-            >
-              <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-2.5 py-1.5 shadow-lg max-w-[180px]">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-[10px] leading-tight text-teal-mystic/90 line-clamp-2 flex-1">
-                    {hovered.entry.prompt}
-                  </p>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDelete(hovered.entry.id); }}
-                    className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 -mr-0.5 -mt-0.5"
-                    title="Delete trace"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="flex items-center gap-2 mt-1 text-[9px] text-zinc-400">
-                  <span>{new Date(hovered.entry.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-                  {hovered.entry.steps.length > 0 && (
-                    <span>· {Math.round(hovered.entry.steps.reduce((s, st) => s + (st.duration_ms || 0), 0) / 1000)}s</span>
-                  )}
+          {hovered && (() => {
+            const tipW = 180;
+            const gap = 8;
+            const cx = containerRef.current;
+            const cw = cx?.clientWidth ?? W;
+            const ch = cx?.clientHeight ?? H;
+            let left = hovered.x + gap;
+            let top = hovered.y - 10;
+            if (left + tipW > cw - 4) left = hovered.x - tipW - gap;
+            if (top < 0) top = 10;
+            return (
+              <div
+                className="absolute z-10"
+                style={{ left, top, transform: "translateY(-100%)" }}
+                onMouseEnter={keepHover}
+                onMouseLeave={clearHover}
+              >
+                <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-2.5 py-1.5 shadow-lg max-w-[180px]">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[10px] leading-tight text-teal-mystic/90 line-clamp-2 flex-1">
+                      {hovered.entry.prompt}
+                    </p>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(hovered.entry.id); }}
+                      className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 -mr-0.5 -mt-0.5"
+                      title="Delete trace"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 text-[9px] text-zinc-400">
+                    <span>{new Date(hovered.entry.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                    {hovered.entry.steps.length > 0 && (
+                      <span>· {Math.round(hovered.entry.steps.reduce((s, st) => s + (st.duration_ms || 0), 0) / 1000)}s</span>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
       </div>
     </div>
   );
