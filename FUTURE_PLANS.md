@@ -4,6 +4,20 @@ Legend: ★☆☆ = quick win, ★★☆ = moderate effort, ★★★ = signific
 
 ---
 
+## North Star Vision
+
+This Observatory should be the place a user (human or AI agent) goes to *understand* what is happening in their AI ecosystem — both broadly and at single-trace granularity. That means:
+
+- **Health at a glance** — are the systems healthy? Which services are running, overloaded, or offline?
+- **Function transparency** — what is each AI actually doing? How does a task flow from prompt to output?
+- **Decision interpretability** — *why* did the model do what it did? Which intent was chosen? Which context was used or discarded? What tokens drove the decision?
+- **Causal debugging** — when an output is bad, trace back through each stage to find the root cause.
+- **Comparative insight** — how do different models behave on the same prompt? What are their characteristic patterns (latency, token efficiency, failure modes)?
+
+We are a long way toward health + function transparency. The items below extend into decision transparency, causal debugging, and comparative insight.
+
+---
+
 ## Phase 1 — Quick Wins (★★☆ or less)
 
 | # | Idea | List | Effort | Est. Time |
@@ -22,31 +36,37 @@ Legend: ★☆☆ = quick win, ★★☆ = moderate effort, ★★★ = signific
 | 12 | **Runtime Metrics auto-refresh** — poll traces every few seconds to keep throughput/latency/bar chart live | — | ★☆☆ | 15 min |
 | 13 | **Service health timeline** — mini sparkline in the Issues tooltip showing ok/err/off proportions over the last N telemetry polls | — | ★☆☆ | 30 min |
 | 14 | **Stage descriptions & Assembled Context Viewer** — descriptive tooltips for each orchestration stage explaining what it does ✓ *(2026-06-05)* | — | ★☆☆ | 30 min |
+| 15 | **Intent classification probabilities** — show top-3 intent labels and their confidence scores in IntelligencePanel stage 2, so the user sees not just *what* was classified but *how sure* the model was | — | ★☆☆ | 30 min |
+| 16 | **Used vs discarded chunks indicator** — in Context Synthesis step, tag each retrieved chunk as "used" or "discarded" with a relevance score; show both in the IntelligencePanel breakdown | — | ★★☆ | 1 h |
+| 17 | **Personality fingerprinting** — over many traces, build a per-model profile: avg latency distribution, token efficiency (output/input ratio), failure mode frequency, typical confidence. Show as a radar or summary card. | — | ★★☆ | 1.5 h |
 
 ## Phase 2 — Moderate (★★☆)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 15 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
-| 16 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
-| 17 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
-| 18 | **Trace Annotations & Collaborative Memory** — attach notes, tags, and ratings to any trace ✓ *(2026-06-05)* | — | ★★☆ | 2–3 h |
+| 18 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
+| 19 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
+| 20 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
+| 21 | **Trace Annotations & Collaborative Memory** — attach notes, tags, and ratings to any trace ✓ *(2026-06-05)* | — | ★★☆ | 2–3 h |
+| 22 | **Causal tracing** — when a trace produces a bad or unexpected output, click "trace root cause" to highlight the most likely culprit stage (e.g., misclassification in stage 2, missing context in stage 4, poor synthesis in stage 5). Derives from existing step data — no new instrumentation needed. | — | ★★☆ | 1.5 h |
+| 23 | **Live thought stream** — during orchestration, a real-time scrolling log in the IntelligencePanel showing the exact text flowing through each stage: incoming prompt → classified intent → retrieved chunks → assembled context → raw model output. Like watching the AI think aloud. | — | ★★☆ | 1.5 h |
 
 ## Phase 3 — Deep Work (★★★)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 19 | **3D Galaxy (Four-Arm Spiral)** — full Three.js 4-arm logarithmic spiral galaxy with OrbitControls, auto-rotation, dense constellation clusters per arm, zoom-dependent label fading | List 2 | ★★★ | 6–8 h |
-| 20 | **Single Galaxy with 4 Coloured Arms** — Natural Sciences (blue), Social Sciences (teal), Arts (purple/magenta), Applied Sciences (orange/gold). Core = Universal Knowledge. Particles distributed by log-spiral formula. | List 2 | ★★★ | 4–6 h |
-| 21 | **OrbitControls + Zoom-to-Cluster** — smooth camera zoom into an arm to reveal sub-domain constellation clusters with fade labels | List 2 | ★★★ | 4–5 h |
-| 22 | **"Thought Stream" Full-Screen Terminal** — clicking the Intelligence panel expands to a full-screen live log viewer with both backend logs and token-velocity chart overlaid | List 1 | ★★★ | 3–4 h |
+| 24 | **3D Galaxy (Four-Arm Spiral)** — full Three.js 4-arm logarithmic spiral galaxy with OrbitControls, auto-rotation, dense constellation clusters per arm, zoom-dependent label fading | List 2 | ★★★ | 6–8 h |
+| 25 | **Single Galaxy with 4 Coloured Arms** — Natural Sciences (blue), Social Sciences (teal), Arts (purple/magenta), Applied Sciences (orange/gold). Core = Universal Knowledge. Particles distributed by log-spiral formula. | List 2 | ★★★ | 4–6 h |
+| 26 | **OrbitControls + Zoom-to-Cluster** — smooth camera zoom into an arm to reveal sub-domain constellation clusters with fade labels | List 2 | ★★★ | 4–5 h |
+| 27 | **"Thought Stream" Full-Screen Terminal** — clicking the Intelligence panel expands to a full-screen live log viewer with both backend logs and token-velocity chart overlaid | List 1 | ★★★ | 3–4 h |
+| 28 | **Comparative mode** — submit the same prompt to two different model providers simultaneously and watch both traces unfold side-by-side. A/B testing for LLMs with real-time comparison of latency, output quality, and stage durations. | — | ★★★ | 3–4 h |
 
 ## Phase 4 — Polish & Transition Aesthetic (★★☆)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 23 | **Smooth modal transitions** — modals don't pop; SVG geometric lines slide apart and reassemble to frame new data windows | List 1 | ★★☆ | 2 h |
-| 24 | **Cluster density along arms** — within each arm, denser particle groups to represent sub-domain constellations (Physics cluster, Biology cluster, etc.) | List 2 | ★★☆ | 2 h |
+| 29 | **Smooth modal transitions** — modals don't pop; SVG geometric lines slide apart and reassemble to frame new data windows | List 1 | ★★☆ | 2 h |
+| 30 | **Cluster density along arms** — within each arm, denser particle groups to represent sub-domain constellations (Physics cluster, Biology cluster, etc.) | List 2 | ★★☆ | 2 h |
 
 ---
 
@@ -80,3 +100,11 @@ Legend: ★☆☆ = quick win, ★★☆ = moderate effort, ★★★ = signific
 8. Slow auto-rotation Y-axis idle animation
 9. Responsive labels that fade in/out with zoom level
 10. Colour coding: Blue (Natural Sciences), Teal (Social Sciences), Purple/Magenta (Arts), Orange/Gold (Applied Sciences)
+
+### North Star — Decision Transparency & Comparative Insight (added 2026-06-05)
+1. **Intent classification probabilities** — top-3 labels with confidence in stage 2
+2. **Used vs discarded chunks** — relevance-tagged retrieval results in Context Synthesis
+3. **Personality fingerprinting** — per-model profiles (latency, token efficiency, failure modes)
+4. **Causal tracing** — walk back through stages from a bad output to find root cause
+5. **Live thought stream** — real-time text flow through each stage during orchestration
+6. **Comparative mode** — side-by-side A/B of two providers on the same prompt
