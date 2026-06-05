@@ -12,6 +12,7 @@ import IntelligencePanel from "@/components/IntelligencePanel";
 import ResourceConstellation from "@/components/ResourceConstellation";
 import DiscoveryEvents from "@/components/DiscoveryEvents";
 import MemoryConstellation from "@/components/MemoryConstellation";
+import EngineStatusPanel from "@/components/EngineStatusPanel";
 import ActivityFeed from "@/components/ActivityFeed";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useOrchestrate } from "@/hooks/useOrchestrate";
@@ -154,6 +155,7 @@ export default function Home() {
         {/* Left — Telemetry */}
         <aside className="w-64 shrink-0 space-y-4">
           <SystemVitalsPanel />
+          <EngineStatusPanel telemetry={telemetry} />
         </aside>
 
         {/* Centre — Visualisation + Input */}

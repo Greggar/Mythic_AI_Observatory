@@ -134,17 +134,26 @@ function ConfidenceRing({ confidence, cx, cy, r }: { confidence: number; cx: num
   );
 }
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-const STAGES = [
-  "Request Received",
-  "Intent Classification",
-  "Agent Selection",
-  "Memory Retrieval",
-  "Context Synthesis",
-  "Response Generation",
-  "Final Response",
+interface StageInfo {
+  label: string;
+  desc: string;
+}
+
+const STAGES: StageInfo[] = [
+  { label: "Request Received",     desc: "Raw prompt enters the system. Parsed and normalized before routing to the orchestration pipeline." },
+  { label: "Intent Classification",desc: "Prompt is analysed to determine user goal, domain, and required capabilities. Routes to the correct agent or model." },
+  { label: "Agent Selection",      desc: "The most suitable agent or model is selected based on intent, resource availability, and capability requirements." },
+  { label: "Memory Retrieval",     desc: "Relevant context from past traces, annotations, and the vector store is retrieved to inform the current response." },
+  { label: "Context Synthesis",    desc: "Retrieved memory is merged with the system prompt and user input to form the complete context window for the model." },
+  { label: "Response Generation",  desc: "The selected model generates a response using the synthesised context. Streams tokens in real-time." },
+  { label: "Final Response",       desc: "Generated output is post-processed, formatted, and delivered. Insights and confidence are computed from the result." },
 ];
+
+function stageDesc(label: string): string {
+  return STAGES.find((s) => s.label === label)?.desc || "";
+}
 
 export default function IntelligencePanel({
   telemetry,
@@ -167,6 +176,8 @@ export default function IntelligencePanel({
   const totalDuration = trace?.steps.reduce((acc, s) => acc + (s.duration_ms || 0), 0) ?? 0;
   const confidence = trace?.confidence ?? null;
   const insightTags = trace?.insight_tags ?? [];
+  const [showContext, setShowContext] = useState(false);
+  const [showReplayContext, setShowReplayContext] = useState<string | null>(null);
 
   return (
     <div className="glass-panel p-5 space-y-5">
@@ -230,9 +241,26 @@ export default function IntelligencePanel({
               Current Stage
             </div>
             <div className="text-sm font-medium text-teal-mystic">{currentStage.label}</div>
+            <div className="mt-1 text-[10px] text-zinc-500 leading-tight">{stageDesc(currentStage.label)}</div>
             {(currentStage.metadata?.output as string | undefined) && (
               <div className="mt-2 text-[11px] text-zinc-400 font-mono leading-relaxed line-clamp-2">
                 {(currentStage.metadata.output as string)}
+              </div>
+            )}
+            {currentStage.context_assembled && (
+              <div className="mt-2">
+                <button
+                  onClick={() => setShowContext(!showContext)}
+                  className="text-[9px] font-mono tracking-wider text-teal-mystic/50 hover:text-teal-mystic/80 transition-colors"
+                >
+                  {showContext ? "▾ Hide assembled context" : "▸ Show assembled context"}
+                </button>
+                {showContext && (
+                  <pre className="mt-1 text-[9px] text-zinc-500 font-mono leading-relaxed max-h-24 overflow-y-auto whitespace-pre-wrap
+                    bg-white/[0.03] rounded p-1.5">
+                    {currentStage.context_assembled}
+                  </pre>
+                )}
               </div>
             )}
           </div>
@@ -266,12 +294,13 @@ export default function IntelligencePanel({
               Agents
             </div>
             <div className="flex gap-1.5">
-              {STAGES.map((_, i) => {
+              {STAGES.map((stage, i) => {
                 const isCurrent = i === activeStepIndex;
                 const isDone = activeStepIndex !== null && i < activeStepIndex;
                 return (
                   <div
                     key={i}
+                    title={`${stage.label}: ${stage.desc}`}
                     className={`w-2 h-2 rounded-full transition-all duration-300 ${
                       isCurrent
                         ? "bg-solar-gold shadow-[0_0_4px_rgba(251,191,36,0.5)]"

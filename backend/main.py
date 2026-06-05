@@ -123,8 +123,16 @@ def _poll_openclaw() -> dict[str, Any]:
     return {"status": "error"}
 
 def _poll_remote(name: str, url: str) -> dict[str, Any]:
-    data = _fetch_json(url, timeout=3.0)
-    return {"status": "ok" if data else "error", "target": name, "url": url}
+    try:
+        r = requests.get(url, timeout=3.0)
+        r.raise_for_status()
+        return {"status": "ok", "target": name, "url": url}
+    except requests.ConnectionError:
+        return {"status": "error", "target": name, "url": url, "detail": "connection_refused"}
+    except requests.Timeout:
+        return {"status": "error", "target": name, "url": url, "detail": "timeout"}
+    except Exception:
+        return {"status": "error", "target": name, "url": url, "detail": "unreachable"}
 
 # ── Telemetry collector ─────────────────────────────────────────
 async def collect_telemetry() -> dict[str, Any]:

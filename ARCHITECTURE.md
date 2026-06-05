@@ -62,13 +62,20 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 ### Entry Point: `backend/main.py`
 
 - **FastAPI app** with CORS wide-open for LAN development
-- **Background telemetry loop:** polls CPU, memory, GPU (nvidia-smi), Ollama tags, OpenClaw health, and remote endpoints (Hermes, ComfyUI) every 1.5s
+- **Background telemetry loop:** polls CPU, memory, GPU (nvidia-smi), Ollama tags, OpenClaw health, and remote endpoints (Hermes, ComfyUI) every 1.5s. Remote polling now includes a `detail` field (`"connection_refused"`, `"timeout"`, `"unreachable"`) so the frontend can distinguish intentionally stopped services from actual failures.
 - **WebSocket endpoint** `/ws/telemetry` broadcasts structured telemetry JSON to all connected frontend clients
 - **REST endpoints:**
   - `GET /health` — liveness check
   - `GET /metrics` — Prometheus-formatted metrics
   - `POST /api/orchestrate` — submit a prompt, get a trace (see §3.1)
+  - `GET /api/traces` — list all traces (supports `?limit=`)
   - `GET /api/traces/{id}` — retrieve a persisted trace
+  - `DELETE /api/traces/{id}` — delete a trace from the store and `traces.jsonl`
+  - `GET /api/traces/{id}/annotations` — list annotations for a trace
+  - `POST /api/traces/{id}/annotations` — create an annotation
+  - `DELETE /api/traces/{id}/annotations/{ann_id}` — delete an annotation
+  - `GET /api/services` — return service definitions from `data/services.json`
+  - `GET /api/telemetry` — latest telemetry snapshot (used by frontend HTTP polling)
 
 ### Trace Models: `backend/models/trace.py`
 
@@ -149,18 +156,22 @@ No restart or reload needed — the next `_call_model()` invocation reads the cu
 
 ```
 layout.tsx          — Root layout, Geist fonts, dark background
-  page.tsx          — Three-column dashboard + trace timeline, SettingsModal
+  page.tsx          — Main dashboard: vitals + nexus + system orbit + prompt + timeline + settings
 
-  ├── SystemVitalsPanel  — Machine health cards with drill-down overlay
-  ├── SolarNexus         — Animated SVG orchestration viz + ContextPane
-  │   └── ContextPane    — Split-pane: system prompt / assembled context, TokenMeter
-  ├── ResourceConstellation — Solar system viz with machine planets
+  ├── SystemVitalsPanel   — Machine health cards with drill-down overlay
+  ├── SolarNexus          — Animated SVG orchestration viz + ContextPane
+  │   └── ContextPane     — Split-pane: system prompt / assembled context, TokenMeter (collapsible)
+  ├── ResourceConstellation — Solar system viz with machine planets + service glyphs w/ hover tooltips
+  ├── IntelligencePanel   — Confidence ring, stage descriptions, model, token estimate, duration
+  │   └── StageDescriptions — Human-readable explanations for each of the 7 orchestration stages
+  ├── EngineStatusPanel   — Runtime Metrics dashboard: throughput, avg latency, error count, mini duration bar chart w/ hover trace details
+  ├── MemoryConstellation — History browser — spiral galaxy SVG; expands (scale 1.3x) with opaque overlay on hover/click; shows context_assembled toggle per trace
 
-  ├── PromptInput        — Textarea + submit button with Cmd+Enter
-  ├── SettingsModal      — Network config + Models tab (provider hot-swap)
-  ├── ObservatoryPanel   — Animated container (reveals on trace)
-  │   └── TraceTimeline  — Step-by-step timeline with status markers
-  │       └── TimelineStep — Individual step row (icon, label, duration)
+  ├── PromptInput         — Textarea + submit button with Cmd+Enter
+  ├── SettingsModal       — Network config + Models tab (provider hot-swap)
+  ├── ObservatoryPanel    — Animated container (reveals on trace)
+  │   └── TraceTimeline   — Step-by-step timeline with status markers
+  │       └── TimelineStep — Individual step row (icon, label, duration, collapsible context_assembled)
 ```
 
 ### Custom Hooks
@@ -677,6 +688,11 @@ if _MODEL_PROVIDER == "local":
 - **[Frontend] New-trace glow burst on MemoryConstellation.** When a new trace completes, `page.tsx` increments `historyRefresh`, triggering a re-fetch. The constellation detects which entries are new (by diffing IDs against the previous fetch) and animates them with an amber expanding ring (5s) + three quick amber pulses on the core dot. Colour is `#f59e0b` (solar gold) — complementary to the teal galaxy palette. (2026-06-04)
 - **[Backend + Frontend] Trace Annotations & Collaborative Memory.** Users can add notes, tags, and ratings to any trace via the MemoryConstellation panel. Persisted server-side in `annotations.jsonl`. Annotation count shown in hover tooltip. Full CRUD supported. (2026-06-05)
 - **[Backend + Frontend] Dynamic System Orbit services.** Service glyphs and metadata served from `GET /api/services` (reads `data/services.json`) instead of hardcoded frontend constants. Manual refresh button in the System Orbit header triggers re-fetch. (2026-06-05)
+- **[Frontend] MemoryConstellation expand on interaction.** Panel smoothly enlarges (scale 1.3x) with opaque black overlay when hovering a dot or interacting; reverts on `onMouseLeave`. (2026-06-05)
+- **[Backend] Telemetry detail field.** Remote polling returns `detail: "connection_refused" | "timeout" | "unreachable"` instead of generic error, allowing frontend to distinguish stopped services from actual failures. (2026-06-05)
+- **[Frontend] Engine Status Panel → Runtime Metrics.** New panel with throughput (requests/time), average latency, error count with hover trace details, mini duration bar chart with gradient fill and hover tooltip showing trace ID/duration/status. (2026-06-05)
+- **[Frontend] Stage descriptions in IntelligencePanel.** Human-readable explanations for all 7 orchestration stages shown below current stage label and on agent dot hover in `SolarNexus`. (2026-06-05)
+- **[Frontend] Context Assembly display in IntelligencePanel + TimelineStep.** Collapsible `context_assembled` viewer with "Show assembled context" toggle in both IntelligencePanel and each TimelineStep. (2026-06-05)
 
 ### Medium Priority
 
@@ -780,9 +796,10 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/components/SolarNexus.tsx` | Agent Nexus — animated SVG ring with 7 pipeline stages, energy particles, live step tracking; clickable nodes show ContextPane (split-pane prompt/context) + TokenMeter |
 | `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs + Models tab for runtime provider hot-swap |
 | `frontend/src/components/ResourceConstellation.tsx` | System Orbit — solar system viz with machines as planets, orbiting service glyphs that pulse on activity |
-| `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution |
+| `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution; stage descriptions for each of the 7 orchestration stages; collapsible `context_assembled` viewer with toggle |
+| `frontend/src/components/EngineStatusPanel.tsx` | Runtime Metrics dashboard: throughput (req/s), avg latency, error count with hover details; mini duration bar chart with gradient fill showing recent trace durations; hover any bar to see trace ID, duration, and status |
 | `frontend/src/components/ActivityFeed.tsx` | Real-time event stream from backend activity bus (polls every 2s) |
-| `frontend/src/components/MemoryConstellation.tsx` | History browser — spiral galaxy SVG: past traces as orbiting dots clustered semantically along a spiral arm with orbital drift, connection filaments, theme labels outside rotation; new traces get an amber expanding glow burst (5s) + flashing core; click any dot to replay that trace in the timeline |
+| `frontend/src/components/MemoryConstellation.tsx` | History browser — spiral galaxy SVG: past traces as orbiting dots clustered semantically along a spiral arm with orbital drift, connection filaments, theme labels outside rotation; new traces get an amber expanding glow burst (5s) + flashing core; click any dot to replay that trace in the timeline; on hover/click the panel zooms (scale 1.3x) with opaque overlay; per-trace "Show assembled context" toggle reveals `context_assembled` in tooltip |
 | `frontend/src/components/DiscoveryEvents.tsx` | Toast overlay for discovery events on orchestration completion |
 | `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs |
 | `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect (currently HTTP polling) |
@@ -800,4 +817,4 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 
 ---
 
-*Generated 2026-06-04. Update this document when making architectural changes.*
+*Generated 2026-06-05. Update this document when making architectural changes.*

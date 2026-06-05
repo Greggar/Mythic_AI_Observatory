@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { CheckCircle, Circle, Clock, Loader } from "lucide-react";
+import { useState } from "react";
 import type { TraceStep } from "@/types/trace";
 
 interface Props {
@@ -20,6 +21,7 @@ const STATUS_MAP = {
 export default function TimelineStep({ step, index, isLast }: Props) {
   const config = STATUS_MAP[step.status] || STATUS_MAP.pending;
   const Icon = config.icon;
+  const [showContext, setShowContext] = useState(false);
 
   return (
     <motion.div
@@ -64,6 +66,29 @@ export default function TimelineStep({ step, index, isLast }: Props) {
             </span>
           )}
         </div>
+
+        {(step.metadata?.output as string | undefined) && (
+          <div className="mt-1 text-[10px] text-zinc-500 font-mono leading-relaxed line-clamp-1">
+            {(step.metadata.output as string)}
+          </div>
+        )}
+
+        {step.context_assembled && (
+          <div className="mt-1.5">
+            <button
+              onClick={() => setShowContext(!showContext)}
+              className="text-[9px] font-mono tracking-wider text-teal-mystic/50 hover:text-teal-mystic/80 transition-colors"
+            >
+              {showContext ? "▾ Hide assembled context" : "▸ Show assembled context"}
+            </button>
+            {showContext && (
+              <pre className="mt-1 text-[9px] text-zinc-600 font-mono leading-relaxed max-h-24 overflow-y-auto whitespace-pre-wrap
+                bg-white/[0.03] rounded p-1.5">
+                {step.context_assembled}
+              </pre>
+            )}
+          </div>
+        )}
       </div>
     </motion.div>
   );
