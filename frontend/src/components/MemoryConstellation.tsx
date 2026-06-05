@@ -164,7 +164,26 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const prevCount = useRef(0);
+  const [hovered, setHovered] = useState<{ entry: HistoryEntry; x: number; y: number } | null>(null);
+  const [highlightedCluster, setHighlightedCluster] = useState<number | null>(null);
   useEffect(() => setMounted(true), []);
+
+  const fetchEntries = useRef(() => {});
+  fetchEntries.current = () => {
+    fetch(`${API_BASE}/api/traces?limit=40`)
+      .then((r) => r.json())
+      .then((data) => {
+        setEntries((prev) => {
+          if (data.length > prev.length) {
+            const prevIds = new Set(prev.map((e) => e.id));
+            const fresh = new Set<string>((data as HistoryEntry[]).filter((e) => !prevIds.has(e.id)).map((e) => e.id));
+            if (fresh.size > 0) setNewIds(fresh);
+          }
+          return data;
+        });
+      })
+      .catch(() => {});
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +209,12 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
 
   const clusters = useMemo(() => clusterEntries(entries), [entries]);
   const galaxy = useMemo(() => layoutGalaxy(clusters), [clusters]);
+
+  const handleDelete = async (traceId: string) => {
+    setHovered(null);
+    await fetch(`${API_BASE}/api/traces/${traceId}`, { method: "DELETE" });
+    setEntries((prev) => prev.filter((e) => e.id !== traceId));
+  };
 
   return (
     <div className="glass-panel p-4 space-y-3">
@@ -224,7 +249,9 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
               <stop offset="100%" stopColor="rgba(45,212,191,0)" />
             </radialGradient>
           </defs>
-          <rect x={0} y={0} width={W} height={H} rx={8} fill="url(#galaxy-glow)" />
+          <rect x={0} y={0} width={W} height={H} rx={8} fill="url(#galaxy-glow)"
+            onClick={() => setHighlightedCluster(null)} style={{ cursor: highlightedCluster !== null ? "pointer" : undefined }}
+          />
 
           {galaxy.length === 0 && !loading && (
             <text x={CX} y={CY} textAnchor="middle"
@@ -253,14 +280,15 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                   cl.connections.map(([i, j]) => {
                     const a = cl.dots[i];
                     const b = cl.dots[j];
+                    const dim = highlightedCluster !== null && highlightedCluster !== ci;
                     return (
                       <motion.line
                         key={`c-${ci}-${i}`}
                         x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                         stroke="rgba(45,212,191,0.12)" strokeWidth={0.4}
                         initial={{ opacity: 0 }}
-                        animate={mounted ? { opacity: 0.4 } : {}}
-                        transition={{ duration: 0.8, delay: ci * 0.1 }}
+                        animate={mounted ? { opacity: dim ? 0.04 : 0.4 } : {}}
+                        transition={{ duration: 0.4 }}
                       />
                     );
                   })
@@ -270,6 +298,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                 {galaxy.map((cl, ci) =>
                   cl.dots.map((dot, ei) => {
                     const isNew = newIds.has(dot.entry.id);
+                    const dim = highlightedCluster !== null && highlightedCluster !== ci;
                     return (
                       <motion.g
                         key={dot.entry.id}
@@ -279,9 +308,18 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                         }}
                         style={{ cursor: "pointer" }}
                         initial={{ opacity: 0, scale: 0 }}
-                        animate={mounted ? { opacity: 1, scale: 1 } : {}}
-                        transition={{ duration: 0.5, delay: ci * 0.08 + ei * 0.03 }}
-                        whileHover={{ scale: 1.8 }}
+                        animate={mounted ? { opacity: dim ? 0.15 : 1, scale: 1 } : {}}
+                        transition={{ duration: 0.4 }}
+                        whileHover={{ scale: dim ? 1 : 1.8 }}
+                        onMouseEnter={(e) => {
+                          const rect = (e.currentTarget.closest("svg") as SVGElement)!.getBoundingClientRect();
+                          setHovered({ entry: dot.entry, x: e.clientX - rect.left, y: e.clientY - rect.top });
+                        }}
+                        onMouseMove={(e) => {
+                          const rect = (e.currentTarget.closest("svg") as SVGElement)!.getBoundingClientRect();
+                          setHovered((h) => h ? { ...h, x: e.clientX - rect.left, y: e.clientY - rect.top } : null);
+                        }}
+                        onMouseLeave={() => setHovered(null)}
                       >
                         {isNew && (
                           <motion.circle
@@ -307,7 +345,6 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                         <circle cx={dot.x} cy={dot.y} r={dot.r + 3} fill="rgba(45,212,191,0.05)" />
                         <circle cx={dot.x} cy={dot.y} r={dot.r} fill="none" stroke="rgba(45,212,191,0.4)" strokeWidth={0.7} />
                         <circle cx={dot.x} cy={dot.y} r={dot.r * 0.55} fill="#2dd4bf" />
-                        <title>{dot.entry.prompt}</title>
                       </motion.g>
                     );
                   })
@@ -323,11 +360,16 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                 const lx = CX + labelR * Math.cos(angle);
                 const ly = CY + labelR * Math.sin(angle);
                 return (
-                  <text key={`l-${ci}`} x={lx} y={ly + 2} textAnchor="middle"
-                    fill="rgba(45,212,191,0.35)" fontSize="6.5" fontFamily="monospace"
-                    letterSpacing="0.06em">
-                    {cl.label}
-                  </text>
+                  <g key={`l-${ci}`} onClick={() => setHighlightedCluster(highlightedCluster === ci ? null : ci)}
+                    style={{ cursor: "pointer" }}>
+                    <rect x={lx - 30} y={ly - 6} width={60} height={12} rx={4} fill="transparent" />
+                    <text x={lx} y={ly + 2} textAnchor="middle"
+                      fill={highlightedCluster === null || highlightedCluster === ci ? "rgba(45,212,191,0.35)" : "rgba(45,212,191,0.08)"}
+                      fontSize="6.5" fontFamily="monospace"
+                      letterSpacing="0.06em">
+                      {cl.label}
+                    </text>
+                  </g>
                 );
               })}
             </g>
@@ -337,6 +379,40 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
           <circle cx={CX} cy={CY} r={18} fill="rgba(45,212,191,0.04)" />
           <circle cx={CX} cy={CY} r={2} fill="rgba(45,212,191,0.15)" />
         </svg>
+
+          {hovered && (
+            <div
+              className="absolute z-10"
+              style={{
+                left: hovered.x + 12,
+                top: hovered.y - 10,
+                transform: "translateY(-100%)",
+              }}
+            >
+              <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-2.5 py-1.5 shadow-lg max-w-[180px]">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-[10px] leading-tight text-teal-mystic/90 line-clamp-2 flex-1">
+                    {hovered.entry.prompt}
+                  </p>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(hovered.entry.id); }}
+                    className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 -mr-0.5 -mt-0.5"
+                    title="Delete trace"
+                  >
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 mt-1 text-[9px] text-zinc-400">
+                  <span>{new Date(hovered.entry.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                  {hovered.entry.steps.length > 0 && (
+                    <span>· {Math.round(hovered.entry.steps.reduce((s, st) => s + (st.duration_ms || 0), 0) / 1000)}s</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
       </div>
     </div>
   );

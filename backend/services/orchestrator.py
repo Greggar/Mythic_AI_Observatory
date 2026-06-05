@@ -330,3 +330,22 @@ def get_trace(trace_id: str) -> TraceSession | None:
 
 def list_traces(limit: int = 50) -> list[TraceSession]:
     return load_history(limit)
+
+
+def delete_trace(trace_id: str) -> bool:
+    removed = False
+    if trace_id in _store:
+        del _store[trace_id]
+        removed = True
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE) as f:
+                lines = f.readlines()
+            kept = [l for l in lines if trace_id not in l]
+            if len(kept) < len(lines):
+                with open(HISTORY_FILE, "w") as f:
+                    f.writelines(kept)
+                removed = True
+    except Exception as e:
+        logger.error("Failed to delete trace %s from history: %s", trace_id, e)
+    return removed
