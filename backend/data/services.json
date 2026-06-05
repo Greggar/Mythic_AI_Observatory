@@ -1,0 +1,19 @@
+{
+  "Gingerlong": [
+    { "x": 0, "y": -14, "label": "API", "color": "#2dd4bf", "name": "API", "desc": "REST API endpoints for frontend communication, trace management, and config" },
+    { "x": 12, "y": -7, "label": "Ollama", "color": "#34d399", "name": "Ollama", "desc": "Local LLM inference server — runs qwen2.5:3b for CPU-bound orchestration calls" },
+    { "x": 12, "y": 7, "label": "OC", "color": "#fbbf24", "name": "OpenClaw Gateway", "desc": "Agent gateway — connects to Telegram, manages multi-model routing; amber = degraded or disconnected channel" },
+    { "x": 0, "y": 14, "label": "UI", "color": "#2dd4bf", "name": "Solar Interface", "desc": "Next.js frontend — glassmorphic dashboard served on port 3001" },
+    { "x": -12, "y": 7, "label": "FastAPI", "color": "#34d399", "name": "FastAPI", "desc": "ASGI web framework powering the Conductor backend" },
+    { "x": -12, "y": -7, "label": "Conductor", "color": "#fbbf24", "name": "Conductor", "desc": "FastAPI backend — orchestrates 7-stage AI pipeline, manages telemetry, serves REST API" }
+  ],
+  "BackOffice": [
+    { "x": 0, "y": -11, "label": "Hermes", "color": "#2dd4bf", "name": "Hermes Agent", "desc": "AI agent on BackOffice — handles prompt processing and tool calls" },
+    { "x": 10, "y": 0, "label": "ComfyUI", "color": "#a78bfa", "name": "ComfyUI", "desc": "Image generation interface running on BackOffice" },
+    { "x": 0, "y": 11, "label": "qwen3.5", "color": "#34d399", "name": "Qwen 3.5", "desc": "Local LLM model (3B params) running on BackOffice for inference offload" }
+  ],
+  "LoungeRoom": [
+    { "x": 0, "y": -9, "label": "Batch", "color": "#2dd4bf", "name": "Batch Processor", "desc": "Background batch job runner on LoungeRoom" },
+    { "x": 0, "y": 9, "label": "Train", "color": "#f59e0b", "name": "Train Worker", "desc": "Model fine-tuning / training worker on LoungeRoom" }
+  ]
+}

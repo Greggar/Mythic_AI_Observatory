@@ -81,6 +81,15 @@ const SERVICE_INFO: Record<string, { name: string; desc: string }> = {
   Train: { name: "Train Worker", desc: "Model fine-tuning / training worker on LoungeRoom" },
 };
 
+interface ServiceDef {
+  x: number;
+  y: number;
+  label: string;
+  color: string;
+  name: string;
+  desc: string;
+}
+
 interface ConstellationProps {
   active?: boolean;
 }
@@ -93,6 +102,8 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
   const [hovered, setHovered] = useState<{ label: string; x: number; y: number; target?: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [services, setServices] = useState<Record<string, ServiceDef[]>>({});
+  const [servicesKey, setServicesKey] = useState(0);
 
   const clearHover = useCallback(() => {
     hoverTimeout.current = setTimeout(() => setHovered(null), 150);
@@ -110,6 +121,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
     }
   }, []);
 
+  // Fetch vitals (polling)
   useEffect(() => {
     setMounted(true);
     let cancelled = false;
@@ -134,6 +146,14 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
     };
   }, []);
 
+  // Fetch services (manual trigger via servicesKey)
+  useEffect(() => {
+    fetch(`${API_BASE}/api/services`)
+      .then((r) => r.json())
+      .then(setServices)
+      .catch(() => {});
+  }, [servicesKey]);
+
   const sun = useMemo(() => data?.machines.find((m) => m.name === "Gingerlong") ?? null, [data]);
   const planets = useMemo(
     () => data?.machines.filter((m) => m.name !== "Gingerlong") ?? [],
@@ -145,11 +165,24 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
 
   return (
     <div className="glass-panel p-5 flex flex-col items-center gap-3" ref={containerRef}>
-      <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
-        <Activity size={16} />
-        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-          System Orbit
-        </span>
+      <div className="flex items-center justify-between w-full">
+        <div />
+        <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
+          <Activity size={16} />
+          <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
+            System Orbit
+          </span>
+        </div>
+        <button
+          onClick={() => setServicesKey((n) => n + 1)}
+          className="text-zinc-600 hover:text-teal-mystic transition-colors"
+          title="Refresh services"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M1 4v6h6M23 20v-6h-6" />
+            <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
+          </svg>
+        </button>
       </div>
 
       <svg viewBox="0 0 1000 1000" className="w-full max-w-[500px] h-auto">
@@ -192,7 +225,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
               {sun.name.toUpperCase()}
             </text>
             {/* Services around sun */}
-            {SERVICE_GLYPHS[sun.name]?.map((s, i) => (
+            {services[sun.name]?.map((s, i) => (
               <g key={`sun-svc-${i}`}
                 onMouseEnter={(e) => handleMouseEnter(e, s.label, sun.name)}
                 onMouseLeave={clearHover}
@@ -289,7 +322,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                   CPU {cpu.toFixed(0)}% · RAM {mem.toFixed(0)}%
                 </text>
                 {/* Service glyphs around planet */}
-                {SERVICE_GLYPHS[machine.name]?.map((s, j) => (
+                {services[machine.name]?.map((s, j) => (
                   <g key={j}
                     onMouseEnter={(e) => handleMouseEnter(e, s.label, machine.name)}
                     onMouseLeave={clearHover}
@@ -336,7 +369,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
 
       {/* Tooltip */}
       {hovered && (() => {
-        const info = SERVICE_INFO[hovered.label];
+        const info = Object.values(services).flat().find((s) => s.label === hovered.label);
         const gap = 10;
         const cw = containerRef.current?.clientWidth ?? 500;
         const midX = cw / 2;

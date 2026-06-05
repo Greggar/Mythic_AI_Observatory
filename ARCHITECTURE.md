@@ -676,6 +676,7 @@ if _MODEL_PROVIDER == "local":
 - **[Backend] Fix `MODEL_PROVIDER` → `_MODEL_PROVIDER` typo.** The missing underscore caused a silent `NameError` that froze traces at Intent Classification indefinitely. (2026-06-04)
 - **[Frontend] New-trace glow burst on MemoryConstellation.** When a new trace completes, `page.tsx` increments `historyRefresh`, triggering a re-fetch. The constellation detects which entries are new (by diffing IDs against the previous fetch) and animates them with an amber expanding ring (5s) + three quick amber pulses on the core dot. Colour is `#f59e0b` (solar gold) — complementary to the teal galaxy palette. (2026-06-04)
 - **[Backend + Frontend] Trace Annotations & Collaborative Memory.** Users can add notes, tags, and ratings to any trace via the MemoryConstellation panel. Persisted server-side in `annotations.jsonl`. Annotation count shown in hover tooltip. Full CRUD supported. (2026-06-05)
+- **[Backend + Frontend] Dynamic System Orbit services.** Service glyphs and metadata served from `GET /api/services` (reads `data/services.json`) instead of hardcoded frontend constants. Manual refresh button in the System Orbit header triggers re-fetch. (2026-06-05)
 
 ### Medium Priority
 
@@ -789,6 +790,7 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/hooks/useTraceReplay.ts` | Step-by-step animation hook for historical trace replay |
 | `frontend/src/types/trace.ts` | TypeScript types mirroring backend Pydantic models — includes `context_assembled` on TraceStep |
 | `backend/data/network.json` | Persistent network config (machines, remotes, endpoints) |
+| `backend/data/services.json` | Service definitions (glyph layout, name, description) served via `GET /api/services` |
 | `DEVELOPMENT.md` | Quick-start guide for local dev |
 | `LVM-ROOT-EXPAND.md` | Instructions for expanding the root LVM volume |
 | `Innovation.md` | Ideas log for practical experiments with the local 3B model |

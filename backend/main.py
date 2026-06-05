@@ -275,6 +275,18 @@ async def api_delete_trace(trace_id: str) -> dict:
     return {"deleted": ok}
 
 
+# ── Services ──────────────────────────────────────────────────────
+@app.get("/api/services")
+async def api_get_services() -> dict:
+    import os
+    fp = os.path.join(os.path.dirname(__file__), "data", "services.json")
+    try:
+        with open(fp) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 # ── Annotations ───────────────────────────────────────────────────
 @app.get("/api/traces/{trace_id}/annotations", response_model=list[Annotation])
 async def api_get_annotations(trace_id: str) -> list[Annotation]:
