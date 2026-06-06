@@ -334,7 +334,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
     <style>{`.memory-expanded{background:rgba(6,20,35,0.95)!important;box-shadow:0 25px 50px -12px rgba(0,0,0,0.6)!important}`}</style>
     <div
       className={`glass-panel p-4 space-y-3 transition-transform duration-300 ease-out origin-top-right ${
-        expanded ? "scale-[1.3] relative z-40 overflow-visible memory-expanded" : ""
+        expanded ? "scale-[2.6] relative z-40 overflow-visible memory-expanded" : ""
       }`}
     >
       <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
@@ -529,53 +529,6 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
           <circle cx={CX} cy={CY} r={18} fill="rgba(45,212,191,0.04)" />
           <circle cx={CX} cy={CY} r={2} fill="rgba(45,212,191,0.15)" />
         </svg>
-
-          {hovered && (() => {
-            const gap = 8;
-            const cx = containerRef.current;
-            const cw = cx?.clientWidth ?? W;
-            const ch = cx?.clientHeight ?? H;
-            const midX = cw / 2;
-            const onRight = hovered.x > midX;
-            const left = onRight ? hovered.x - 180 - gap : hovered.x + gap;
-            const onBottom = hovered.y > ch / 2;
-            const top = onBottom ? hovered.y - 10 : hovered.y + 10;
-            const dotAnnotations = getAnnotations(hovered.entry.id);
-            return (
-              <div
-                className="absolute z-10"
-                style={{ left, top, transform: onBottom ? "translateY(-100%)" : "none" }}
-                onMouseEnter={keepHover}
-                onMouseLeave={clearHover}
-              >
-                <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-2.5 py-1.5 shadow-lg max-w-[180px]">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-[10px] leading-tight text-teal-mystic/90 line-clamp-2 flex-1">
-                      {hovered.entry.prompt}
-                    </p>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(hovered.entry.id); }}
-                      className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 -mr-0.5 -mt-0.5"
-                      title="Delete trace"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1 text-[9px] text-zinc-400">
-                    <span>{new Date(hovered.entry.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
-                    {hovered.entry.steps.length > 0 && (
-                      <span>· {Math.round(hovered.entry.steps.reduce((s, st) => s + (st.duration_ms || 0), 0) / 1000)}s</span>
-                    )}
-                    {dotAnnotations.length > 0 && (
-                      <span>· {dotAnnotations.length} note{dotAnnotations.length > 1 ? "s" : ""}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
       </div>
 
       {/* Annotations section */}
@@ -657,6 +610,55 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
         </div>
       )}
     </div>
+      {hovered && (() => {
+        const gap = 8;
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect) return null;
+        const scaleX = rect.width / W;
+        const scaleY = rect.height / H;
+        const sx = rect.left + hovered.x * scaleX;
+        const sy = rect.top + hovered.y * scaleY;
+        const tw = 180;
+        const onRight = sx + tw + gap < window.innerWidth;
+        const left = onRight ? sx + gap : sx - tw - gap;
+        const onBottom = sy + 120 < window.innerHeight;
+        const top = onBottom ? sy : sy - 120;
+        const dotAnnotations = getAnnotations(hovered.entry.id);
+        return (
+          <div
+            className="fixed z-50"
+            style={{ left, top }}
+            onMouseEnter={keepHover}
+            onMouseLeave={clearHover}
+          >
+            <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-2.5 py-1.5 shadow-lg max-w-[180px]">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[10px] leading-tight text-teal-mystic/90 line-clamp-2 flex-1">
+                  {hovered.entry.prompt}
+                </p>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(hovered.entry.id); }}
+                  className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 -mr-0.5 -mt-0.5"
+                  title="Delete trace"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6" />
+                  </svg>
+                </button>
+              </div>
+              <div className="flex items-center gap-2 mt-1 text-[9px] text-zinc-400">
+                <span>{new Date(hovered.entry.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                {hovered.entry.steps.length > 0 && (
+                  <span>· {Math.round(hovered.entry.steps.reduce((s, st) => s + (st.duration_ms || 0), 0) / 1000)}s</span>
+                )}
+                {dotAnnotations.length > 0 && (
+                  <span>· {dotAnnotations.length} note{dotAnnotations.length > 1 ? "s" : ""}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
