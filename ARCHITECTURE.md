@@ -638,8 +638,51 @@ curl -s "http://localhost:3001${css_href}" | grep "deep-abyss"
 
 **Lesson:** Never kill the Next.js production server while it's in the middle of writing build artifacts. Always stop the server cleanly (`pkill` then wait for process to disappear) before rebuilding. If the server was killed mid-write, always do `rm -rf .next` before the next build — incremental builds from a corrupted state produce corrupted output.
 
----
+### 6.15 Next.js Silently Dies (OOM / Unhandled Rejection)
 
+**Symptom:** Frontend returns `Connection refused` or `000` HTTP status after having been running fine. The process is gone from `ps aux` with no error in the startup log — the log simply ends at `✓ Ready in Xms`. The most common trigger is a hard page reload (Ctrl+Shift+R) or a burst of concurrent requests after the server has been running for a while.
+
+**Diagnosis:**
+1. Check `ss -tlnp | grep 3001` — if empty, the process is dead.
+2. Check the startup log — if it ends abruptly with no stack trace, it was killed by the OOM killer or a segfault.
+3. Try `dmesg | grep -i oom` (requires sudo) to confirm OOM kill.
+4. If no OOM evidence, the likely cause is an unhandled promise rejection in a background handler that Node.js escalates to `process.exit` (default behaviour in Node 16+).
+
+**Root cause:** The Next.js 16 production server on a 15GB machine defaults to a Node.js heap limit of ~1.4GB. Under load — especially during production builds or when serving multiple concurrent requests — garbage collection can't keep up and the kernel OOM-kills the process. Additionally, unhandled promise rejections in async request handlers or WebSocket fallback code cause Node to terminate the process with an unhelpful error message that may be lost in `nohup` output.
+
+**Fix (two-part):**
+
+1. **Raise the Node.js heap limit:**
+   ```bash
+   NODE_OPTIONS='--max_old_space_size=4096' nohup npx next start -p 3001 -H 0.0.0.0 > /tmp/frontend.log 2>&1 &
+   ```
+   This gives the garbage collector 4GB of headroom instead of 1.4GB.
+
+2. **Catch unhandled rejections and errors:**
+   A `<ClientInit />` component mounted at the top of `<body>` in `layout.tsx` registers window-level handlers:
+   ```tsx
+   window.addEventListener("unhandledrejection", (event) => { console.error(event.reason); });
+   window.addEventListener("error", (event) => { console.error(event.message); });
+   ```
+   This prevents one-off promise rejections from crashing the process.
+
+3. **Use `setsid` to detach from shell:**
+   ```bash
+   setsid bash -c 'NODE_OPTIONS="--max_old_space_size=4096" exec npx next start -p 3001 -H 0.0.0.0 > /tmp/frontend.log 2>&1' &
+   ```
+   `setsid` creates a new session so the process survives shell exit. `exec` replaces the shell with the next process, keeping the PID stable.
+
+**Verification:**
+```bash
+ps -p $(ss -tlnp | grep 3001 | grep -oP 'pid=\K\d+') -o rss,pmem
+# Expected: ~120MB RSS, ~0.7% memory
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
+# Expected: 200
+```
+
+**Lesson:** Node.js on memory-constrained machines needs explicit heap sizing. The default V8 heap limit (~1.4GB on 64-bit) is dangerously close to what Next.js 16 needs under load. Always set `--max_old_space_size` to at least 4GB on machines with 16GB RAM or less. Additionally, `nohup` is not reliable for detaching — use `setsid` with `exec` for guaranteed detachment.
+
+---
 
 
 
@@ -702,6 +745,12 @@ curl -s "http://localhost:3001${css_href}" | grep "deep-abyss"
 
 21. **`refreshTrigger` must be wired to actually fire.** The `historyRefresh` state was declared in `page.tsx` and passed to `MemoryConstellation` as `refreshTrigger`, but nothing ever incremented it. Until a `useEffect` watched for trace completion and called `setHistoryRefresh(n => n + 1)`, the constellation never re-fetched after a new trace finished. (2026-06-04)
 
+22. **Server components cannot use `"use client"`.** The root `layout.tsx` exports `metadata` (a server-only feature). Adding `"use client"` silences the metadata export at build time. Client-side logic (event listeners, state, effects) must be extracted into a separate child component (e.g. `<ClientInit />`) imported by the server layout. (2026-06-06)
+
+23. **SVG tooltips inside `overflow-hidden` parents get clipped.** A tooltip rendered as an SVG `<foreignObject>` or absolutely-positioned `<div>` inside a container with `overflow-hidden` (e.g. a bar chart wrapper) will be visually clipped at the parent's bounds. Fix: render the tooltip outside the container via React portal or fixed positioning from `getBoundingClientRect()`. (2026-06-06)
+
+24. **`traceSteps.duration_ms` can be `null` for pending/failed steps.** When passing trace steps as props, TypeScript will enforce the `null` union. The component must filter with `.find(s => s.duration_ms != null)` before using the value in calculations. (2026-06-06)
+
 ---
 
 ## 8. Future Considerations
@@ -725,6 +774,12 @@ curl -s "http://localhost:3001${css_href}" | grep "deep-abyss"
 - **[Frontend] Engine Status Panel → Runtime Metrics.** New panel with throughput (requests/time), average latency, error count with hover trace details, mini duration bar chart with gradient fill and hover tooltip showing trace ID/duration/status. (2026-06-05)
 - **[Frontend] Stage descriptions in IntelligencePanel.** Human-readable explanations for all 7 orchestration stages shown below current stage label and on agent dot hover in `SolarNexus`. (2026-06-05)
 - **[Frontend] Context Assembly display in IntelligencePanel + TimelineStep.** Collapsible `context_assembled` viewer with "Show assembled context" toggle in both IntelligencePanel and each TimelineStep. (2026-06-05)
+- **[Frontend] Live trace overlay on latency panel (#19).** LatencyBreakdown accepts `traceSteps` prop from activeTrace; renders a brighter inner bar on each stage showing the current trace's duration vs the historical average. (2026-06-06)
+- **[Tooling] Agentic Step-Level Latency Monitor (#18).** `tools/latency_monitor.py` — CLI with `--recent/--trace/--watch/--cache/--terminal` modes; polls backend, computes stage averages, renders stacked bar charts (matplotlib/ASCII). (2026-06-06)
+- **[Frontend + Backend] LLM-generated performance insights.** `PerformanceInsights` panel with heuristic rules + LLM-generated insight cards. `_generate_llm_insights()` in orchestrator calls qwen2.5:3b with live architecture context from `network.json` and port-probed reachability. (2026-06-06)
+- **[Frontend] IP masking toggle.** `mask_ips` checkbox in SettingsModal; frontend-only CSS-value swap on focus/blur — host inputs show `192.168.x.xxx` when masked, reveal on focus. (2026-06-06)
+- **[Frontend] CelestialDistribution legend tooltips.** Hover on mean/median/mode shows statistical definition and right-skew implication for trace speed. (2026-06-06)
+- **[Frontend] Frontend crash resilience.** `ClientInit.tsx` catches `unhandledrejection` + `error` at the window level; start command uses `NODE_OPTIONS='--max_old_space_size=4096'` and `setsid` for stable background detachment. (2026-06-06)
 
 ### Medium Priority
 
