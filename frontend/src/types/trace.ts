@@ -21,6 +21,12 @@ export interface TelemetryImpact {
   avg_mem: number;
 }
 
+export interface LlmInsight {
+  type: "info" | "recommendation";
+  title: string;
+  body: string;
+}
+
 export interface TraceSession {
   id: string;
   prompt: string;
@@ -34,4 +40,5 @@ export interface TraceSession {
   model_used: string | null;
   agent_used: string | null;
   telemetry_impact: TelemetryImpact | null;
+  llm_insights?: LlmInsight[];
 }

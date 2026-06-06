@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useHover } from "@/lib/HoverContext";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const W = 280;
@@ -117,12 +118,24 @@ function layoutGalaxy(clusters: HistoryEntry[][]): ClusterLayout[] {
   const n = clusters.length;
   if (n === 0) return [];
 
+  const allEntries = clusters.flat();
+  const timestamps = allEntries.map((e) => new Date(e.created_at).getTime()).filter((t) => !isNaN(t));
+  const maxTs = Math.max(...timestamps);
+  const minTs = Math.min(...timestamps);
+  const ageRange = maxTs - minTs || 1;
+
+  function dotRadius(entry: HistoryEntry): number {
+    const ts = new Date(entry.created_at).getTime();
+    if (isNaN(ts)) return 3.5;
+    const age = (maxTs - ts) / ageRange;
+    return 2.5 + (1 - age) * 3.5;
+  }
+
   return clusters.map((entries, ci) => {
-    const t = n > 1 ? ci / (n - 1) : 0;
-    const angle = t * Math.PI * 2.5 - Math.PI / 2;
-    const radius = 20 + t * 85;
-    const ccx = CX + radius * Math.cos(angle);
-    const ccy = CY + radius * Math.sin(angle);
+    const armAngle = (ci / n) * Math.PI * 2 - Math.PI / 2;
+    const armLength = 75;
+    const ccx = CX + armLength * Math.cos(armAngle);
+    const ccy = CY + armLength * Math.sin(armAngle);
 
     const dotCount = entries.length;
     const spread = Math.min(10 + dotCount * 5, 35);
@@ -131,7 +144,7 @@ function layoutGalaxy(clusters: HistoryEntry[][]): ClusterLayout[] {
       return {
         x: ccx + spread * Math.cos(da),
         y: ccy + spread * Math.sin(da),
-        r: Math.max(3.5, 6 - dotCount * 0.12),
+        r: dotRadius(entry),
         entry,
       };
     });
@@ -154,18 +167,18 @@ function layoutGalaxy(clusters: HistoryEntry[][]): ClusterLayout[] {
   });
 }
 
-function galaxySpiralPath(): string {
-  const pts = 50;
-  let d = "";
-  for (let i = 0; i <= pts; i++) {
-    const t = i / pts;
-    const theta = t * Math.PI * 2.5 - Math.PI / 2;
-    const r = 20 + t * 85;
-    const x = CX + r * Math.cos(theta);
-    const y = CY + r * Math.sin(theta);
-    d += `${i === 0 ? "M" : "L"}${x.toFixed(4)} ${y.toFixed(4)}`;
-  }
-  return d;
+function galaxySpokePaths(clusters: ClusterLayout[]): string[] {
+  return clusters.map((cl) => {
+    const dx = cl.cx - CX;
+    const dy = cl.cy - CY;
+    const angle = Math.atan2(dy, dx);
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const cpR = dist * 0.6;
+    const cpAngle = angle + 0.4;
+    const cpX = CX + cpR * Math.cos(cpAngle);
+    const cpY = CY + cpR * Math.sin(cpAngle);
+    return `M${CX},${CY}Q${cpX.toFixed(2)},${cpY.toFixed(2)} ${cl.cx.toFixed(2)},${cl.cy.toFixed(2)}`;
+  });
 }
 
 export default function MemoryConstellation({ onSelect, refreshTrigger }: Props) {
@@ -184,7 +197,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
   const [noteTags, setNoteTags] = useState("");
   const [noteRating, setNoteRating] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState("");
-
+  const { hoveredTraceId, setHoveredTraceId } = useHover();
 
   useEffect(() => setMounted(true), []);
 
@@ -201,8 +214,9 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
   }, []);
 
   const clearHover = useCallback(() => {
+    setHoveredTraceId(null);
     hoverTimeout.current = setTimeout(() => setHovered(null), 120);
-  }, []);
+  }, [setHoveredTraceId]);
 
   const keepHover = useCallback(() => {
     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
@@ -385,15 +399,13 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
 
           {galaxy.length > 0 && (
             <g>
-              {/* Spiral arm backbone */}
-              <path d={galaxySpiralPath()} fill="none" stroke="rgba(45,212,191,0.08)" strokeWidth={1} />
-              <path d={galaxySpiralPath()} fill="none" stroke="rgba(45,212,191,0.06)" strokeWidth={0.7}
-                transform={`rotate(140 ${CX} ${CY})`} />
-              <path d={galaxySpiralPath()} fill="none" stroke="rgba(45,212,191,0.04)" strokeWidth={0.5}
-                transform={`rotate(260 ${CX} ${CY})`} />
+              {/* Curved spokes — one per knowledge domain */}
+              {galaxySpokePaths(galaxy).map((d, i) => (
+                <path key={`spoke-${i}`} d={d} fill="none" stroke="rgba(45,212,191,0.07)" strokeWidth={0.7} />
+              ))}
 
               {/* Slow galaxy rotation */}
-              <g>
+              <g id="rotating-galaxy">
                 <animateTransform attributeName="transform" type="rotate"
                   from={`0 ${CX} ${CY}`} to={`360 ${CX} ${CY}`}
                   dur="120s" repeatCount="indefinite" />
@@ -403,7 +415,9 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                   cl.connections.map(([i, j]) => {
                     const a = cl.dots[i];
                     const b = cl.dots[j];
-                    const dim = highlightedCluster !== null && highlightedCluster !== ci;
+                    const dim = hoveredTraceId !== null
+                      ? !cl.dots.some(d => d.entry.id === hoveredTraceId)
+                      : highlightedCluster !== null && highlightedCluster !== ci;
                     return (
                       <motion.line
                         key={`c-${ci}-${i}`}
@@ -421,7 +435,9 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                 {galaxy.map((cl, ci) =>
                   cl.dots.map((dot, ei) => {
                     const isNew = newIds.has(dot.entry.id);
-                    const dim = highlightedCluster !== null && highlightedCluster !== ci;
+                    const dim = hoveredTraceId !== null
+                      ? hoveredTraceId !== dot.entry.id
+                      : highlightedCluster !== null && highlightedCluster !== ci;
                     const dotAnnotations = getAnnotations(dot.entry.id);
                     return (
                       <motion.g
@@ -434,6 +450,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                         whileHover={{ scale: dim ? 1 : 1.8 }}
                         onMouseEnter={(e) => {
                           keepHover();
+                          setHoveredTraceId(dot.entry.id);
                           const rect = containerRef.current?.getBoundingClientRect();
                           if (rect) {
                             setHovered({ entry: dot.entry, x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -469,29 +486,34 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                     );
                   })
                 )}
-              </g>
 
-              {/* Labels (outside rotation so they stay readable) */}
-              {galaxy.map((cl, ci) => {
-                const t = galaxy.length > 1 ? ci / (galaxy.length - 1) : 0;
-                const angle = t * Math.PI * 2.5 - Math.PI / 2;
-                const r = 20 + t * 85;
-                const labelR = r + 18;
-                const lx = CX + labelR * Math.cos(angle);
-                const ly = CY + labelR * Math.sin(angle);
-                return (
-                  <g key={`l-${ci}`} onClick={() => setHighlightedCluster(highlightedCluster === ci ? null : ci)}
-                    style={{ cursor: "pointer" }}>
-                    <rect x={lx - 30} y={ly - 6} width={60} height={12} rx={4} fill="transparent" />
-                    <text x={lx} y={ly + 2} textAnchor="middle"
-                      fill={highlightedCluster === null || highlightedCluster === ci ? "rgba(45,212,191,0.35)" : "rgba(45,212,191,0.08)"}
-                      fontSize="6.5" fontFamily="monospace"
-                      letterSpacing="0.06em">
-                      {cl.label}
-                    </text>
-                  </g>
-                );
-              })}
+                {/* Labels — counter-rotate to stay upright */}
+                {galaxy.map((cl, ci) => {
+                  const dx = cl.cx - CX;
+                  const dy = cl.cy - CY;
+                  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                  const lx = cl.cx + (dx / dist) * 14;
+                  const ly = cl.cy + (dy / dist) * 14;
+                  return (
+                    <g key={`l-${ci}`} onClick={() => setHighlightedCluster(highlightedCluster === ci ? null : ci)}
+                      style={{ cursor: "pointer" }}
+                      transform={`translate(${lx.toFixed(2)}, ${ly.toFixed(2)})`}>
+                      <g>
+                        <animateTransform attributeName="transform" type="rotate"
+                          from="0" to="-360"
+                          dur="120s" repeatCount="indefinite" />
+                        <rect x={-30} y={-6} width={60} height={12} rx={4} fill="transparent" />
+                        <text x={0} y={2} textAnchor="middle"
+                          fill={highlightedCluster === null || highlightedCluster === ci ? "rgba(45,212,191,0.35)" : "rgba(45,212,191,0.08)"}
+                          fontSize="6.5" fontFamily="monospace"
+                          letterSpacing="0.06em">
+                          {cl.label}
+                        </text>
+                      </g>
+                    </g>
+                  );
+                })}
+              </g>
             </g>
           )}
 
@@ -587,10 +609,10 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
         const sx = rect.left + hovered.x;
         const sy = rect.top + hovered.y;
         const tw = 180;
-        const onRight = sx + tw + gap < window.innerWidth;
-        const left = onRight ? sx + gap : sx - tw - gap;
-        const onBottom = sy + 120 < window.innerHeight;
-        const top = onBottom ? sy : sy - 120;
+        const onRight = sx > window.innerWidth / 2;
+        const left = onRight ? sx - tw - gap : sx + gap;
+        const onBottom = sy > window.innerHeight / 2;
+        const top = onBottom ? sy - 120 : sy + gap;
         const dotAnnotations = getAnnotations(hovered.entry.id);
         return (
           <div

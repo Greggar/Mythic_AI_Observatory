@@ -18,6 +18,10 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useOrchestrate } from "@/hooks/useOrchestrate";
 import { useTraceReplay } from "@/hooks/useTraceReplay";
 import { emitAudioEvent } from "@/lib/audioService";
+import { HoverProvider } from "@/lib/HoverContext";
+import CelestialDistribution from "@/components/CelestialDistribution";
+import LatencyBreakdown from "@/components/LatencyBreakdown";
+import PerformanceInsights from "@/components/PerformanceInsights";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -217,6 +221,7 @@ export default function Home() {
               activeStepIndex={activeStep}
               phase={activePhase}
             />
+            <LatencyBreakdown refreshTrigger={historyRefresh} traceSteps={activeTrace?.steps} />
           </aside>
 
           <section className="flex-1 flex flex-col gap-6">
@@ -244,6 +249,7 @@ export default function Home() {
           </section>
 
           <aside className="w-64 shrink-0 space-y-4">
+            <PerformanceInsights trace={activeTrace} />
           </aside>
         </div>
       )}
@@ -263,10 +269,16 @@ export default function Home() {
           </aside>
 
           <section className="flex-1 flex flex-col gap-6">
-            <MemoryConstellation
-              onSelect={handleHistorySelect}
-              refreshTrigger={historyRefresh}
-            />
+            <HoverProvider>
+              <MemoryConstellation
+                onSelect={handleHistorySelect}
+                refreshTrigger={historyRefresh}
+              />
+              <CelestialDistribution
+                onSelect={handleHistorySelect}
+                refreshTrigger={historyRefresh}
+              />
+            </HoverProvider>
           </section>
 
           <aside className="w-64 shrink-0 space-y-4">

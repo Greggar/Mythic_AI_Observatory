@@ -39,34 +39,36 @@ We are a long way toward health + function transparency. The items below extend 
 | 15 | **Intent classification probabilities** — show top-3 intent labels and their confidence scores in IntelligencePanel stage 2, so the user sees not just *what* was classified but *how sure* the model was | — | ★☆☆ | 30 min |
 | 16 | **Used vs discarded chunks indicator** — in Context Synthesis step, tag each retrieved chunk as "used" or "discarded" with a relevance score; show both in the IntelligencePanel breakdown | — | ★★☆ | 1 h |
 | 17 | **Personality fingerprinting** — over many traces, build a per-model profile: avg latency distribution, token efficiency (output/input ratio), failure mode frequency, typical confidence. Show as a radar or summary card. | — | ★★☆ | 1.5 h |
+| 18 | **Agentic Step-Level Latency Monitor** — standalone Python script that polls `http://127.0.0.1:8001/api/trace/<id>`, extracts per-stage durations, computes rolling averages, and renders a stacked horizontal bar chart to visualize pipeline bottlenecks. Includes a verification harness with mock data. | — | ★☆☆ | 30 min |
+| 19 | **Live trace overlay on latency panel** — overlay the current trace's per-stage durations (as a brighter inner bar or dot) on top of the historical averages in the Step Latency panel, so you can compare the live run against the baseline at a glance. ✓ *(2026-06-06)* | — | ★☆☆ | 30 min |
 
 ## Phase 2 — Moderate (★★☆)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 18 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
-| 19 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
-| 20 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
-| 21 | **Trace Annotations & Collaborative Memory** — attach notes, tags, and ratings to any trace ✓ *(2026-06-05)* | — | ★★☆ | 2–3 h |
-| 22 | **Causal tracing** — when a trace produces a bad or unexpected output, click "trace root cause" to highlight the most likely culprit stage (e.g., misclassification in stage 2, missing context in stage 4, poor synthesis in stage 5). Derives from existing step data — no new instrumentation needed. | — | ★★☆ | 1.5 h |
-| 23 | **Live thought stream** — during orchestration, a real-time scrolling log in the IntelligencePanel showing the exact text flowing through each stage: incoming prompt → classified intent → retrieved chunks → assembled context → raw model output. Like watching the AI think aloud. | — | ★★☆ | 1.5 h |
+| 19 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks | List 1 | ★★☆ | 1.5 h |
+| 20 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
+| 21 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
+| 22 | **Trace Annotations & Collaborative Memory** — attach notes, tags, and ratings to any trace ✓ *(2026-06-05)* | — | ★★☆ | 2–3 h |
+| 23 | **Causal tracing** — when a trace produces a bad or unexpected output, click "trace root cause" to highlight the most likely culprit stage (e.g., misclassification in stage 2, missing context in stage 4, poor synthesis in stage 5). Derives from existing step data — no new instrumentation needed. | — | ★★☆ | 1.5 h |
+| 24 | **Live thought stream** — during orchestration, a real-time scrolling log in the IntelligencePanel showing the exact text flowing through each stage: incoming prompt → classified intent → retrieved chunks → assembled context → raw model output. Like watching the AI think aloud. | — | ★★☆ | 1.5 h |
 
 ## Phase 3 — Deep Work (★★★)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 24 | **3D Galaxy (Four-Arm Spiral)** — full Three.js 4-arm logarithmic spiral galaxy with OrbitControls, auto-rotation, dense constellation clusters per arm, zoom-dependent label fading | List 2 | ★★★ | 6–8 h |
-| 25 | **Single Galaxy with 4 Coloured Arms** — Natural Sciences (blue), Social Sciences (teal), Arts (purple/magenta), Applied Sciences (orange/gold). Core = Universal Knowledge. Particles distributed by log-spiral formula. | List 2 | ★★★ | 4–6 h |
-| 26 | **OrbitControls + Zoom-to-Cluster** — smooth camera zoom into an arm to reveal sub-domain constellation clusters with fade labels | List 2 | ★★★ | 4–5 h |
-| 27 | **"Thought Stream" Full-Screen Terminal** — clicking the Intelligence panel expands to a full-screen live log viewer with both backend logs and token-velocity chart overlaid | List 1 | ★★★ | 3–4 h |
-| 28 | **Comparative mode** — submit the same prompt to two different model providers simultaneously and watch both traces unfold side-by-side. A/B testing for LLMs with real-time comparison of latency, output quality, and stage durations. | — | ★★★ | 3–4 h |
+| 25 | **3D Galaxy (Four-Arm Spiral)** — full Three.js 4-arm logarithmic spiral galaxy with OrbitControls, auto-rotation, dense constellation clusters per arm, zoom-dependent label fading | List 2 | ★★★ | 6–8 h |
+| 26 | **Single Galaxy with 4 Coloured Arms** — Natural Sciences (blue), Social Sciences (teal), Arts (purple/magenta), Applied Sciences (orange/gold). Core = Universal Knowledge. Particles distributed by log-spiral formula. | List 2 | ★★★ | 4–6 h |
+| 27 | **OrbitControls + Zoom-to-Cluster** — smooth camera zoom into an arm to reveal sub-domain constellation clusters with fade labels | List 2 | ★★★ | 4–5 h |
+| 28 | **"Thought Stream" Full-Screen Terminal** — clicking the Intelligence panel expands to a full-screen live log viewer with both backend logs and token-velocity chart overlaid | List 1 | ★★★ | 3–4 h |
+| 29 | **Comparative mode** — submit the same prompt to two different model providers simultaneously and watch both traces unfold side-by-side. A/B testing for LLMs with real-time comparison of latency, output quality, and stage durations. | — | ★★★ | 3–4 h |
 
 ## Phase 4 — Polish & Transition Aesthetic (★★☆)
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
-| 29 | **Smooth modal transitions** — modals don't pop; SVG geometric lines slide apart and reassemble to frame new data windows | List 1 | ★★☆ | 2 h |
-| 30 | **Cluster density along arms** — within each arm, denser particle groups to represent sub-domain constellations (Physics cluster, Biology cluster, etc.) | List 2 | ★★☆ | 2 h |
+| 30 | **Smooth modal transitions** — modals don't pop; SVG geometric lines slide apart and reassemble to frame new data windows | List 1 | ★★☆ | 2 h |
+| 31 | **Cluster density along arms** — within each arm, denser particle groups to represent sub-domain constellations (Physics cluster, Biology cluster, etc.) | List 2 | ★★☆ | 2 h |
 
 ---
 

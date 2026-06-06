@@ -23,9 +23,17 @@ interface MachineConfig {
 interface NetworkConfig {
   services: Record<string, ServiceConfig>;
   machines: Record<string, MachineConfig>;
+  mask_ips?: boolean;
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+
+function maskIp(ip: string): string {
+  if (!ip || ip === "127.0.0.1" || ip === "localhost") return ip;
+  const parts = ip.split(".");
+  if (parts.length === 4) return `${parts[0]}.${parts[1]}.x.xxx`;
+  return ip;
+}
 
 interface SettingsModalProps {
   open: boolean;
@@ -39,6 +47,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<"services" | "machines" | "models">("services");
   const [modelProvider, setModelProvider] = useState<string>("local");
+  const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -219,8 +228,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                           <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Host</label>
                           <input
                             type="text"
-                            value={svc.host}
+                            value={config?.mask_ips && focusedField !== `svc-${id}` ? maskIp(svc.host) : svc.host}
                             onChange={(e) => updateService(id, "host", e.target.value)}
+                            onFocus={() => setFocusedField(`svc-${id}`)}
+                            onBlur={() => setFocusedField(null)}
                             className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
                           />
                         </div>
@@ -279,8 +290,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Host IP</label>
                         <input
                           type="text"
-                          value={m.host}
+                          value={config?.mask_ips && focusedField !== `mch-${id}` ? maskIp(m.host) : m.host}
                           onChange={(e) => updateMachine(id, "host", e.target.value)}
+                          onFocus={() => setFocusedField(`mch-${id}`)}
+                          onBlur={() => setFocusedField(null)}
                           className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
                         />
                       </div>
@@ -401,8 +414,22 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
 
             {/* Footer */}
             <div className="flex items-center justify-between px-6 py-3 border-t border-white/[0.06] shrink-0">
-              <div className="text-xs text-zinc-600">
-                Changes apply immediately — no restart required.
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-[11px] text-zinc-500 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={config?.mask_ips ?? false}
+                    onChange={(e) => {
+                      if (!config) return;
+                      setConfig({ ...config, mask_ips: e.target.checked });
+                    }}
+                    className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 accent-teal-mystic cursor-pointer"
+                  />
+                  Mask IPs for demos
+                </label>
+                <span className="text-[10px] text-zinc-600">
+                  Changes apply immediately — no restart required.
+                </span>
               </div>
               <div className="flex gap-2">
                 <button

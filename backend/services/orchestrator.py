@@ -12,7 +12,7 @@ import psutil
 
 logger = logging.getLogger("conductor")
 
-from models.trace import TraceSession, TraceStep, TelemetryImpact
+from models.trace import TraceSession, TraceStep, TelemetryImpact, LlmInsight
 from services import config_manager
 
 # Set to "local" to use Gingerlong's CPU, "backoffice" for GPU worker
@@ -129,6 +129,128 @@ def _detect_insights(session: TraceSession) -> list[str]:
     if session.steps and all(s.status == "complete" for s in session.steps):
         tags.append("perfect_pipeline")
     return tags
+
+
+async def _build_architecture_context() -> str:
+    lines: list[str] = []
+    machines = config_manager.get_machines_config()
+    services = config_manager.get_services()
+
+    for mid, m in machines.items():
+        desc = m.get("insight", m.get("desc", ""))
+        host = m.get("host", "?")
+        svc_list = [s for s in m.get("services", []) if s in services]
+        svc_names = []
+        for sid in svc_list:
+            svc = services[sid]
+            label = svc.get("label", sid)
+            model = svc.get("model", "")
+            if model:
+                label = f"{label} ({model})"
+            svc_names.append(label)
+
+        reachable = await _check_machine_reachable(m, services)
+        status = "reachable" if reachable else "unreachable"
+        lines.append(f"- {m.get('name', mid)} ({host}, {status}): {desc}")
+        if svc_names:
+            lines.append(f"  Services: {', '.join(svc_names)}")
+
+    return "\n".join(lines)
+
+
+async def _check_machine_reachable(machine: dict, services: dict) -> bool:
+    host = machine.get("host", "")
+    if host in ("127.0.0.1", "localhost", ""):
+        return True
+    svc_ids = machine.get("services", [])
+    if not svc_ids:
+        return False
+    targets = []
+    for sid in svc_ids:
+        svc = services.get(sid)
+        if svc and svc.get("enabled", True):
+            svc_host = svc.get("host", host)
+            svc_port = svc.get("port", 80)
+            targets.append((svc_host, svc_port))
+    if not targets:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as c:
+            for svc_host, svc_port in targets:
+                try:
+                    r = await c.get(f"http://{svc_host}:{svc_port}/health", timeout=1.5)
+                    if r.status_code < 500:
+                        return True
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return False
+
+
+async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
+    if not session.steps:
+        return []
+
+    step_map = {s.label: s.duration_ms for s in session.steps if s.label and s.duration_ms}
+    total_ms = sum(step_map.values())
+
+    stages_json = json.dumps(step_map, indent=2)
+    arch = await _build_architecture_context()
+
+    system_prompt = (
+        "You are an AI observability analyst. Given trace data and system architecture, "
+        "generate insights about pipeline performance.\n\n"
+        "SYSTEM ARCHITECTURE (live network topology):\n"
+        f"{arch}\n\n"
+        "Generate exactly 2-4 insights as a JSON array. "
+        'Each object has: "type" ("info" or "recommendation"), "title" (short), "body" (1-2 sentences).\n'
+        "Rules:\n"
+        "- info: factual observation about the trace\n"
+        "- recommendation: specific actionable suggestion based on architecture\n"
+        "- Do NOT mention the model response content, only latency and system behavior\n"
+        "- Focus on bottlenecks, cold starts, and hardware-specific observations\n"
+        "- If a remote GPU worker is unreachable, recommend investigating the connection\n"
+        "- Return ONLY the JSON array, no other text"
+    )
+
+    prompt = (
+        f"TRACE DATA:\n"
+        f'prompt: "{session.prompt[:100]}"\n'
+        f"model: {session.model_used or 'unknown'}\n"
+        f"total_ms: {total_ms}\n"
+        f"stages:\n{stages_json}\n\n"
+        f"Generate 2-4 insights as a JSON array."
+    )
+
+    base_url = config_manager.get_ollama_url()
+    model_name = LOCAL_MODEL
+
+    payload = {
+        "model": model_name,
+        "prompt": prompt,
+        "system": system_prompt,
+        "stream": False,
+        "options": {"num_ctx": 4096},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+            resp = await client.post(f"{base_url}/api/generate", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            raw = data.get("response", "").strip()
+            if not raw:
+                raw = data.get("thinking", "").strip()
+
+            raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            insights_data = json.loads(raw)
+            if isinstance(insights_data, list):
+                return [LlmInsight(**i) for i in insights_data if "type" in i and "title" in i and "body" in i]
+    except Exception as e:
+        logger.warning("LLM insight generation failed: %s", e)
+
+    return []
 
 
 # ── Activity event bus ────────────────────────────────────────────
@@ -316,6 +438,17 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
                f"peak CPU: {peak_cpu}%, peak RAM: {peak_mem}%")
 
     _persist(session)
+
+    # ══ Post-complete async insight generation ═══════════════════
+    try:
+        insights = await _generate_llm_insights(session)
+        if insights:
+            session.llm_insights = insights
+            _persist(session)
+            logger.info("LLM insights generated for %s: %d insights", trace_id, len(insights))
+    except Exception as e:
+        logger.warning("LLM insight step failed for %s: %s", trace_id, e)
+
     return session
 
 

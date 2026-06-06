@@ -4,6 +4,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class LlmInsight(BaseModel):
+    type: str  # "info" or "recommendation"
+    title: str
+    body: str
+
+
 class TraceStep(BaseModel):
     id: str
     label: str
@@ -40,3 +46,4 @@ class TraceSession(BaseModel):
     model_used: str | None = None
     agent_used: str | None = None
     telemetry_impact: TelemetryImpact | None = None
+    llm_insights: list[LlmInsight] = Field(default_factory=list)
