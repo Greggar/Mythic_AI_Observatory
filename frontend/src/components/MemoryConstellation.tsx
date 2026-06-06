@@ -584,10 +584,8 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
         const gap = 8;
         const rect = containerRef.current?.getBoundingClientRect();
         if (!rect) return null;
-        const scaleX = rect.width / W;
-        const scaleY = rect.height / H;
-        const sx = rect.left + hovered.x * scaleX;
-        const sy = rect.top + hovered.y * scaleY;
+        const sx = rect.left + hovered.x;
+        const sy = rect.top + hovered.y;
         const tw = 180;
         const onRight = sx + tw + gap < window.innerWidth;
         const left = onRight ? sx + gap : sx - tw - gap;

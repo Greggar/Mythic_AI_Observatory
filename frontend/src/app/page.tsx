@@ -76,12 +76,13 @@ export default function Home() {
     }
   }, [phase, trace?.confidence]);
 
-  // Handle history replay
+  // Handle history replay — load trace and switch to Trace tab
   const handleHistorySelect = useCallback(async (traceId: string) => {
     try {
       const res = await fetch(`${API_BASE}/api/traces/${traceId}`);
       const data = await res.json();
       setReplayTrace(data);
+      setActiveTab("trace");
     } catch {
       // silently fail
     }
@@ -219,6 +220,10 @@ export default function Home() {
           </aside>
 
           <section className="flex-1 flex flex-col gap-6">
+            <div className="flex flex-col gap-3">
+              <PromptInput onSubmit={handleSubmit} loading={loading} />
+            </div>
+
             <SolarNexus
               telemetry={telemetry}
               trace={activeTrace}
@@ -227,10 +232,6 @@ export default function Home() {
               phase={activePhase}
               observatoryMode={isIdle}
             />
-
-            <div className="flex flex-col gap-3">
-              <PromptInput onSubmit={handleSubmit} loading={loading} />
-            </div>
 
             {/* Trace output */}
             {activeTrace && (
@@ -243,10 +244,6 @@ export default function Home() {
           </section>
 
           <aside className="w-64 shrink-0 space-y-4">
-            <MemoryConstellation
-              onSelect={handleHistorySelect}
-              refreshTrigger={historyRefresh}
-            />
           </aside>
         </div>
       )}
