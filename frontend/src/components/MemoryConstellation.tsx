@@ -184,25 +184,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
   const [noteTags, setNoteTags] = useState("");
   const [noteRating, setNoteRating] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState("");
-  const [expanded, setExpanded] = useState(false);
-  const expandTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const engage = useCallback(() => {
-    if (expandTimeout.current) clearTimeout(expandTimeout.current);
-    setExpanded(true);
-  }, []);
-
-  const disengage = useCallback(() => {
-    if (expandTimeout.current) clearTimeout(expandTimeout.current);
-    expandTimeout.current = setTimeout(() => setExpanded(false), 2000);
-  }, []);
-
-  // Keep expanded while annotations section is open
-  useEffect(() => {
-    if (selectedTraceId) {
-      engage();
-    }
-  }, [selectedTraceId, engage]);
 
   useEffect(() => setMounted(true), []);
 
@@ -331,11 +313,8 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
 
   return (
     <>
-    <style>{`.memory-expanded{background:rgba(6,20,35,0.95)!important;box-shadow:0 25px 50px -12px rgba(0,0,0,0.6)!important}`}</style>
     <div
-      className={`glass-panel p-4 space-y-3 transition-transform duration-300 ease-out origin-top-right ${
-        expanded ? "scale-[2.6] relative z-40 overflow-visible memory-expanded" : ""
-      }`}
+      className="glass-panel p-4 space-y-3"
     >
       <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -366,13 +345,6 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
         <input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          onFocus={engage}
-          onBlur={(e) => {
-            // Don't disengage if focus moves to another element in the panel
-            if (!e.currentTarget.parentElement?.parentElement?.contains(e.relatedTarget as Node)) {
-              disengage();
-            }
-          }}
           placeholder="Filter traces..."
           className="w-full bg-white/[0.04] border border-white/[0.08] rounded text-[10px] pl-7 pr-2 py-1.5 text-zinc-400 placeholder-zinc-600 focus:outline-none focus:border-teal-mystic/30"
         />
@@ -391,8 +363,6 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
       <div
         ref={containerRef}
         className="relative overflow-hidden rounded-lg"
-        onMouseEnter={engage}
-        onMouseLeave={disengage}
         style={{ background: "linear-gradient(180deg, #041824 0%, #0a2d38 50%, #06303d 100%)" }}
       >
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">

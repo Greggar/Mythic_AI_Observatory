@@ -109,7 +109,7 @@ export default function Home() {
   const activeTrace = replayTrace || trace;
 
   const isIdle = !activeTrace && !loading;
-  const [activeTab, setActiveTab] = useState<"systems" | "traces">("systems");
+  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "history">("systems");
 
   return (
     <div className="flex flex-col flex-1 p-6 gap-6 max-w-7xl mx-auto w-full min-h-screen">
@@ -132,21 +132,31 @@ export default function Home() {
               Systems
             </button>
             <button
-              onClick={() => setActiveTab("traces")}
+              onClick={() => setActiveTab("trace")}
               className={`px-3 py-1.5 text-[11px] font-mono tracking-wider rounded-md transition-all ${
-                activeTab === "traces"
+                activeTab === "trace"
                   ? "bg-teal-mystic/15 text-teal-mystic shadow-sm"
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
-              Traces
+              Trace
+            </button>
+            <button
+              onClick={() => setActiveTab("history")}
+              className={`px-3 py-1.5 text-[11px] font-mono tracking-wider rounded-md transition-all ${
+                activeTab === "history"
+                  ? "bg-teal-mystic/15 text-teal-mystic shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              History
             </button>
           </nav>
         </div>
 
-        {/* Session ID badge — center */}
+        {/* Session ID badge */}
         {activeTrace && (
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
+          <div className="flex items-center gap-2 ml-3">
             <span className="text-[9px] font-mono tracking-wider px-2 py-1 rounded-full
               bg-teal-mystic/[0.08] text-teal-mystic border border-teal-mystic/[0.15]">
               ORCH-{activeTrace.id}
@@ -194,8 +204,8 @@ export default function Home() {
         </div>
       )}
 
-      {/* Traces Tab */}
-      {activeTab === "traces" && (
+      {/* Trace Tab — singular, current orchestration */}
+      {activeTab === "trace" && (
         <div className="flex flex-1 gap-6">
           <aside className="w-64 shrink-0 space-y-4">
             <IntelligencePanel
@@ -222,7 +232,7 @@ export default function Home() {
               <PromptInput onSubmit={handleSubmit} loading={loading} />
             </div>
 
-            {/* Orchestration trace output */}
+            {/* Trace output */}
             {activeTrace && (
               <div ref={timelineRef} className="max-w-3xl w-full">
                 <ObservatoryPanel active={!!activeTrace}>
@@ -237,6 +247,33 @@ export default function Home() {
               onSelect={handleHistorySelect}
               refreshTrigger={historyRefresh}
             />
+          </aside>
+        </div>
+      )}
+
+      {/* History Tab — aggregate trace browsing */}
+      {activeTab === "history" && (
+        <div className="flex flex-1 gap-6">
+          <aside className="w-64 shrink-0 space-y-4">
+            <IntelligencePanel
+              telemetry={telemetry}
+              connected={connected}
+              trace={activeTrace}
+              traceActive={activePhase === "replaying" || activePhase === "complete"}
+              activeStepIndex={activeStep}
+              phase={activePhase}
+            />
+          </aside>
+
+          <section className="flex-1 flex flex-col gap-6">
+            <MemoryConstellation
+              onSelect={handleHistorySelect}
+              refreshTrigger={historyRefresh}
+            />
+          </section>
+
+          <aside className="w-64 shrink-0 space-y-4">
+            {/* Future: aggregate stats, fingerprints, trace list */}
           </aside>
         </div>
       )}

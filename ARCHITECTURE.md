@@ -608,7 +608,39 @@ if _MODEL_PROVIDER == "local":
 - When using `asyncio.create_task`, attach a done callback that checks `task.exception()` or wrap the task body in a try/except that logs any crash. Without this, background task failures are indistinguishable from a slow model call.
 - Python's `_MODEL_PROVIDER` vs `MODEL_PROVIDER` underscore convention is easy to get wrong when writing defensive conditions inside long functions. Consider using a typed configuration object with IDE support instead of a bare module-level `str`.
 
+### 6.14 Corrupted CSS Bundle After Interrupted Rebuild
+
+**Symptom:** Frontend renders as a white page with gray SVG shapes ("large gray sunburst on white") — all dark backgrounds and glass-panel effects missing. The page HTML is correct but CSS styles are not applied.
+
+**Diagnosis:**
+1. The HTML served correctly (check with `curl | grep "deep-abyss"` — should return `1`).
+2. The CSS `<link>` tag was present in the HTML.
+3. Fetching the CSS file directly returned `500 Internal Server Error` — the CSS chunk in `.next/` was truncated or corrupted from a previous partial build.
+
+**Root cause:** A `pkill -f "next start"` killed the Next.js production server while a build was still writing output files, leaving a partial/corrupt `.next/static/chunks/*.css` file. The Next.js server process served the (correct) HTML from the static build, but the (corrupt) CSS from the interrupted write. Hard-refreshing the browser didn't help because the CSS file itself was broken — not a caching issue.
+
+**Fix:**
+```bash
+pkill -f "next-server"          # Kill the running server
+rm -rf .next                     # Remove entire build output
+npx next build                   # Clean build (takes 30-60s)
+nohup npx next start -p 3001 -H 0.0.0.0 &
+```
+
+The `rm -rf .next` is critical — a partial rebuild (`npx next build` without cleaning) may reuse the corrupted chunks and produce the same broken output.
+
+**Verification:**
+```bash
+css_href=$(curl -s http://localhost:3001 | grep -oP 'href="/_next/static/chunks/[^"]*\.css"' | head -1 | grep -oP '"[^"]+' | tr -d '"')
+curl -s "http://localhost:3001${css_href}" | grep "deep-abyss"
+# Should output: 1
+```
+
+**Lesson:** Never kill the Next.js production server while it's in the middle of writing build artifacts. Always stop the server cleanly (`pkill` then wait for process to disappear) before rebuilding. If the server was killed mid-write, always do `rm -rf .next` before the next build — incremental builds from a corrupted state produce corrupted output.
+
 ---
+
+
 
 
 
