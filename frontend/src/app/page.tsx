@@ -109,18 +109,44 @@ export default function Home() {
   const activeTrace = replayTrace || trace;
 
   const isIdle = !activeTrace && !loading;
+  const [activeTab, setActiveTab] = useState<"systems" | "traces">("systems");
 
   return (
     <div className="flex flex-col flex-1 p-6 gap-6 max-w-7xl mx-auto w-full min-h-screen">
-      <header className="relative flex items-center justify-center pb-2 border-b border-white/[0.04]">
-        <div className="mythic-heading">
-          <span className="mythic">MYTHIC</span>
-          <span className="sub">AI OBSERVATORY</span>
+      <header className="relative flex items-center pb-2 border-b border-white/[0.04]">
+        {/* Tab bar — left */}
+        <div className="flex items-center gap-6">
+          <div className="mythic-heading shrink-0">
+            <span className="mythic">MYTHIC</span>
+            <span className="sub">AI OBSERVATORY</span>
+          </div>
+          <nav className="flex items-center gap-1 bg-white/[0.03] rounded-lg p-0.5 border border-white/[0.06]">
+            <button
+              onClick={() => setActiveTab("systems")}
+              className={`px-3 py-1.5 text-[11px] font-mono tracking-wider rounded-md transition-all ${
+                activeTab === "systems"
+                  ? "bg-teal-mystic/15 text-teal-mystic shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Systems
+            </button>
+            <button
+              onClick={() => setActiveTab("traces")}
+              className={`px-3 py-1.5 text-[11px] font-mono tracking-wider rounded-md transition-all ${
+                activeTab === "traces"
+                  ? "bg-teal-mystic/15 text-teal-mystic shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Traces
+            </button>
+          </nav>
         </div>
 
-        {/* Session ID badge */}
+        {/* Session ID badge — center */}
         {activeTrace && (
-          <div className="absolute left-0 flex items-center gap-2">
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
             <span className="text-[9px] font-mono tracking-wider px-2 py-1 rounded-full
               bg-teal-mystic/[0.08] text-teal-mystic border border-teal-mystic/[0.15]">
               ORCH-{activeTrace.id}
@@ -131,14 +157,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className="absolute right-0 flex items-center gap-2">
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="text-zinc-600 hover:text-teal-mystic transition-colors p-2 rounded-full hover:bg-white/[0.04]"
-            title="Network settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+        <div className="ml-auto flex items-center gap-2">
           {replayTrace && (
             <button
               onClick={() => setReplayTrace(null)}
@@ -147,52 +166,80 @@ export default function Home() {
               Clear replay
             </button>
           )}
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="text-zinc-600 hover:text-teal-mystic transition-colors p-2 rounded-full hover:bg-white/[0.04]"
+            title="Network settings"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
-      {/* Main layout — 3 columns */}
-      <div className="flex flex-1 gap-6">
-        {/* Left — Telemetry */}
-        <aside className="w-64 shrink-0 space-y-4">
-          <SystemVitalsPanel />
-          <EngineStatusPanel telemetry={telemetry} />
-        </aside>
+      {/* Systems Tab */}
+      {activeTab === "systems" && (
+        <div className="flex flex-1 gap-6">
+          <aside className="w-64 shrink-0 space-y-4">
+            <SystemVitalsPanel />
+            <EngineStatusPanel telemetry={telemetry} />
+          </aside>
 
-        {/* Centre — Visualisation + Input */}
-        <section className="flex-1 flex flex-col gap-6">
-          <SolarNexus
-            telemetry={telemetry}
-            trace={activeTrace}
-            traceActive={activePhase === "replaying" || activePhase === "complete"}
-            activeTraceStep={activePhase === "replaying" ? activeStep : null}
-            phase={activePhase}
-            observatoryMode={isIdle}
-          />
+          <section className="flex-1 flex flex-col gap-6">
+            <ResourceConstellation active={isLiveProcessing} />
+          </section>
 
-          <ResourceConstellation active={isLiveProcessing} />
+          <aside className="w-64 shrink-0 space-y-4">
+            <ActivityFeed />
+          </aside>
+        </div>
+      )}
 
-          <div className="flex flex-col gap-3">
-            <PromptInput onSubmit={handleSubmit} loading={loading} />
-          </div>
-        </section>
+      {/* Traces Tab */}
+      {activeTab === "traces" && (
+        <div className="flex flex-1 gap-6">
+          <aside className="w-64 shrink-0 space-y-4">
+            <IntelligencePanel
+              telemetry={telemetry}
+              connected={connected}
+              trace={activeTrace}
+              traceActive={activePhase === "replaying" || activePhase === "complete"}
+              activeStepIndex={activeStep}
+              phase={activePhase}
+            />
+          </aside>
 
-        {/* Right — Intelligence + History */}
-        <aside className="w-64 shrink-0 space-y-4">
-          <ActivityFeed />
-          <MemoryConstellation
-            onSelect={handleHistorySelect}
-            refreshTrigger={historyRefresh}
-          />
-          <IntelligencePanel
-            telemetry={telemetry}
-            connected={connected}
-            trace={activeTrace}
-            traceActive={activePhase === "replaying" || activePhase === "complete"}
-            activeStepIndex={activeStep}
-            phase={activePhase}
-          />
-        </aside>
-      </div>
+          <section className="flex-1 flex flex-col gap-6">
+            <SolarNexus
+              telemetry={telemetry}
+              trace={activeTrace}
+              traceActive={activePhase === "replaying" || activePhase === "complete"}
+              activeTraceStep={activePhase === "replaying" ? activeStep : null}
+              phase={activePhase}
+              observatoryMode={isIdle}
+            />
+
+            <div className="flex flex-col gap-3">
+              <PromptInput onSubmit={handleSubmit} loading={loading} />
+            </div>
+
+            {/* Orchestration trace output */}
+            {activeTrace && (
+              <div ref={timelineRef} className="max-w-3xl w-full">
+                <ObservatoryPanel active={!!activeTrace}>
+                  <TraceTimeline trace={activeTrace} />
+                </ObservatoryPanel>
+              </div>
+            )}
+          </section>
+
+          <aside className="w-64 shrink-0 space-y-4">
+            <MemoryConstellation
+              onSelect={handleHistorySelect}
+              refreshTrigger={historyRefresh}
+            />
+          </aside>
+        </div>
+      )}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
@@ -204,14 +251,6 @@ export default function Home() {
         triggerEvent={discoveryTrigger}
       />
 
-      {/* Orchestration trace output */}
-      {activeTrace && (
-        <div ref={timelineRef} className="max-w-3xl mx-auto w-full">
-          <ObservatoryPanel active={!!activeTrace}>
-            <TraceTimeline trace={activeTrace} />
-          </ObservatoryPanel>
-        </div>
-      )}
     </div>
   );
 }

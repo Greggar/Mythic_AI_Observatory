@@ -156,22 +156,22 @@ No restart or reload needed — the next `_call_model()` invocation reads the cu
 
 ```
 layout.tsx          — Root layout, Geist fonts, dark background
-  page.tsx          — Main dashboard: vitals + nexus + system orbit + prompt + timeline + settings
+  page.tsx          — Tabbed dashboard: Systems tab / Traces tab + settings
 
-  ├── SystemVitalsPanel   — Machine health cards with drill-down overlay
-  ├── SolarNexus          — Animated SVG orchestration viz + ContextPane
-  │   └── ContextPane     — Split-pane: system prompt / assembled context, TokenMeter (collapsible)
-  ├── ResourceConstellation — Solar system viz with machine planets + service glyphs w/ hover tooltips
-  ├── IntelligencePanel   — Confidence ring, stage descriptions, model, token estimate, duration
-  │   └── StageDescriptions — Human-readable explanations for each of the 7 orchestration stages
-  ├── EngineStatusPanel   — Runtime Metrics dashboard: throughput, avg latency, error count, mini duration bar chart w/ hover trace details
-  ├── MemoryConstellation — History browser — spiral galaxy SVG; expands (scale 1.3x) with opaque overlay on hover/click; shows context_assembled toggle per trace
-
-  ├── PromptInput         — Textarea + submit button with Cmd+Enter
+  │   [Systems Tab]                    [Traces Tab]
+  │   ─────────────                    ───────────
+  │   ├── SystemVitalsPanel            ├── IntelligencePanel
+  │   ├── EngineStatusPanel            │   └── StageDescriptions
+  │   ├── ResourceConstellation        ├── SolarNexus
+  │   └── ActivityFeed                 │   └── ContextPane
+  │                                    ├── PromptInput
+  │                                    ├── ObservatoryPanel
+  │                                    │   └── TraceTimeline
+  │                                    │       └── TimelineStep
+  │                                    └── MemoryConstellation
+  │
   ├── SettingsModal       — Network config + Models tab (provider hot-swap)
-  ├── ObservatoryPanel    — Animated container (reveals on trace)
-  │   └── TraceTimeline   — Step-by-step timeline with status markers
-  │       └── TimelineStep — Individual step row (icon, label, duration, collapsible context_assembled)
+  └── DiscoveryEvents     — Toast overlay on orchestration completion
 ```
 
 ### Custom Hooks
@@ -787,7 +787,7 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/package.json` | Dependencies and scripts (`dev` on port 3001) |
 | `frontend/src/app/globals.css` | Tailwind v4 theme with custom colours + glassmorphism |
 | `frontend/src/app/layout.tsx` | Root layout with Geist fonts |
-| `frontend/src/app/page.tsx` | Main dashboard: vitals + nexus + system orbit + prompt + timeline + session ID display; increments `historyRefresh` on trace completion to trigger MemoryConstellation re-fetch |
+| `frontend/src/app/page.tsx` | Tabbed dashboard: Systems tab (vitals, runtime metrics, system orbit, activity feed) and Traces tab (intelligence, nexus, prompt, timeline, memory constellation); tab bar with active state; increments `historyRefresh` on trace completion |
 | `frontend/src/components/PromptInput.tsx` | Textarea with submit, Cmd+Enter, loading state |
 | `frontend/src/components/TraceTimeline.tsx` | Full timeline: steps + resolution output |
 | `frontend/src/components/TimelineStep.tsx` | Single step row with status icon, duration |
@@ -817,4 +817,4 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 
 ---
 
-*Generated 2026-06-05. Update this document when making architectural changes.*
+*Generated 2026-06-06. Update this document when making architectural changes.*
