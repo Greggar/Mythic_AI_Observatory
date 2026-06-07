@@ -12,7 +12,7 @@ import {
   Activity,
 } from "lucide-react";
 import type { Telemetry } from "@/hooks/useWebSocket";
-import type { TraceSession } from "@/types/trace";
+import type { TraceSession, TraceStep } from "@/types/trace";
 
 interface Props {
   telemetry: Telemetry | null;
@@ -134,7 +134,116 @@ function ConfidenceRing({ confidence, cx, cy, r }: { confidence: number; cx: num
   );
 }
 
-import { useEffect, useRef, useState } from "react";
+interface IntentProb {
+  label: string;
+  confidence: number;
+}
+
+interface RetrievedChunk {
+  trace_id: string;
+  content: string;
+  relevance: number;
+  used: boolean;
+}
+
+function ThoughtStream({ entries }: { entries: { label: string; text: string; isModel: boolean }[] }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [entries.length]);
+  if (entries.length === 0) return null;
+  return (
+    <div className="rounded-xl bg-black/40 border border-white/[0.06] overflow-hidden">
+      <div className="text-[8px] font-semibold tracking-widest uppercase text-zinc-600 p-2 border-b border-white/[0.04]">
+        Thought Stream
+      </div>
+      <div className="max-h-36 overflow-y-auto p-2 space-y-1.5 font-mono text-[10px] leading-relaxed">
+        {entries.map((e, i) => (
+          <div key={i}>
+            <span className={`${e.isModel ? "text-teal-mystic/70" : "text-zinc-500"}`}>
+              [{e.label}]
+            </span>
+            <span className="text-zinc-400 ml-1">{e.text}</span>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+    </div>
+  );
+}
+
+function ChunkDisplay({ chunks }: { chunks: RetrievedChunk[] }) {
+  if (chunks.length === 0) return null;
+  const used = chunks.filter((c) => c.used);
+  const discarded = chunks.filter((c) => !c.used);
+  return (
+    <div className="space-y-2">
+      <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-500">
+        Retrieved Chunks
+      </div>
+      {used.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[8px] font-mono text-jade-glow/60 tracking-wider uppercase">Used</div>
+          {used.map((chunk, i) => (
+            <div key={i} className="p-2 rounded-lg bg-jade-glow/[0.04] border border-jade-glow/[0.08]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] font-mono text-jade-glow/70 truncate flex-1">{chunk.content}</span>
+                <span className="text-[8px] font-mono text-jade-glow/50 shrink-0">{Math.round(chunk.relevance * 100)}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {discarded.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[8px] font-mono text-zinc-600 tracking-wider uppercase">Discarded</div>
+          {discarded.map((chunk, i) => (
+            <div key={i} className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] font-mono text-zinc-600 truncate flex-1">{chunk.content}</span>
+                <span className="text-[8px] font-mono text-zinc-700 shrink-0">{Math.round(chunk.relevance * 100)}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IntentProbs({ intents }: { intents: IntentProb[] }) {
+  const maxConf = Math.max(...intents.map((i) => i.confidence), 0.01);
+  return (
+    <div className="mt-2 space-y-1.5">
+      <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-500 mb-1">
+        Intent Probabilities
+      </div>
+      {intents.map((intent, i) => {
+        const pct = Math.round(intent.confidence * 100);
+        const color =
+          intent.confidence > 0.6
+            ? "bg-teal-mystic"
+            : intent.confidence > 0.25
+              ? "bg-solar-gold"
+              : "bg-zinc-500";
+        return (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-[10px] font-mono text-zinc-400 w-20 truncate">{intent.label}</span>
+            <div className="flex-1 h-2 rounded-full bg-white/[0.05] overflow-hidden">
+              <div
+                className={`h-full rounded-full ${color} transition-all duration-500`}
+                style={{ width: `${(intent.confidence / maxConf) * 100}%` }}
+              />
+            </div>
+            <span className="text-[10px] font-mono text-zinc-500 w-8 text-right">{pct}%</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface StageInfo {
   label: string;
@@ -178,6 +287,53 @@ export default function IntelligencePanel({
   const insightTags = trace?.insight_tags ?? [];
   const [showContext, setShowContext] = useState(false);
   const [showReplayContext, setShowReplayContext] = useState<string | null>(null);
+  const [rootCauseIdx, setRootCauseIdx] = useState<number | null>(null);
+  const [showThoughtStream, setShowThoughtStream] = useState(false);
+
+  // Build thought stream entries from completed trace steps
+  const thoughtEntries = useMemo(() => {
+    if (!trace) return [];
+    const entries: { label: string; text: string; isModel: boolean }[] = [];
+    for (const step of trace.steps) {
+      if (step.status !== "complete") continue;
+      const isModel = step.model_used != null;
+      const text = step.metadata?.output
+        ? (step.metadata.output as string).substring(0, 120)
+        : step.context_assembled
+          ? step.context_assembled.substring(0, 120)
+          : "✓";
+      entries.push({ label: step.label, text, isModel });
+    }
+    return entries;
+  }, [trace]);
+
+  function findRootCause(session: TraceSession): { index: number; reason: string } | null {
+    const steps = session.steps;
+    if (!steps || steps.length === 0) return null;
+    // 1. Error stage takes priority
+    for (let i = 0; i < steps.length; i++) {
+      if (steps[i].status === "error") return { index: i, reason: `${steps[i].label} failed with an error` };
+    }
+    // 2. Duration outlier — stage more than 2x the median
+    const durations = steps.map((s) => s.duration_ms).filter((d): d is number => d !== null);
+    if (durations.length > 2) {
+      const sorted = [...durations].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      for (let i = 0; i < steps.length; i++) {
+        const d = steps[i].duration_ms;
+        if (d !== null && d > median * 2 && d > 2000) {
+          return { index: i, reason: `${steps[i].label} took ${(d / 1000).toFixed(1)}s — ${(d / median).toFixed(1)}x the median stage duration` };
+        }
+      }
+    }
+    // 3. Short output — flag Response Generation
+    if (session.output && session.output.length < 50) {
+      const respIdx = steps.findIndex((s) => s.label === "Response Generation");
+      if (respIdx !== -1) return { index: respIdx, reason: "Response was unusually short (<50 chars)" };
+    }
+    // 4. No clear culprit
+    return null;
+  }
 
   return (
     <div className="glass-panel p-5 space-y-5">
@@ -242,6 +398,9 @@ export default function IntelligencePanel({
             </div>
             <div className="text-sm font-medium text-teal-mystic">{currentStage.label}</div>
             <div className="mt-1 text-[10px] text-zinc-500 leading-tight">{stageDesc(currentStage.label)}</div>
+            {currentStage.label === "Intent Classification" && Array.isArray(currentStage.metadata?.intent_probs) && (
+              <IntentProbs intents={currentStage.metadata.intent_probs as IntentProb[]} />
+            )}
             {(currentStage.metadata?.output as string | undefined) && (
               <div className="mt-2 text-[11px] text-zinc-400 font-mono leading-relaxed line-clamp-2">
                 {(currentStage.metadata.output as string)}
@@ -313,6 +472,19 @@ export default function IntelligencePanel({
               })}
             </div>
           </div>
+
+          {/* Thought stream toggle */}
+          {thoughtEntries.length > 0 && (
+            <button
+              onClick={() => setShowThoughtStream(!showThoughtStream)}
+              className="w-full text-[9px] font-mono tracking-wider text-zinc-600 hover:text-zinc-400 transition-colors pt-1"
+            >
+              {showThoughtStream ? "▾ Hide thought stream" : "▸ Show thought stream"}
+            </button>
+          )}
+          {showThoughtStream && thoughtEntries.length > 0 && (
+            <ThoughtStream entries={thoughtEntries} />
+          )}
         </div>
       )}
 
@@ -338,6 +510,30 @@ export default function IntelligencePanel({
               <svg width="80" height="80" viewBox="0 0 80 80">
                 <ConfidenceRing confidence={confidence} cx={40} cy={40} r={28} />
               </svg>
+            </div>
+          )}
+
+          {/* Trace Root Cause */}
+          {rootCauseIdx === null ? (
+            <button
+              onClick={() => {
+                const result = findRootCause(trace);
+                if (result) setRootCauseIdx(result.index);
+              }}
+              className="w-full p-2 rounded-xl bg-white/[0.03] border border-white/[0.06] text-[9px] font-mono tracking-wider text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-all"
+            >
+              Trace root cause
+            </button>
+          ) : (
+            <div className="p-3 rounded-xl bg-amber-500/[0.06] border border-amber-500/[0.15]">
+              <div className="flex items-center gap-2 text-amber-400 mb-1">
+                <Activity size={11} />
+                <span className="text-[9px] font-semibold tracking-widest uppercase">Likely Culprit</span>
+              </div>
+              <div className="text-[11px] font-mono text-amber-300">
+                Stage {rootCauseIdx + 1}: {trace.steps[rootCauseIdx]?.label}
+              </div>
+              <div className="text-[10px] text-zinc-400 mt-0.5">{findRootCause(trace)?.reason}</div>
             </div>
           )}
 
@@ -393,6 +589,13 @@ export default function IntelligencePanel({
                   <div className="text-[11px] font-mono text-zinc-300">{trace.telemetry_impact.avg_mem}%</div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Memory Retrieval chunks */}
+          {(trace.steps.find((s) => s.label === "Memory Retrieval")?.metadata?.retrieved_chunks as RetrievedChunk[] | undefined) && (
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
+              <ChunkDisplay chunks={trace.steps.find((s) => s.label === "Memory Retrieval")!.metadata!.retrieved_chunks as RetrievedChunk[]} />
             </div>
           )}
 

@@ -9,7 +9,7 @@ interface Vital {
   id: string;
   label: string;
   value: string;
-  status: "green" | "yellow" | "red";
+  status: "green" | "yellow" | "red" | "unavailable";
   spark: number[];
 }
 
@@ -18,7 +18,7 @@ interface Machine {
   name: string;
   desc: string;
   insight: string;
-  status: "healthy" | "warning" | "critical";
+  status: "healthy" | "warning" | "critical" | "unavailable";
   vitals: Vital[];
 }
 
@@ -41,12 +41,16 @@ const STATUS_COLORS: Record<string, { dot: string; badge: string; text: string }
   critical: { dot: "bg-[oklch(55%_0.22_30)] shadow-[0_0_4px_oklch(55%_0.22_30)]",
               badge: "bg-[oklch(55%_0.22_30/0.12)] text-[oklch(55%_0.22_30)] border-[oklch(55%_0.22_30/0.2)]",
               text: "Critical" },
+  unavailable: { dot: "bg-[oklch(72%_0.14_75)] shadow-[0_0_4px_oklch(72%_0.14_75)]",
+                 badge: "bg-[oklch(72%_0.14_75/0.12)] text-[oklch(72%_0.14_75)] border-[oklch(72%_0.14_75/0.2)]",
+                 text: "Unavailable" },
 };
 
 const VITAL_COLORS: Record<string, string> = {
   green:  "oklch(62% 0.16 145)",
   yellow: "oklch(78% 0.14 85)",
   red:    "oklch(55% 0.22 30)",
+  unavailable: "oklch(72% 0.14 75)",
 };
 
 function CornerOrnament({ className }: { className: string }) {
@@ -62,8 +66,8 @@ function CornerOrnament({ className }: { className: string }) {
 
 function CelestialOrb({ status }: { status: string }) {
   const clr = VITAL_COLORS[status] || "oklch(52% 0.03 265)";
-  const opacity = status === "red" ? "0.85" : status === "yellow" ? "0.7" : "0.6";
-  const pulseDur = status === "red" ? "1s" : status === "yellow" ? "2s" : "2.5s";
+  const opacity = status === "red" ? "0.85" : status === "unavailable" ? "0.75" : status === "yellow" ? "0.7" : "0.6";
+  const pulseDur = status === "red" ? "1s" : status === "unavailable" ? "1.5s" : status === "yellow" ? "2s" : "2.5s";
   return (
     <span className="relative inline-flex shrink-0 w-4 h-4">
       <span
@@ -117,6 +121,7 @@ function VitalItem({ vital, onDrill }: { vital: Vital; onDrill: () => void }) {
         className={`ml-auto font-mono text-[10px] font-semibold tracking-[0.02em] tabular-nums ${
           vital.status === "green" ? "text-[oklch(62%_0.16_145)]" :
           vital.status === "yellow" ? "text-[oklch(78%_0.14_85)]" :
+          vital.status === "unavailable" ? "text-[oklch(72%_0.14_75)]" :
           "text-[oklch(55%_0.22_30)]"
         }`}
       >
@@ -268,7 +273,7 @@ export default function SystemVitalsPanel() {
                 </h2>
                 <div className="text-[10px] text-[oklch(52%_0.03_265)] italic mb-3">
                   {activeVital.value} &mdash;{" "}
-                  {activeVital.status === "green" ? "Healthy" : activeVital.status === "yellow" ? "Warning" : "Critical"}
+                  {activeVital.status === "green" ? "Healthy" : activeVital.status === "yellow" ? "Warning" : activeVital.status === "unavailable" ? "Unavailable" : "Critical"}
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-[oklch(32%_0.06_265/0.45)]">
                   <span className="text-[11px] text-[oklch(52%_0.03_265)]">Current</span>
@@ -285,9 +290,23 @@ export default function SystemVitalsPanel() {
                   <span className={`font-mono text-[12px] tabular-nums ${
                     activeVital.status === "green" ? "text-[oklch(62%_0.16_145)]" :
                     activeVital.status === "yellow" ? "text-[oklch(78%_0.14_85)]" :
+                    activeVital.status === "unavailable" ? "text-[oklch(72%_0.14_75)]" :
                     "text-[oklch(55%_0.22_30)]"
-                  }`}>
-                    {activeVital.status === "green" ? "Healthy" : activeVital.status === "yellow" ? "Warning" : "Critical"}
+
+  }`}>
+                    {activeVital.value}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1.5 border-b border-[oklch(32%_0.06_265/0.45)]">
+                  <span className="text-[11px] text-[oklch(52%_0.03_265)]">Status</span>
+                  <span className={`font-mono text-[12px] tabular-nums ${
+                    activeVital.status === "green" ? "text-[oklch(62%_0.16_145)]" :
+                    activeVital.status === "yellow" ? "text-[oklch(78%_0.14_85)]" :
+                    activeVital.status === "unavailable" ? "text-[oklch(72%_0.14_75)]" :
+                    "text-[oklch(55%_0.22_30)]"
+
+  }`}>
+                    {activeVital.status === "green" ? "Healthy" : activeVital.status === "yellow" ? "Warning" : activeVital.status === "unavailable" ? "Unavailable" : "Critical"}
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-[oklch(32%_0.06_265/0.45)]">

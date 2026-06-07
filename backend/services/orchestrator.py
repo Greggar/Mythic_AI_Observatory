@@ -39,7 +39,10 @@ HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "traces.jso
 STAGES: list[dict[str, Any]] = [
     {"id": "step-1", "label": "Request Received", "model": None, "system": None},
     {"id": "step-2", "label": "Intent Classification", "model": "backoffice",
-     "system": "You are an intent classifier. Respond with one short sentence classifying the user request."},
+     "system": "You are an intent classifier. Respond with ONLY a JSON object with these fields:\n"
+              "- \"classification\": a short one-sentence classification of the user request\n"
+              "- \"intents\": an array of the top-3 most likely intents, each with \"label\" (short intent name) and \"confidence\" (0.0 to 1.0, all values sum to 1.0)\n\n"
+              "Example: {\"classification\": \"User is asking a factual question about history.\", \"intents\": [{\"label\": \"factual_query\", \"confidence\": 0.85}, {\"label\": \"educational_request\", \"confidence\": 0.10}, {\"label\": \"casual_curiosity\", \"confidence\": 0.05}]}"},
     {"id": "step-3", "label": "Agent Selection", "model": None, "system": None},
     {"id": "step-4", "label": "Memory Retrieval", "model": None, "system": None},
     {"id": "step-5", "label": "Context Synthesis", "model": "backoffice",
@@ -50,6 +53,28 @@ STAGES: list[dict[str, Any]] = [
 ]
 
 LOCAL_MODEL = "qwen2.5:3b"
+
+
+async def warmup_model() -> None:
+    """Preload model into Ollama memory so first real trace doesn't pay cold-start cost."""
+    base_url = config_manager.get_ollama_url()
+    if not base_url:
+        logger.warning("No Ollama URL configured — skipping model warm-up")
+        return
+    model_name = LOCAL_MODEL
+    payload = {
+        "model": model_name,
+        "prompt": "hello",
+        "stream": False,
+        "options": {"num_ctx": 4096},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(f"{base_url}/api/generate", json=payload)
+            resp.raise_for_status()
+            logger.info("Model warm-up complete: %s (%s)", model_name, resp.status_code)
+    except Exception as e:
+        logger.warning("Model warm-up failed (non-fatal): %s", e)
 
 
 def _resolve_model_url(model_key: str) -> tuple[str, str]:
@@ -400,12 +425,54 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
             combined = "\n".join(context + [prompt])
             step.context_assembled = combined
             output = await _call_model(model, combined, system)
-            context.append(f"[{label}]: {output}")
-            step.metadata["output"] = output[:200]
+            # Parse structured output for Intent Classification (step-2)
+            if stage_id == "step-2":
+                try:
+                    parsed = json.loads(output)
+                    classification = parsed.get("classification", "").strip()
+                    intents = parsed.get("intents", [])
+                    if classification:
+                        context.append(f"[{label}]: {classification}")
+                    else:
+                        context.append(f"[{label}]: {output}")
+                    if intents and isinstance(intents, list):
+                        step.metadata["intent_probs"] = intents[:3]
+                    step.metadata["output"] = (classification or output)[:200]
+                except (json.JSONDecodeError, TypeError):
+                    context.append(f"[{label}]: {output}")
+                    step.metadata["output"] = output[:200]
+            else:
+                context.append(f"[{label}]: {output}")
+                step.metadata["output"] = output[:200]
             emit_event("inference", f"Inference: {label}", trace_id, resolved_model)
         else:
             step.context_assembled = f"[non-model stage — no context assembly]"
-            await asyncio.sleep(0.05)
+            if stage_id == "step-4":
+                past_sessions = load_history(limit=20)
+                chunks = []
+                for ps in past_sessions:
+                    if ps.id == trace_id or not ps.output or len(ps.output) < 20:
+                        continue
+                    sim = _compute_similarity(prompt, ps.output)
+                    chunks.append({
+                        "trace_id": ps.id,
+                        "content": ps.output[:200],
+                        "relevance": sim,
+                    })
+                chunks.sort(key=lambda c: c["relevance"], reverse=True)
+                top_chunks = chunks[:5]
+                threshold = 0.08
+                for chunk in top_chunks:
+                    chunk["used"] = chunk["relevance"] >= threshold
+                step.metadata["retrieved_chunks"] = top_chunks
+                used_count = sum(1 for c in top_chunks if c.get("used"))
+                context.append(
+                    f"[Memory Retrieval]: Found {len(top_chunks)} relevant chunks ({used_count} used)"
+                    if top_chunks else "[Memory Retrieval]: No relevant memories found"
+                )
+                emit_event("memory_retrieval", f"Retrieved {len(top_chunks)} chunks, {used_count} used", trace_id)
+            else:
+                await asyncio.sleep(0.05)
 
         elapsed_ms = int((asyncio.get_event_loop().time() - start) * 1000)
         cpu_after, mem_after = _snapshot_cpu_mem()

@@ -18,7 +18,7 @@ interface Machine {
   name: string;
   desc: string;
   insight: string;
-  status: "healthy" | "warning" | "critical";
+  status: "healthy" | "warning" | "critical" | "unavailable";
   vitals: Vital[];
 }
 
@@ -30,6 +30,7 @@ const STATUS_GLOW: Record<string, string> = {
   healthy: "#34d399",
   warning: "#f59e0b",
   critical: "#ef4444",
+  unavailable: "#f59e0b",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -104,6 +105,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [services, setServices] = useState<Record<string, ServiceDef[]>>({});
   const [servicesKey, setServicesKey] = useState(0);
+  const [planetAngles, setPlanetAngles] = useState<number[]>([]);
 
   const clearHover = useCallback(() => {
     hoverTimeout.current = setTimeout(() => setHovered(null), 150);
@@ -160,8 +162,33 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
     [data]
   );
 
+  // Initialize planet angles spread evenly around full circle
+  useEffect(() => {
+    setPlanetAngles(planets.map((_, i) => (360 / Math.max(planets.length, 1)) * i));
+  }, [planets.length]);
+
+  // Animation loop — drifts each planet at its orbital speed
+  const ORBIT_SPEEDS = [55, -40, 65]; // seconds per orbit (+ = CW, - = CCW)
   const ORBIT_RADII = [255, 390, 525];
-  const ORBIT_SPEEDS = [55, -40, 65];
+  const animRef = useRef<number>(0);
+  useEffect(() => {
+    if (!mounted || planets.length === 0) return;
+    let lastTick = performance.now();
+    function tick(now: number) {
+      const dt = (now - lastTick) / 1000;
+      lastTick = now;
+      setPlanetAngles((prev) =>
+        prev.map((a, i) => {
+          const period = Math.abs(ORBIT_SPEEDS[i] ?? 50);
+          const dir = ORBIT_SPEEDS[i] > 0 ? 1 : -1;
+          return a + (360 / period) * dir * dt;
+        })
+      );
+      animRef.current = requestAnimationFrame(tick);
+    }
+    animRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [mounted, planets.length]);
 
   return (
     <div className="glass-panel p-5 flex flex-col items-center gap-3" ref={containerRef}>
@@ -265,16 +292,12 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
           const color = STATUS_GLOW[machine.status];
 
           const orbitR = ORBIT_RADII[i] ?? 70;
-          const speed = ORBIT_SPEEDS[i] ?? 50;
+          const angleRad = ((planetAngles[i] ?? 0) * Math.PI) / 180;
+          const px = CX + orbitR * Math.cos(angleRad);
+          const py = CY + orbitR * Math.sin(angleRad);
 
           return (
-            <motion.g
-              key={machine.id}
-              style={{ transformOrigin: "50% 50%" }}
-              initial={{ rotate: i * (360 / planets.length) }}
-              animate={mounted ? { rotate: i * (360 / planets.length) + 360 } : { rotate: i * (360 / planets.length) }}
-              transition={{ duration: Math.abs(speed), repeat: Infinity, ease: "linear", delay: 0 }}
-            >
+            <g key={machine.id}>
               <g
                 onMouseEnter={(e) => handleMouseEnter(e, machine.name)}
                 onMouseLeave={clearHover}
@@ -283,7 +306,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                 {/* Active workload halo */}
                 {isActive && (
                   <motion.circle
-                    cx={CX + orbitR} cy={CY}
+                    cx={px} cy={py}
                     r={planetSize + 20}
                     fill={color}
                     opacity="0.08"
@@ -292,17 +315,10 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                   />
                 )}
                 {/* Planet body */}
-                <circle
-                  cx={CX + orbitR} cy={CY}
-                  r={planetSize}
-                  fill="#0c1124"
-                  stroke={color}
-                  strokeWidth="3"
-                  opacity={brightness}
-                />
+                <circle cx={px} cy={py} r={planetSize} fill="#0c1124" stroke={color} strokeWidth="3" opacity={brightness} />
                 {/* Planet core glow */}
                 <motion.circle
-                  cx={CX + orbitR} cy={CY}
+                  cx={px} cy={py}
                   r={planetSize * 0.4}
                   fill={color}
                   opacity={1}
@@ -310,13 +326,13 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                   transition={{ duration: 2 + i, repeat: Infinity, ease: "easeInOut" }}
                 />
                 {/* Planet label */}
-                <text x={CX + orbitR} y={CY + planetSize + 46}
+                <text x={px} y={py + planetSize + 46}
                   textAnchor="middle" fill="oklch(72% 0.11 75 / 0.7)"
                   fontSize="26" fontFamily="monospace" fontWeight="bold">
                   {machine.name.toUpperCase()}
                 </text>
                 {/* CPU/RAM stats under label */}
-                <text x={CX + orbitR} y={CY + planetSize + 70}
+                <text x={px} y={py + planetSize + 70}
                   textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
                   fontSize="18" fontFamily="monospace">
                   CPU {cpu.toFixed(0)}% · RAM {mem.toFixed(0)}%
@@ -330,22 +346,15 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                   >
                     {active ? (
                       <motion.circle
-                        cx={CX + orbitR + s.x * 3.3}
-                        cy={CY + s.y * 3.3}
+                        cx={px + s.x * 3.3} cy={py + s.y * 3.3}
                         r={4} fill={s.color}
                         animate={{ opacity: [0.4, 1, 0.4], r: [4, 6, 4] }}
                         transition={{ duration: 2.5, delay: j * 0.3, repeat: Infinity, ease: "easeInOut" }}
                       />
                     ) : (
-                      <circle
-                        cx={CX + orbitR + s.x * 3.3}
-                        cy={CY + s.y * 3.3}
-                        r={4} fill={s.color} opacity="0.7"
-                      />
+                      <circle cx={px + s.x * 3.3} cy={py + s.y * 3.3} r={4} fill={s.color} opacity="0.7" />
                     )}
-                    <text
-                      x={CX + orbitR + s.x * 3.3}
-                      y={CY + s.y * 3.3 - 9}
+                    <text x={px + s.x * 3.3} y={py + s.y * 3.3 - 9}
                       textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
                       fontSize="8" fontFamily="monospace">
                       {s.label}
@@ -353,7 +362,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                   </g>
                 ))}
               </g>
-            </motion.g>
+            </g>
           );
         })}
 

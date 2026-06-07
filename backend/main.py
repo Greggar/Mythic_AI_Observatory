@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from models.trace import TraceSession
 from models.annotation import Annotation
-from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, get_activity_events, get_model_provider, set_model_provider
+from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, get_activity_events, get_model_provider, set_model_provider, warmup_model
 from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
@@ -174,6 +174,7 @@ _latest_telemetry: dict[str, Any] | None = None
 @app.on_event("startup")
 async def start_telemetry_broadcaster() -> None:
     asyncio.create_task(_telemetry_loop())
+    asyncio.create_task(warmup_model())
 
 async def _telemetry_loop() -> None:
     global _latest_telemetry
