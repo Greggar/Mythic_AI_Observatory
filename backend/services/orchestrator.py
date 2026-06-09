@@ -87,7 +87,7 @@ def _resolve_model_url(model_key: str) -> tuple[str, str]:
     return base_url, model_name
 
 
-async def _call_model(model: str, prompt: str, system: str | None = None) -> str:
+async def _call_model(model: str, prompt: str, system: str | None = None) -> tuple[str, int | None, int | None]:
     base_url, model_name = _resolve_model_url(model)
 
     payload: dict[str, Any] = {
@@ -110,10 +110,12 @@ async def _call_model(model: str, prompt: str, system: str | None = None) -> str
             result = data.get("response", "").strip()
             if not result:
                 result = data.get("thinking", "").strip()
-            return result
+            eval_count = data.get("eval_count")
+            eval_duration = data.get("eval_duration")
+            return result, eval_count, eval_duration
         except Exception as e:
             logger.error("Model call failed: %s", e)
-            return f"[{model} error: {e}]"
+            return f"[{model} error: {e}]", None, None
 
 
 def _compute_confidence(session: TraceSession) -> float:
@@ -278,6 +280,110 @@ async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
     return []
 
 
+async def _generate_response_rationale(session: TraceSession) -> str | None:
+    if not session.output or not session.steps:
+        return None
+
+    step_summary = []
+    for s in session.steps:
+        out = (s.metadata.get("output") or "")[:300] if s.metadata else ""
+        step_summary.append(f"[{s.label}]: {out}")
+
+    context_step = next((s for s in session.steps if s.label == "Context Synthesis"), None)
+    assembled = (context_step.context_assembled or "")[:1500] if context_step else ""
+
+    prompt = (
+        f"User prompt: \"{session.prompt}\"\n\n"
+        f"Step-by-step trace:\n" + "\n".join(step_summary) + "\n\n"
+        f"Full context sent to Response Generation:\n{assembled}\n\n"
+        f"Final output: \"{session.output[:500]}\"\n\n"
+        "You are the AI model that generated this response. Given the steps above, "
+        "explain in 2-3 sentences why you chose this specific response. "
+        "Focus on: how earlier step outputs influenced your decision, "
+        "what tone or approach you decided to take, and why it fits the user's request. "
+        "Be specific and honest — mention tradeoffs or alternative approaches you considered."
+    )
+
+    base_url = config_manager.get_ollama_url()
+    payload = {
+        "model": LOCAL_MODEL,
+        "prompt": prompt,
+        "system": "You are an AI reflecting on your own reasoning. Be introspective and specific.",
+        "stream": False,
+        "options": {"num_ctx": 4096},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+            resp = await client.post(f"{base_url}/api/generate", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            raw = data.get("response", "").strip() or data.get("thinking", "").strip()
+            return raw if len(raw) > 20 else None
+    except Exception as e:
+        logger.warning("Response rationale generation failed: %s", e)
+        return None
+
+
+async def _generate_trace_explanation(session: TraceSession) -> str | None:
+    if not session.steps:
+        return None
+
+    parts = [f"User prompt: \"{session.prompt}\""]
+    for s in session.steps:
+        out = (s.metadata.get("output") or "")[:400] if s.metadata else ""
+        parts.append(f"[{s.label}] {out}")
+        if s.label == "Memory Retrieval" and s.metadata:
+            chunks = s.metadata.get("retrieved_chunks", [])
+            if chunks:
+                parts.append("  Retrieved chunks:")
+                for c in chunks:
+                    match_info = f"cos={c.get('relevance', 0):.3f}"
+                    status = "USED" if c.get("used") else "discarded"
+                    content = (c.get("content") or "")[:120]
+                    parts.append(f"    - [{status}] ({match_info}) {content}")
+        if s.context_assembled:
+            assembled_short = s.context_assembled[:600]
+            parts.append(f"  Context assembled:\n{assembled_short}")
+
+    final = session.output or ""
+    parts.append(f"Final output: \"{final[:400]}\"")
+
+    trace_text = "\n".join(parts)
+
+    prompt = (
+        f"{trace_text}\n\n"
+        "You are an AI observability analyst. Explain step-by-step what happened in this trace "
+        "and why. Cover:\n"
+        "- What the user asked for and how the system interpreted it\n"
+        "- Which past traces (if any) were retrieved, why they matched, and whether they were used\n"
+        "- How the context was assembled and what the model decided to do with it\n"
+        "- Why the final response is what it is — tone, content, and any tradeoffs\n\n"
+        "Write 3-6 concise paragraphs. Be specific to THIS trace — reference actual scores, "
+        "chunk content, and step outputs. Avoid generic statements."
+    )
+
+    base_url = config_manager.get_ollama_url()
+    payload = {
+        "model": LOCAL_MODEL,
+        "prompt": prompt,
+        "system": "You are a precise observability analyst. Write clear, trace-specific explanations.",
+        "stream": False,
+        "options": {"num_ctx": 4096},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+            resp = await client.post(f"{base_url}/api/generate", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            raw = data.get("response", "").strip() or data.get("thinking", "").strip()
+            return raw if len(raw) > 30 else None
+    except Exception as e:
+        logger.warning("Trace explanation generation failed: %s", e)
+        return None
+
+
 # ── Activity event bus ────────────────────────────────────────────
 _activity_events: deque[dict[str, Any]] = deque(maxlen=200)
 _event_counter = 0
@@ -372,13 +478,33 @@ def load_history(limit: int = 50) -> list[TraceSession]:
     return sessions[-limit:]
 
 
-def _compute_similarity(a: str, b: str) -> float:
-    words_a = set(a.lower().split()[:20])
-    words_b = set(b.lower().split()[:20])
-    if not words_a or not words_b:
+_embed_cache: dict[str, list[float]] = {}
+EMBED_MODEL = "all-minilm:22m"
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    if na < 1e-12 or nb < 1e-12:
         return 0.0
-    intersection = words_a & words_b
-    return round(len(intersection) / max(len(words_a | words_b), 1), 4)
+    return round(dot / (na * nb), 4)
+
+
+async def _embed(text: str) -> list[float]:
+    if text in _embed_cache:
+        return _embed_cache[text]
+    base_url = config_manager.get_ollama_url()
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{base_url}/api/embeddings",
+            json={"model": EMBED_MODEL, "prompt": text},
+            timeout=30,
+        )
+        data = resp.json()
+        emb = data["embedding"]
+        _embed_cache[text] = emb
+        return emb
 
 
 async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
@@ -424,7 +550,9 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
         if model:
             combined = "\n".join(context + [prompt])
             step.context_assembled = combined
-            output = await _call_model(model, combined, system)
+            output, eval_count, eval_duration_ns = await _call_model(model, combined, system)
+            step.eval_count = eval_count
+            step.eval_duration_ns = eval_duration_ns
             # Parse structured output for Intent Classification (step-2)
             if stage_id == "step-2":
                 try:
@@ -437,39 +565,51 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
                         context.append(f"[{label}]: {output}")
                     if intents and isinstance(intents, list):
                         step.metadata["intent_probs"] = intents[:3]
-                    step.metadata["output"] = (classification or output)[:200]
+                    step.metadata["output"] = (classification or output)[:2000]
                 except (json.JSONDecodeError, TypeError):
                     context.append(f"[{label}]: {output}")
-                    step.metadata["output"] = output[:200]
+                    step.metadata["output"] = output[:2000]
             else:
                 context.append(f"[{label}]: {output}")
-                step.metadata["output"] = output[:200]
+                step.metadata["output"] = output[:2000]
             emit_event("inference", f"Inference: {label}", trace_id, resolved_model)
         else:
             step.context_assembled = f"[non-model stage — no context assembly]"
             if stage_id == "step-4":
                 past_sessions = load_history(limit=20)
+                query_emb = await _embed(prompt)
                 chunks = []
                 for ps in past_sessions:
                     if ps.id == trace_id or not ps.output or len(ps.output) < 20:
                         continue
-                    sim = _compute_similarity(prompt, ps.output)
+                    if ps.embedding is None:
+                        ps.embedding = await _embed(ps.prompt)
+                    sim = _cosine_similarity(query_emb, ps.embedding)
                     chunks.append({
                         "trace_id": ps.id,
-                        "content": ps.output[:200],
+                        "content": ps.output[:2000],
                         "relevance": sim,
                     })
                 chunks.sort(key=lambda c: c["relevance"], reverse=True)
                 top_chunks = chunks[:5]
-                threshold = 0.08
-                for chunk in top_chunks:
-                    chunk["used"] = chunk["relevance"] >= threshold
+                threshold = 0.04
+                for ci, chunk in enumerate(top_chunks):
+                    chunk["used"] = ci == 0 or chunk["relevance"] >= threshold
                 step.metadata["retrieved_chunks"] = top_chunks
                 used_count = sum(1 for c in top_chunks if c.get("used"))
-                context.append(
-                    f"[Memory Retrieval]: Found {len(top_chunks)} relevant chunks ({used_count} used)"
-                    if top_chunks else "[Memory Retrieval]: No relevant memories found"
-                )
+                if used_count > 0:
+                    scores = ", ".join(f"{c['relevance']:.2f}" for c in top_chunks[:used_count])
+                    context.append(
+                        f"[Memory Retrieval]: Found {len(top_chunks)} relevant past traces "
+                        f"({used_count} incorporated into context). "
+                        f"Semantic similarity scores (cosine similarity: 0=unrelated, 1=identical): {scores}"
+                    )
+                else:
+                    context.append(
+                        f"[Memory Retrieval]: Found {len(top_chunks)} candidate chunks but none used "
+                        f"(best cosine similarity: {top_chunks[0]['relevance']:.3f}, below threshold)"
+                        if top_chunks else "[Memory Retrieval]: No semantically similar memories found"
+                    )
                 emit_event("memory_retrieval", f"Retrieved {len(top_chunks)} chunks, {used_count} used", trace_id)
             else:
                 await asyncio.sleep(0.05)
@@ -515,6 +655,29 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
             logger.info("LLM insights generated for %s: %d insights", trace_id, len(insights))
     except Exception as e:
         logger.warning("LLM insight step failed for %s: %s", trace_id, e)
+
+    try:
+        session.embedding = await _embed(session.prompt)
+    except Exception as e:
+        logger.warning("Embedding computation failed for %s: %s", trace_id, e)
+
+    try:
+        rationale = await _generate_response_rationale(session)
+        if rationale:
+            session.response_rationale = rationale
+            logger.info("Response rationale generated for %s", trace_id)
+    except Exception as e:
+        logger.warning("Response rationale failed for %s: %s", trace_id, e)
+
+    try:
+        explanation = await _generate_trace_explanation(session)
+        if explanation:
+            session.trace_explanation = explanation
+            logger.info("Trace explanation generated for %s", trace_id)
+    except Exception as e:
+        logger.warning("Trace explanation failed for %s: %s", trace_id, e)
+
+    _persist(session)
 
     return session
 

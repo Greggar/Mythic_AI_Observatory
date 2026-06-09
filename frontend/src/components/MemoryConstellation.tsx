@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHover } from "@/lib/HoverContext";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const W = 280;
 const H = 280;
 const CX = W / 2;

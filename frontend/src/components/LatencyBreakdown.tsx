@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Clock4 } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 const STAGES = [
   "Request Received",
@@ -104,26 +104,30 @@ export default function LatencyBreakdown({ refreshTrigger = 0, traceSteps }: { r
               const livePct = liveMs != null && maxAvg > 0 ? (liveMs / maxAvg) * 100 : 0;
               return (
                 <div key={label} className="flex items-center gap-2">
-                  <span className="text-[9px] text-zinc-500 w-[88px] shrink-0 truncate font-mono tracking-tight">
-                    {label}
+                  <span className="text-[9px] w-[88px] shrink-0 truncate font-mono tracking-tight flex items-center gap-1"
+                    style={{ color: liveMs != null ? "rgba(212, 212, 216, 0.7)" : "rgba(113, 113, 122, 1)" }}>
+                    {liveMs != null && <span className="w-1 h-1 rounded-full bg-teal-mystic shrink-0" />}
+                    <span className="truncate">{label}</span>
                   </span>
                   <div className="flex-1 h-3 rounded-full bg-white/[0.04] overflow-hidden relative">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${STAGE_COLORS[i]}`}
-                      style={{ width: `${Math.max(pct, 1)}%`, opacity: 0.6 + 0.4 * (pct / 100) }}
+                      style={{ width: `${Math.max(pct, 1)}%`, opacity: 0.35 }}
                     />
                     {liveMs != null && (
                       <div
                         className={`absolute top-0 left-0 h-full rounded-full transition-all duration-300 ${STAGE_COLORS[i]}`}
                         style={{
                           width: `${Math.max(livePct, 1)}%`,
-                          opacity: 0.9,
-                          boxShadow: "inset 0 0 4px rgba(255,255,255,0.3)",
+                          opacity: 0.95,
+                          backgroundImage: `linear-gradient(90deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 100%)`,
+                          borderRight: "1.5px solid rgba(255,255,255,0.5)",
                         }}
                       />
                     )}
                   </div>
-                  <span className="text-[10px] font-mono text-zinc-400 w-12 text-right shrink-0">
+                  <span className="text-[10px] font-mono w-14 text-right shrink-0"
+                    style={{ color: liveMs != null ? "rgba(212, 212, 216, 0.8)" : "rgba(161, 161, 170, 0.6)" }}>
                     {liveMs != null ? fmt(liveMs) : fmt(averages[i])}
                   </span>
                 </div>

@@ -13,7 +13,7 @@ export interface Telemetry {
   remotes: { status: string; target: string }[];
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const POLL_URL = `${API_BASE}/api/telemetry`;
 const POLL_INTERVAL = 1500;
 

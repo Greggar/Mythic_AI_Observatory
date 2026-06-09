@@ -173,9 +173,61 @@ function ThoughtStream({ entries }: { entries: { label: string; text: string; is
 }
 
 function ChunkDisplay({ chunks }: { chunks: RetrievedChunk[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<{ group: "used" | "discarded"; idx: number } | null>(null);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+
   if (chunks.length === 0) return null;
   const used = chunks.filter((c) => c.used);
   const discarded = chunks.filter((c) => !c.used);
+
+  const renderChunk = (chunk: RetrievedChunk, i: number, group: "used" | "discarded") => {
+    const isUsed = group === "used";
+    const isHovered = hoveredIdx?.group === group && hoveredIdx?.idx === i;
+    return (
+      <div
+        key={i}
+        className="relative p-2 rounded-lg cursor-pointer transition-colors"
+        style={{
+          backgroundColor: isUsed
+            ? `rgba(16, 185, 129, ${isHovered ? 0.08 : 0.04})`
+            : `rgba(255, 255, 255, ${isHovered ? 0.04 : 0.02})`,
+          borderColor: isUsed
+            ? `rgba(16, 185, 129, ${isHovered ? 0.15 : 0.08})`
+            : `rgba(255, 255, 255, ${isHovered ? 0.08 : 0.04})`,
+          borderWidth: 1,
+          borderStyle: "solid",
+        }}
+        onMouseEnter={() => setHoveredIdx({ group, idx: i })}
+        onMouseLeave={() => setHoveredIdx(null)}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[9px] font-mono truncate flex-1"
+            style={{ color: isUsed ? "rgba(16, 185, 129, 0.7)" : "rgba(113, 113, 122, 0.6)" }}>
+            {chunk.content}
+          </span>
+          <span className="text-[8px] font-mono shrink-0"
+            style={{ color: isUsed ? "rgba(16, 185, 129, 0.5)" : "rgba(113, 113, 122, 0.4)" }}>
+            {Math.round(chunk.relevance * 100)}%
+          </span>
+        </div>
+        {isHovered && (
+          <div
+            ref={tooltipRef}
+            className="absolute left-0 right-0 top-full mt-1 z-50 p-2 rounded-lg text-[10px] font-mono leading-relaxed whitespace-pre-wrap"
+            style={{
+              backgroundColor: "#1a1a2e",
+              border: "1px solid rgba(167, 139, 250, 0.25)",
+              color: "rgba(212, 212, 216, 0.9)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+            }}
+          >
+            {chunk.content}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-2">
       <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-500">
@@ -184,27 +236,13 @@ function ChunkDisplay({ chunks }: { chunks: RetrievedChunk[] }) {
       {used.length > 0 && (
         <div className="space-y-1">
           <div className="text-[8px] font-mono text-jade-glow/60 tracking-wider uppercase">Used</div>
-          {used.map((chunk, i) => (
-            <div key={i} className="p-2 rounded-lg bg-jade-glow/[0.04] border border-jade-glow/[0.08]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[9px] font-mono text-jade-glow/70 truncate flex-1">{chunk.content}</span>
-                <span className="text-[8px] font-mono text-jade-glow/50 shrink-0">{Math.round(chunk.relevance * 100)}%</span>
-              </div>
-            </div>
-          ))}
+          {used.map((chunk, i) => renderChunk(chunk, i, "used"))}
         </div>
       )}
       {discarded.length > 0 && (
         <div className="space-y-1">
           <div className="text-[8px] font-mono text-zinc-600 tracking-wider uppercase">Discarded</div>
-          {discarded.map((chunk, i) => (
-            <div key={i} className="p-2 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[9px] font-mono text-zinc-600 truncate flex-1">{chunk.content}</span>
-                <span className="text-[8px] font-mono text-zinc-700 shrink-0">{Math.round(chunk.relevance * 100)}%</span>
-              </div>
-            </div>
-          ))}
+          {discarded.map((chunk, i) => renderChunk(chunk, i, "discarded"))}
         </div>
       )}
     </div>
@@ -611,6 +649,32 @@ export default function IntelligencePanel({
                   {tag.replace(/_/g, " ")}
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Response rationale */}
+          {trace.response_rationale && (
+            <div className="p-3 rounded-xl bg-violet-glow/[0.06] border border-violet-glow/[0.12]">
+              <div className="flex items-center gap-1.5 text-violet-glow/70 mb-1.5">
+                <Brain size={11} />
+                <span className="text-[9px] font-semibold tracking-widest uppercase">Why this response?</span>
+              </div>
+              <div className="text-[10px] text-zinc-400 font-mono leading-relaxed whitespace-pre-wrap">
+                {trace.response_rationale}
+              </div>
+            </div>
+          )}
+
+          {/* Trace explanation */}
+          {trace.trace_explanation && (
+            <div className="p-3 rounded-xl bg-teal-mystic/[0.06] border border-teal-mystic/[0.12]">
+              <div className="flex items-center gap-1.5 text-teal-mystic/70 mb-1.5">
+                <Activity size={11} />
+                <span className="text-[9px] font-semibold tracking-widest uppercase">Trace explanation</span>
+              </div>
+              <div className="text-[10px] text-zinc-400 font-mono leading-relaxed whitespace-pre-wrap">
+                {trace.trace_explanation}
+              </div>
             </div>
           )}
         </div>

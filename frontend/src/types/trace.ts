@@ -11,6 +11,8 @@ export interface TraceStep {
   mem_before: number | null;
   cpu_after: number | null;
   mem_after: number | null;
+  eval_count: number | null;
+  eval_duration_ns: number | null;
   context_assembled: string | null;
 }
 
@@ -41,4 +43,7 @@ export interface TraceSession {
   agent_used: string | null;
   telemetry_impact: TelemetryImpact | null;
   llm_insights?: LlmInsight[];
+  embedding?: number[];
+  response_rationale?: string;
+  trace_explanation?: string;
 }

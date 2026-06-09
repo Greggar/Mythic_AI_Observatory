@@ -23,6 +23,8 @@ class TraceStep(BaseModel):
     mem_before: float | None = None
     cpu_after: float | None = None
     mem_after: float | None = None
+    eval_count: int | None = None
+    eval_duration_ns: int | None = None
     context_assembled: str | None = None
 
 
@@ -47,3 +49,6 @@ class TraceSession(BaseModel):
     agent_used: str | None = None
     telemetry_impact: TelemetryImpact | None = None
     llm_insights: list[LlmInsight] = Field(default_factory=list)
+    embedding: list[float] | None = None
+    response_rationale: str | None = None
+    trace_explanation: str | None = None

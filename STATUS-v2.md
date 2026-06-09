@@ -158,6 +158,15 @@ The history panel uses a custom thin scrollbar. It's styled via `scrollbar-thin`
 | | | |
 | Sacred geometry | — | Celtic knots, astrolabe rings, compass rose at 0.02–0.04 opacity |
 
+## Known Issues (2026-06-09)
+
+### Fixed
+- **Memory Retrieval stuck on "processing"** — Inner loop variable `i` in `orchestrator.py:596` shadowed the outer stage index, causing `IndexError` in the background task after Memory Retrieval completed its similarity search. The step's metadata was populated but its status never flipped to "complete." Also fixed missing try/except around embedding computation that prevented embeddings from being persisted, creating a cascade where every subsequent trace recomputed all past embeddings.
+
+### Foreseen
+- **Post-complete section is slow** — 3 sequential LLM calls (insights, rationale, explanation) using qwen2.5:3b on CPU, each taking 30-60s. Embedding persists and final `traces.jsonl` write are blocked until all finish. Consider `asyncio.gather()` or separate fire-and-forget tasks.
+- **JSONL deduplication** — `_persist()` appends the full session on every call (multiple persists per trace), inflating `load_history()` with duplicate entries that skew Memory Retrieval similarity search.
+
 ## Next-Sprint Candidates
 
 1. **Make confidence dynamic** — derive from trace quality or model output metrics

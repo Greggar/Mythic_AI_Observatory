@@ -751,6 +751,54 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
 
 24. **`traceSteps.duration_ms` can be `null` for pending/failed steps.** When passing trace steps as props, TypeScript will enforce the `null` union. The component must filter with `.find(s => s.duration_ms != null)` before using the value in calculations. (2026-06-06)
 
+### 6.16 Silent Background Task Crash Due to Variable Shadowing in `orchestrate()` Loop
+
+**Symptom:** Submitting a prompt returned a `trace_id` immediately, but the trace progressed through Intent Classification and Agent Selection, then **stuck at Memory Retrieval indefinitely** ("processing" with no duration). The frontend polled `/api/traces/{id}` every 1.5s but the Memory Retrieval step never resolved. No error appeared in backend logs.
+
+The Memory Retrieval step's `metadata` showed `retrieved_chunks` (meaning the similarity search completed) but the step status remained "processing."
+
+**Root cause:** A **variable shadowing bug** in `orchestrator.py:_orchestrate()`. The outer loop uses `i` as the stage index:
+
+```python
+for i, stage in enumerate(STAGES):        # i = stage index (0-6)
+    ...
+    if stage_id == "step-4":
+        ...
+        for i, chunk in enumerate(top_chunks):  # BUG: shadows outer i!
+            chunk["used"] = ci == 0 or ...
+```
+
+The inner loop `for i, chunk in enumerate(top_chunks)` **reuses the same variable name** `i`, overwriting the outer loop's stage index. After the inner loop completes, `i` is `4` (the last chunk index, or `len(top_chunks)-1`) instead of `3` (Memory Retrieval's stage index). When the code reaches:
+
+```python
+session.steps[i].status = "complete"  # i=4, but steps only has 4 elements (0-3)
+```
+
+This raises `IndexError: list index out of range` because `session.steps[4]` doesn't exist yet — it would be created by the next iteration of the outer loop (Context Synthesis, stage index 4). The `IndexError` crashes the `asyncio.create_task` background task silently (see Lesson #19), leaving Memory Retrieval frozen in "processing" forever.
+
+**Why it was silent:** Same mechanism as §6.13 — `asyncio.create_task` wraps the coroutine in a Task; unhandled exceptions are logged as `Task exception was never retrieved` but do not propagate to any caller. No middleware caught it.
+
+**Fix:** Rename the inner loop variable from `i` to `ci` (chunk index):
+
+```python
+for ci, chunk in enumerate(top_chunks):
+    chunk["used"] = ci == 0 or chunk["relevance"] >= threshold
+```
+
+**Secondary issue — missing try/except on embedding computation:** At line 656, `session.embedding = await _embed(session.prompt)` was **not** wrapped in a try/except block. If the Ollama embeddings endpoint timed out or returned an error, the exception propagated, the final `_persist(session)` at line 674 never ran, and the trace's embedding was **never written to disk**. This created a vicious cascade: every subsequent trace's Memory Retrieval stage had to recompute embeddings for all past sessions (each hitting Ollama's `/api/embeddings`), multiplying the latency. Fixed by wrapping the call:
+
+```python
+try:
+    session.embedding = await _embed(session.prompt)
+except Exception as e:
+    logger.warning("Embedding computation failed for %s: %s", trace_id, e)
+```
+
+**Lesson:**
+- **Never reuse loop variable names in nested `for` loops in Python.** The outer variable is silently overwritten. Use distinct names (`i`, `j`, `k` or descriptive names like `stage_idx`, `chunk_idx`).
+- **Any `await` call in a background task that is not wrapped in try/except is a crash risk.** If the call fails, the entire task dies and the session is left in an inconsistent state. Always protect fallible calls — especially HTTP/IO calls to external services (Ollama, backoffice) — with `try/except` that logs the error and continues.
+- **A step's `metadata` being populated but its `status` still "processing" is a diagnostic signal** that the code between the metadata write and the status update crashed. Inspect the exact line range for unguarded operations. (2026-06-09)
+
 ---
 
 ## 8. Future Considerations
@@ -780,8 +828,13 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
 - **[Frontend] IP masking toggle.** `mask_ips` checkbox in SettingsModal; frontend-only CSS-value swap on focus/blur — host inputs show `192.168.x.xxx` when masked, reveal on focus. (2026-06-06)
 - **[Frontend] CelestialDistribution legend tooltips.** Hover on mean/median/mode shows statistical definition and right-skew implication for trace speed. (2026-06-06)
 - **[Frontend] Frontend crash resilience.** `ClientInit.tsx` catches `unhandledrejection` + `error` at the window level; start command uses `NODE_OPTIONS='--max_old_space_size=4096'` and `setsid` for stable background detachment. (2026-06-06)
+- **[Backend] Fix variable shadowing in orchestrator loop.** Inner loop `for i, chunk in enumerate(top_chunks)` shadowed outer `i`, causing IndexError that froze Memory Retrieval. (2026-06-09)
 
 ### Medium Priority
+
+- **[Backend] Wrap all fallible calls in post-complete section in try/except.** The `_embed()` call at line 656 was unprotected, causing embeddings to never persist if it failed. (2026-06-09)
+- **[Backend] JSONL deduplication.** `_persist()` appends the full session on every call, so a single trace can generate 3-5 identical lines in `traces.jsonl`. This inflates `load_history(limit=20)` with duplicate entries, skewing Memory Retrieval similarity search. Consider overwriting the last entry for a given trace ID instead of always appending, or deduplicate on load.
+- **[Backend] Post-complete section is slow.** The section makes 3 sequential LLM inference calls (insights, rationale, explanation) using qwen2.5:3b on CPU, each taking 30-60s. Embeddings and final persistance are blocked until all three finish. Consider parallelizing with `asyncio.gather()` or running them as separate fire-and-forget tasks.
 
 - **[Frontend + Backend] Investigate WebSocket-killing network issue.** The router/firewall between the server and backoffice drops WebSocket connections after HTTP upgrade. Identifying the exact device and rule would allow re-enabling WebSocket for lower-latency telemetry.
 - **[Frontend] Use shared telemetry/API base URL.** Currently `useWebSocket` and `useOrchestrate` have independent URL configuration. Unify behind a single config object.

@@ -19,7 +19,7 @@ interface Props {
   refreshTrigger: number;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 function formatDuration(steps: { duration_ms: number | null }[]): string {
   const total = steps.reduce((acc, s) => acc + (s.duration_ms || 0), 0);

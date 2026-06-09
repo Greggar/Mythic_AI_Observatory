@@ -22,8 +22,9 @@ import { HoverProvider } from "@/lib/HoverContext";
 import CelestialDistribution from "@/components/CelestialDistribution";
 import LatencyBreakdown from "@/components/LatencyBreakdown";
 import PerformanceInsights from "@/components/PerformanceInsights";
+import TraceSummaryModal from "@/components/TraceSummaryModal";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function Home() {
   const { data: telemetry, connected } = useWebSocket();
@@ -34,6 +35,7 @@ export default function Home() {
   const [replayTrace, setReplayTrace] = useState<typeof trace>(null);
   const [discoveryTrigger, setDiscoveryTrigger] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to timeline when a history trace is selected
@@ -173,6 +175,14 @@ export default function Home() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
+          {activeTrace && (
+            <button
+              onClick={() => setShowSummary(true)}
+              className="text-[10px] font-mono text-zinc-600 hover:text-teal-mystic transition-colors px-2 py-1 rounded-full border border-white/[0.06]"
+            >
+              Print
+            </button>
+          )}
           {replayTrace && (
             <button
               onClick={() => setReplayTrace(null)}
@@ -285,6 +295,10 @@ export default function Home() {
             {/* Future: aggregate stats, fingerprints, trace list */}
           </aside>
         </div>
+      )}
+
+      {showSummary && activeTrace && (
+        <TraceSummaryModal trace={activeTrace} onClose={() => setShowSummary(false)} />
       )}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />

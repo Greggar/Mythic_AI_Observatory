@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { TraceSession } from "@/types/trace";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const POLL_INTERVAL = 1500;
 
 export function useOrchestrate() {
