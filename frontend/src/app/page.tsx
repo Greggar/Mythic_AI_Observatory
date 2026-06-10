@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Settings } from "lucide-react";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import SystemVitalsPanel from "@/components/SystemVitalsPanel";
 import SettingsModal from "@/components/SettingsModal";
 import SolarNexus from "@/components/SolarNexus";
@@ -204,98 +205,114 @@ export default function Home() {
 
       {/* Systems Tab */}
       {activeTab === "systems" && (
-        <div className="flex flex-1 gap-6">
-          <aside className="w-64 shrink-0 space-y-4">
-            <SystemVitalsPanel />
-            <EngineStatusPanel telemetry={telemetry} />
-          </aside>
+        <ErrorBoundary key="systems">
+          <div className="flex flex-1 gap-6">
+            <aside className="w-64 shrink-0 space-y-4">
+              <ErrorBoundary><SystemVitalsPanel /></ErrorBoundary>
+              <ErrorBoundary><EngineStatusPanel telemetry={telemetry} /></ErrorBoundary>
+            </aside>
 
-          <section className="flex-1 flex flex-col gap-6">
-            <ResourceConstellation active={isLiveProcessing} />
-          </section>
+            <section className="flex-1 flex flex-col gap-6">
+              <ErrorBoundary><ResourceConstellation active={isLiveProcessing} /></ErrorBoundary>
+            </section>
 
-          <aside className="w-64 shrink-0 space-y-4">
-            <ActivityFeed />
-          </aside>
-        </div>
+            <aside className="w-64 shrink-0 space-y-4">
+              <ErrorBoundary><ActivityFeed /></ErrorBoundary>
+            </aside>
+          </div>
+        </ErrorBoundary>
       )}
 
       {/* Trace Tab — singular, current orchestration */}
       {activeTab === "trace" && (
-        <div className="flex flex-1 gap-6">
-          <aside className="w-64 shrink-0 space-y-4">
-            <IntelligencePanel
-              telemetry={telemetry}
-              connected={connected}
-              trace={activeTrace}
-              traceActive={activePhase === "replaying" || activePhase === "complete"}
-              activeStepIndex={activeStep}
-              phase={activePhase}
-            />
-            <LatencyBreakdown refreshTrigger={historyRefresh} traceSteps={activeTrace?.steps} />
-          </aside>
+        <ErrorBoundary key="trace">
+          <div className="flex flex-1 gap-6">
+            <aside className="w-64 shrink-0 space-y-4">
+              <ErrorBoundary>
+                <IntelligencePanel
+                  telemetry={telemetry}
+                  connected={connected}
+                  trace={activeTrace}
+                  traceActive={activePhase === "replaying" || activePhase === "complete"}
+                  activeStepIndex={activeStep}
+                  phase={activePhase}
+                />
+              </ErrorBoundary>
+              <ErrorBoundary><LatencyBreakdown refreshTrigger={historyRefresh} traceSteps={activeTrace?.steps} /></ErrorBoundary>
+            </aside>
 
-          <section className="flex-1 flex flex-col gap-6">
-            <div className="flex flex-col gap-3">
-              <PromptInput onSubmit={handleSubmit} loading={loading} />
-            </div>
-
-            <SolarNexus
-              telemetry={telemetry}
-              trace={activeTrace}
-              traceActive={activePhase === "replaying" || activePhase === "complete"}
-              activeTraceStep={activePhase === "replaying" ? activeStep : null}
-              phase={activePhase}
-              observatoryMode={isIdle}
-            />
-
-            {/* Trace output */}
-            {activeTrace && (
-              <div ref={timelineRef} className="max-w-3xl w-full">
-                <ObservatoryPanel active={!!activeTrace}>
-                  <TraceTimeline trace={activeTrace} />
-                </ObservatoryPanel>
+            <section className="flex-1 flex flex-col gap-6">
+              <div className="flex flex-col gap-3">
+                <PromptInput onSubmit={handleSubmit} loading={loading} />
               </div>
-            )}
-          </section>
 
-          <aside className="w-64 shrink-0 space-y-4">
-            <PerformanceInsights trace={activeTrace} />
-          </aside>
-        </div>
+              <ErrorBoundary>
+                <SolarNexus
+                  telemetry={telemetry}
+                  trace={activeTrace}
+                  traceActive={activePhase === "replaying" || activePhase === "complete"}
+                  activeTraceStep={activePhase === "replaying" ? activeStep : null}
+                  phase={activePhase}
+                  observatoryMode={isIdle}
+                />
+              </ErrorBoundary>
+
+              {/* Trace output */}
+              {activeTrace && (
+                <div ref={timelineRef} className="max-w-3xl w-full">
+                  <ObservatoryPanel active={!!activeTrace}>
+                    <TraceTimeline trace={activeTrace} />
+                  </ObservatoryPanel>
+                </div>
+              )}
+            </section>
+
+            <aside className="w-64 shrink-0 space-y-4">
+              <ErrorBoundary><PerformanceInsights trace={activeTrace} /></ErrorBoundary>
+            </aside>
+          </div>
+        </ErrorBoundary>
       )}
 
       {/* History Tab — aggregate trace browsing */}
       {activeTab === "history" && (
-        <div className="flex flex-1 gap-6">
-          <aside className="w-64 shrink-0 space-y-4">
-            <IntelligencePanel
-              telemetry={telemetry}
-              connected={connected}
-              trace={activeTrace}
-              traceActive={activePhase === "replaying" || activePhase === "complete"}
-              activeStepIndex={activeStep}
-              phase={activePhase}
-            />
-          </aside>
+        <ErrorBoundary key="history">
+          <div className="flex flex-1 gap-6">
+            <aside className="w-64 shrink-0 space-y-4">
+              <ErrorBoundary>
+                <IntelligencePanel
+                  telemetry={telemetry}
+                  connected={connected}
+                  trace={activeTrace}
+                  traceActive={activePhase === "replaying" || activePhase === "complete"}
+                  activeStepIndex={activeStep}
+                  phase={activePhase}
+                />
+              </ErrorBoundary>
+            </aside>
 
-          <section className="flex-1 flex flex-col gap-6">
-            <HoverProvider>
-              <MemoryConstellation
-                onSelect={handleHistorySelect}
-                refreshTrigger={historyRefresh}
-              />
-              <CelestialDistribution
-                onSelect={handleHistorySelect}
-                refreshTrigger={historyRefresh}
-              />
-            </HoverProvider>
-          </section>
+            <section className="flex-1 flex flex-col gap-6">
+              <HoverProvider>
+                <ErrorBoundary>
+                  <MemoryConstellation
+                    onSelect={handleHistorySelect}
+                    refreshTrigger={historyRefresh}
+                  />
+                </ErrorBoundary>
+                <ErrorBoundary>
+                  <CelestialDistribution
+                    onSelect={handleHistorySelect}
+                    refreshTrigger={historyRefresh}
+                  />
+                </ErrorBoundary>
+              </HoverProvider>
+            </section>
 
-          <aside className="w-64 shrink-0 space-y-4">
-            {<PersonalityProfile />}
-          </aside>
-        </div>
+            <aside className="w-64 shrink-0 space-y-4">
+              <ErrorBoundary><PersonalityProfile /></ErrorBoundary>
+            </aside>
+          </div>
+        </ErrorBoundary>
       )}
 
       {showSummary && activeTrace && (
