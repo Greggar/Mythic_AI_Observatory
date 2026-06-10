@@ -156,22 +156,32 @@ No restart or reload needed — the next `_call_model()` invocation reads the cu
 
 ```
 layout.tsx          — Root layout, Geist fonts, dark background
-  page.tsx          — Tabbed dashboard: Systems tab / Traces tab + settings
+  page.tsx          — Tabbed dashboard: Systems / Trace / History tabs + settings
 
-  │   [Systems Tab]                    [Traces Tab]
-  │   ─────────────                    ───────────
-  │   ├── SystemVitalsPanel            ├── IntelligencePanel
-  │   ├── EngineStatusPanel            │   └── StageDescriptions
-  │   ├── ResourceConstellation        ├── SolarNexus
-  │   └── ActivityFeed                 │   └── ContextPane
+  │   [Systems Tab]                    [Trace Tab]
+  │   ─────────────                    ──────────
+  │   ├── SystemVitalsPanel            ├── IntelligencePanel [left sidebar]
+  │   ├── EngineStatusPanel            │   ├── StageDescriptions
+  │   ├── ResourceConstellation        │   ├── ForkInTheRoad (decision tree)
+  │   └── ActivityFeed                 │   ├── ThoughtStream (live log)
+  │                                    │   ├── StageDebate (contradiction)
+  │   [History Tab]                    │   ├── TraceRadar (radar chart)
+  │   ├── IntelligencePanel            │   ├── ChunkDisplay (used/discarded)
+  │   ├── MemoryConstellation          │   ├── Causal Tracing
+  │   ├── CelestialDistribution        │   └── Context Assembly viewer
+  │   └── PersonalityProfile           ├── LatencyBreakdown [left sidebar]
+  │                                    ├── PerformanceInsights [right sidebar]
+  │                                    ├── SolarNexus
+  │                                    │   └── ContextPane
   │                                    ├── PromptInput
   │                                    ├── ObservatoryPanel
   │                                    │   └── TraceTimeline
   │                                    │       └── TimelineStep
-  │                                    └── MemoryConstellation
+  │                                    └── VectorDistanceGraph (MDS-2D)
   │
   ├── SettingsModal       — Network config + Models tab (provider hot-swap)
-  └── DiscoveryEvents     — Toast overlay on orchestration completion
+  ├── DiscoveryEvents     — Toast overlay on orchestration completion
+  └── ClientInit          — Catches unhandledrejection + error at window level
 ```
 
 ### Custom Hooks
@@ -246,16 +256,18 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```bash
 cd ~/mythic-ai-observatory/frontend
 
-# Development mode (local-only, HMR WebSocket required):
-pnpm dev
+# Development mode (hot-reload, avoids HTML caching issue — preferred for active dev):
+NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm dev
 
-# Production mode (LAN access, no HMR WebSocket):
+# Production mode (LAN access, stable — use for demos):
 npx next build   # one-time build
 npx next start -p 3001 -H 0.0.0.0
 # → http://localhost:3001 or http://192.168.0.237:3001
 ```
 
-**Important:** When accessing from a remote machine on the LAN, always use production mode (`next start`). Dev mode's HMR WebSocket may fail across network boundaries, causing the React app to not hydrate properly. See §6.7 for details.
+**Dev vs prod:** Dev mode (`pnpm dev`) hot-reloads on file changes and avoids the stale-HTML caching problem. Prod mode (`next start`) serves pre-built files in memory — rebuilding `.next` while the server runs has no effect. Use dev for active development, prod for demos. See restart.sh for a combined start script.
+
+**Important:** When accessing from a remote machine on the LAN, use production mode (`next start`). Dev mode's HMR WebSocket may fail across network boundaries. See §6.7 for details.
 
 ### Accessing Remotely
 
@@ -638,7 +650,34 @@ curl -s "http://localhost:3001${css_href}" | grep "deep-abyss"
 
 **Lesson:** Never kill the Next.js production server while it's in the middle of writing build artifacts. Always stop the server cleanly (`pkill` then wait for process to disappear) before rebuilding. If the server was killed mid-write, always do `rm -rf .next` before the next build — incremental builds from a corrupted state produce corrupted output.
 
-### 6.15 Next.js Silently Dies (OOM / Unhandled Rejection)
+### 6.15 Variable Shadowing in orchestrator.py Loop Vector-Graph Code
+
+**Symptom:** Memory Retrieval stuck on "processing" after Memory Retrieval code was refactored to compute vector embeddings and MDS-2D layouts. No error in logs. Same symptom as §6.17 (previously fixed) but in new code.
+
+**Root cause:** The fix in commit c5ab0ff renamed the inner loop variable in the original `_orchestrate()` function, but a parallel code path — the vector-graph similarity computation — had its own `for i, chunk in enumerate(top_chunks)` that was NOT caught by the original fix. Two independent shadowing sites in the same function.
+
+```python
+# orchestrator.py: line 626 (vector-graph section)
+for i in range(len(top_chunks)):    # BUG: shadows outer stage index i
+    ...
+    for j in range(len(top_chunks)):   # fine, j not used in outer scope
+        ...
+```
+
+After the inner `range(len(top_chunks))` loop, `i` held `len(top_chunks)-1` (typically 4 or 5) instead of the Memory Retrieval stage index (3). The subsequent `session.steps[i].status = "complete"` hit an `IndexError` because `session.steps[4]` didn't exist yet (Context Synthesis is index 4 and hasn't been created).
+
+**Fix:** Renamed inner loop index to `vi`:
+```python
+for vi in range(len(top_chunks)):
+    ...
+    for vj in range(len(top_chunks)):
+```
+
+Also fixed the `j` → `vj` rename for consistency (though `j` is not used in the outer scope, it's good practice).
+
+**Lesson:** When fixing a variable-shadowing bug, search the ENTIRE function — not just the original site. The same bug pattern can exist in parallel code paths (vector-graph, similarity search, deduplication passes). Use distinct descriptive names (`stage_idx`, `chunk_idx`) instead of single-letter `i`/`j` to prevent recurrence.
+
+### 6.16 Next.js Silently Dies (OOM / Unhandled Rejection)
 
 **Symptom:** Frontend returns `Connection refused` or `000` HTTP status after having been running fine. The process is gone from `ps aux` with no error in the startup log — the log simply ends at `✓ Ready in Xms`. The most common trigger is a hard page reload (Ctrl+Shift+R) or a burst of concurrent requests after the server has been running for a while.
 
@@ -751,7 +790,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
 
 24. **`traceSteps.duration_ms` can be `null` for pending/failed steps.** When passing trace steps as props, TypeScript will enforce the `null` union. The component must filter with `.find(s => s.duration_ms != null)` before using the value in calculations. (2026-06-06)
 
-### 6.16 Silent Background Task Crash Due to Variable Shadowing in `orchestrate()` Loop
+### 6.17 Silent Background Task Crash Due to Variable Shadowing in `orchestrate()` Loop
 
 **Symptom:** Submitting a prompt returned a `trace_id` immediately, but the trace progressed through Intent Classification and Agent Selection, then **stuck at Memory Retrieval indefinitely** ("processing" with no duration). The frontend polled `/api/traces/{id}` every 1.5s but the Memory Retrieval step never resolved. No error appeared in backend logs.
 
@@ -829,6 +868,16 @@ except Exception as e:
 - **[Frontend] CelestialDistribution legend tooltips.** Hover on mean/median/mode shows statistical definition and right-skew implication for trace speed. (2026-06-06)
 - **[Frontend] Frontend crash resilience.** `ClientInit.tsx` catches `unhandledrejection` + `error` at the window level; start command uses `NODE_OPTIONS='--max_old_space_size=4096'` and `setsid` for stable background detachment. (2026-06-06)
 - **[Backend] Fix variable shadowing in orchestrator loop.** Inner loop `for i, chunk in enumerate(top_chunks)` shadowed outer `i`, causing IndexError that froze Memory Retrieval. (2026-06-09)
+- **[Frontend] StageDebate component.** `StageDebate.tsx` — detects polar opposition between Context Synthesis and Response Generation outputs using sentence-level polarity scoring + topic domain overlap. Non-conflicting shows collapsible "No stage conflicts"; conflicting shows glowing violet "Internal Debate" panel. Exports `detectContradiction()`. (2026-06-10)
+- **[Frontend] TraceRadar component.** `TraceRadar.tsx` — SVG pentagon radar chart with 5 axes (Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty). Computed from trace step metadata. Always renders in IntelligencePanel completed state. (2026-06-10)
+- **[Frontend] ForkInTheRoad decision tree.** `ForkInTheRoad.tsx` — decision tree visualization for intent classification. Chosen path highlighted in teal with branch line + confidence bar + reasoning; rejected paths dimmed at 50% opacity with strikethrough labels. Shows during processing state. (2026-06-10)
+- **[Backend + Frontend] History tab blank crash fix.** Three bugs: (1) FastAPI route ordering — `/api/traces/profile` registered AFTER `/{trace_id}`, wildcard caught "profile" as trace ID; (2) `PersonalityProfile` called `.length` on `null` API response with no error boundary, unmounting entire React tree; (3) `next start` cached stale HTML from old build. (2026-06-10)
+- **[Frontend] Duplicate React key fixes.** `MemoryConstellation` edge keys used source dot index instead of map index; `CelestialDistribution` dot keys used `entry.id` (duplicate trace IDs). Fixed with composite keys (`c-${ci}-${idx}`, `${id}-${di}`). (2026-06-10)
+- **[Backend] Variable shadowing re-fix (vector graph code).** Second independent `for i in range(len(top_chunks))` in the vector-graph similarity computation was NOT caught by the original §6.17 fix. Renamed to `vi`/`vj` to avoid shadowing outer stage index `i`. (2026-06-10)
+- **[Backend] Intent classification prompt updated.** System prompt asks for `reasoning` per intent explaining why each path was chosen/rejected. (2026-06-10)
+- **[Tooling] restart.sh.** `~/mythic-ai-observatory/restart.sh` — kills both servers, rebuilds frontend, starts backend with `--reload` and frontend with `pnpm dev`. (2026-06-10)
+- **[Frontend] VectorDistanceGraph tooltip enhancement.** Replaced `useState` mouse tracking with `useRef` to avoid re-renders on every mouse move; richer tooltip content with color dot, trace ID, Used/Discarded status, relevance percentage. (2026-06-10)
+- **[Frontend] Switched to `next dev` for development.** `next start` caches HTML in memory — rebuilding `.next` has no effect until server restart. Dev mode hot-reloads and avoids stale HTML. Use `pnpm dev` for active development, `next start` for demos. (2026-06-10)
 
 ### Medium Priority
 
@@ -936,12 +985,20 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/components/SolarNexus.tsx` | Agent Nexus — animated SVG ring with 7 pipeline stages, energy particles, live step tracking; clickable nodes show ContextPane (split-pane prompt/context) + TokenMeter |
 | `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs + Models tab for runtime provider hot-swap |
 | `frontend/src/components/ResourceConstellation.tsx` | System Orbit — solar system viz with machines as planets, orbiting service glyphs that pulse on activity |
-| `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution; stage descriptions for each of the 7 orchestration stages; collapsible `context_assembled` viewer with toggle |
+| `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution; stage descriptions for each of the 7 orchestration stages; collapsible `context_assembled` viewer with toggle; wires ForkInTheRoad, StageDebate, TraceRadar, ThoughtStream, ChunkDisplay, CausalTracing |
 | `frontend/src/components/EngineStatusPanel.tsx` | Runtime Metrics dashboard: throughput (req/s), avg latency, error count with hover details; mini duration bar chart with gradient fill showing recent trace durations; hover any bar to see trace ID, duration, and status |
 | `frontend/src/components/ActivityFeed.tsx` | Real-time event stream from backend activity bus (polls every 2s) |
 | `frontend/src/components/MemoryConstellation.tsx` | History browser — spiral galaxy SVG: past traces as orbiting dots clustered semantically along a spiral arm with orbital drift, connection filaments, theme labels outside rotation; new traces get an amber expanding glow burst (5s) + flashing core; click any dot to replay that trace in the timeline; on hover/click the panel zooms (scale 1.3x) with opaque overlay; per-trace "Show assembled context" toggle reveals `context_assembled` in tooltip |
 | `frontend/src/components/DiscoveryEvents.tsx` | Toast overlay for discovery events on orchestration completion |
 | `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs |
+| `frontend/src/components/ForkInTheRoad.tsx` | Decision tree visualization for intent classification — chosen path highlighted in teal, rejected paths dimmed with strikethrough, reasoning shown per branch |
+| `frontend/src/components/StageDebate.tsx` | Contradiction detection between Context Synthesis and Response Generation — sentence-level polarity scoring + topic domain overlap; violet "Internal Debate" UI |
+| `frontend/src/components/TraceRadar.tsx` | SVG pentagon radar chart with 5 axes (Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty) |
+| `frontend/src/components/VectorDistanceGraph.tsx` | MDS-2D cosine-similarity cluster map for Memory Retrieval chunks with SVG scatter plot + hover tooltips |
+| `frontend/src/components/PersonalityProfile.tsx` | Per-model profiling — count, latency avg/p50/p95/p99, tokens, failure rate, confidence, per-stage averages in collapsible cards |
+| `frontend/src/components/LatencyBreakdown.tsx` | Per-stage colored progress bars with historical averages and live trace overlay |
+| `frontend/src/components/PerformanceInsights.tsx` | LLM-generated insight cards for trace performance analysis |
+| `frontend/src/components/CelestialDistribution.tsx` | Statistical distribution chart (mean/median/mode) with legend tooltips |
 | `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect (currently HTTP polling) |
 | `frontend/src/hooks/useOrchestrate.ts` | Orchestration hook — async POST returns trace_id, polls for incremental updates every 1.5s |
 | `frontend/src/hooks/useTraceReplay.ts` | Step-by-step animation hook for historical trace replay |
@@ -957,4 +1014,4 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 
 ---
 
-*Generated 2026-06-06. Update this document when making architectural changes.*
+*Generated 2026-06-10. Update this document when making architectural changes.*

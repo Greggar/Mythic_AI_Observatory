@@ -40,9 +40,9 @@ STAGES: list[dict[str, Any]] = [
     {"id": "step-1", "label": "Request Received", "model": None, "system": None},
     {"id": "step-2", "label": "Intent Classification", "model": "backoffice",
      "system": "You are an intent classifier. Respond with ONLY a JSON object with these fields:\n"
-              "- \"classification\": a short one-sentence classification of the user request\n"
-              "- \"intents\": an array of the top-3 most likely intents, each with \"label\" (short intent name) and \"confidence\" (0.0 to 1.0, all values sum to 1.0)\n\n"
-              "Example: {\"classification\": \"User is asking a factual question about history.\", \"intents\": [{\"label\": \"factual_query\", \"confidence\": 0.85}, {\"label\": \"educational_request\", \"confidence\": 0.10}, {\"label\": \"casual_curiosity\", \"confidence\": 0.05}]}"},
+               "- \"classification\": a short one-sentence classification of the user request\n"
+               "- \"intents\": an array of the top-3 most likely intents, each with \"label\" (short intent name), \"confidence\" (0.0 to 1.0, all values sum to 1.0), and \"reasoning\" (one sentence explaining why this path was chosen or rejected)\n\n"
+               "Example: {\"classification\": \"User is asking a factual question about history.\", \"intents\": [{\"label\": \"factual_query\", \"confidence\": 0.85, \"reasoning\": \"Directly answers the factual request with evidence.\"}, {\"label\": \"educational_request\", \"confidence\": 0.10, \"reasoning\": \"While related, the user didn't ask for a lesson.\"}, {\"label\": \"casual_curiosity\", \"confidence\": 0.05, \"reasoning\": \"The phrasing is formal, not casual.\"}]}"},
     {"id": "step-3", "label": "Agent Selection", "model": None, "system": None},
     {"id": "step-4", "label": "Memory Retrieval", "model": None, "system": None},
     {"id": "step-5", "label": "Context Synthesis", "model": "backoffice",
@@ -595,7 +595,49 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
                 threshold = 0.04
                 for ci, chunk in enumerate(top_chunks):
                     chunk["used"] = ci == 0 or chunk["relevance"] >= threshold
+
+                # Build pairwise similarity matrix for vector graph
+                vector_points: list[dict] = []
+                query_label = prompt[:60]
+                vector_points.append({
+                    "id": "query",
+                    "label": query_label,
+                    "is_query": True,
+                })
+                for chunk in top_chunks:
+                    vector_points.append({
+                        "id": chunk["trace_id"],
+                        "label": chunk["content"][:60],
+                        "content": chunk["content"],
+                        "relevance": chunk["relevance"],
+                        "used": chunk["used"],
+                        "is_query": False,
+                    })
+                # Pairwise edges: query to each chunk, and chunk-to-chunk
+                edges: list[dict] = []
+                # query -> all chunks
+                for ci, chunk in enumerate(top_chunks):
+                    edges.append({
+                        "source": "query",
+                        "target": chunk["trace_id"],
+                        "similarity": chunk["relevance"],
+                    })
+                # chunk-to-chunk
+                for vi in range(len(top_chunks)):
+                    for vj in range(vi + 1, len(top_chunks)):
+                        # Find the actual past sessions to compute pairwise similarity
+                        ps_i = next((ps for ps in past_sessions if ps.id == top_chunks[vi]["trace_id"]), None)
+                        ps_j = next((ps for ps in past_sessions if ps.id == top_chunks[vj]["trace_id"]), None)
+                        if ps_i and ps_j and ps_i.embedding and ps_j.embedding:
+                            sim = _cosine_similarity(ps_i.embedding, ps_j.embedding)
+                            edges.append({
+                                "source": top_chunks[vi]["trace_id"],
+                                "target": top_chunks[vj]["trace_id"],
+                                "similarity": sim,
+                            })
+
                 step.metadata["retrieved_chunks"] = top_chunks
+                step.metadata["vector_graph"] = {"points": vector_points, "edges": edges}
                 used_count = sum(1 for c in top_chunks if c.get("used"))
                 if used_count > 0:
                     scores = ", ".join(f"{c['relevance']:.2f}" for c in top_chunks[:used_count])

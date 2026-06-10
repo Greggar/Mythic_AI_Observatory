@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const MAX_BARS = 16;
@@ -39,12 +39,39 @@ export default function EngineStatusPanel({ telemetry }: Props) {
   const [hoveredMetric, setHoveredMetric] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
-  useEffect(() => {
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const POLL_MS = 15000;
+
+  const fetchTraces = useCallback(() => {
     fetch(`${API_BASE}/api/traces?limit=40`)
       .then((r) => r.json())
       .then(setTraces)
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    fetchTraces();
+    pollRef.current = setInterval(fetchTraces, POLL_MS);
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        if (!pollRef.current) {
+          fetchTraces();
+          pollRef.current = setInterval(fetchTraces, POLL_MS);
+        }
+      } else {
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [fetchTraces]);
 
   const metrics = useMemo(() => {
     const completed = traces.filter((t) => t.status === "complete");

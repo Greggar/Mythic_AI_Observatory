@@ -412,7 +412,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
 
                 {/* Connection filaments within clusters */}
                 {galaxy.map((cl, ci) =>
-                  cl.connections.map(([i, j]) => {
+                  cl.connections.map(([i, j], idx) => {
                     const a = cl.dots[i];
                     const b = cl.dots[j];
                     const dim = hoveredTraceId !== null
@@ -420,7 +420,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                       : highlightedCluster !== null && highlightedCluster !== ci;
                     return (
                       <motion.line
-                        key={`c-${ci}-${i}`}
+                        key={`c-${ci}-${idx}`}
                         x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                         stroke="rgba(45,212,191,0.12)" strokeWidth={0.4}
                         initial={{ opacity: 0 }}
@@ -441,7 +441,7 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                     const dotAnnotations = getAnnotations(dot.entry.id);
                     return (
                       <motion.g
-                        key={dot.entry.id}
+                        key={`${dot.entry.id}-${ci}-${ei}`}
                         onClick={() => handleDotClick(dot.entry)}
                         style={{ cursor: "pointer" }}
                         initial={{ opacity: 0, scale: 0 }}

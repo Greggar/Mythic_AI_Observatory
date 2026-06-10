@@ -2,6 +2,8 @@
 
 **Known issue:** `pnpm dev` (Turbopack) is unstable on this machine due to slow filesystem I/O. The reliable testing path is `build + start` — see below.
 
+**⚠️ `next start` caches HTML in memory.** Rebuilding `.next` while the server runs has no effect — kill and restart to see changes. For active development, use `pnpm dev` (hot-reloads). Use `restart.sh` in the project root for a combined kill→build→start cycle.
+
 This project has two modes:
 
 | Mode | Binding | Access | Primary Command | Stable? |
@@ -18,6 +20,14 @@ Only ONE mode runs at a time. Never run dev and prod simultaneously — they'll 
 
 ### Sprint start: Kill prod, start dev or preview
 
+Use the convenience script for a clean restart:
+
+```bash
+~/mythic-ai-observatory/restart.sh
+```
+
+Or manually:
+
 ```bash
 # 1. Kill anything on the ports
 fuser -k 3001/tcp 2>/dev/null
@@ -26,17 +36,17 @@ fuser -k 8001/tcp 2>/dev/null
 # 2. Start backend
 cd ~/mythic-ai-observatory/backend
 source .venv/bin/activate
-python main.py
+uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 
 # 3. Frontend — choose one:
-#    A) Dev mode (unstable, HMR only works on server browser)
-#    B) Production preview (stable, preferred for user testing)
+#    A) Dev mode (hot-reloads, avoids HTML caching issue — PREFERRED for active dev)
+#    B) Production preview (stable, but caches HTML — use for demos)
 #
-# Option A — dev mode:
+# Option A — dev mode (RECOMMENDED):
 cd ~/mythic-ai-observatory/frontend
 NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm dev
 
-# Option B — production preview (RECOMMENDED for testing):
+# Option B — production preview (for demos):
 cd ~/mythic-ai-observatory/frontend
 NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm build
 next start -p 3001

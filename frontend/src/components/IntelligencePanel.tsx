@@ -11,8 +11,12 @@ import {
   Sparkles,
   Activity,
 } from "lucide-react";
+import VectorDistanceGraph from "@/components/VectorDistanceGraph";
 import type { Telemetry } from "@/hooks/useWebSocket";
 import type { TraceSession, TraceStep } from "@/types/trace";
+import StageDebate from "@/components/StageDebate";
+import TraceRadar from "@/components/TraceRadar";
+import ForkInTheRoad from "@/components/ForkInTheRoad";
 
 interface Props {
   telemetry: Telemetry | null;
@@ -144,6 +148,20 @@ interface RetrievedChunk {
   content: string;
   relevance: number;
   used: boolean;
+}
+
+interface VectorPoint {
+  id: string;
+  label: string;
+  relevance?: number;
+  used?: boolean;
+  is_query: boolean;
+}
+
+interface VectorEdge {
+  source: string;
+  target: string;
+  similarity: number;
 }
 
 function ThoughtStream({ entries }: { entries: { label: string; text: string; isModel: boolean }[] }) {
@@ -437,7 +455,7 @@ export default function IntelligencePanel({
             <div className="text-sm font-medium text-teal-mystic">{currentStage.label}</div>
             <div className="mt-1 text-[10px] text-zinc-500 leading-tight">{stageDesc(currentStage.label)}</div>
             {currentStage.label === "Intent Classification" && Array.isArray(currentStage.metadata?.intent_probs) && (
-              <IntentProbs intents={currentStage.metadata.intent_probs as IntentProb[]} />
+              <ForkInTheRoad intents={currentStage.metadata.intent_probs as IntentProb[]} />
             )}
             {(currentStage.metadata?.output as string | undefined) && (
               <div className="mt-2 text-[11px] text-zinc-400 font-mono leading-relaxed line-clamp-2">
@@ -542,6 +560,8 @@ export default function IntelligencePanel({
             )}
           </div>
 
+          <TraceRadar trace={trace} />
+
           {/* Confidence — radiant solar ring */}
           {confidence !== null && (
             <div className="flex justify-center py-2">
@@ -550,6 +570,16 @@ export default function IntelligencePanel({
               </svg>
             </div>
           )}
+
+          {/* Stage Debate — cognitive dissonance detection */}
+          {(() => {
+            const csStep = trace.steps.find((s) => s.label === "Context Synthesis");
+            const rgStep = trace.steps.find((s) => s.label === "Response Generation");
+            const csOut = csStep?.metadata?.output as string | undefined;
+            const rgOut = rgStep?.metadata?.output as string | undefined;
+            if (!csOut || !rgOut) return null;
+            return <StageDebate step5Output={csOut} step6Output={rgOut} />;
+          })()}
 
           {/* Trace Root Cause */}
           {rootCauseIdx === null ? (
@@ -631,11 +661,18 @@ export default function IntelligencePanel({
           )}
 
           {/* Memory Retrieval chunks */}
-          {(trace.steps.find((s) => s.label === "Memory Retrieval")?.metadata?.retrieved_chunks as RetrievedChunk[] | undefined) && (
-            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
-              <ChunkDisplay chunks={trace.steps.find((s) => s.label === "Memory Retrieval")!.metadata!.retrieved_chunks as RetrievedChunk[]} />
-            </div>
-          )}
+          {(() => {
+            const mrStep = trace.steps.find((s) => s.label === "Memory Retrieval");
+            const chunks = mrStep?.metadata?.retrieved_chunks as RetrievedChunk[] | undefined;
+            const vg = mrStep?.metadata?.vector_graph as { points: VectorPoint[]; edges: VectorEdge[] } | undefined;
+            if (!chunks) return null;
+            return (
+              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
+                <ChunkDisplay chunks={chunks} />
+                {vg && <VectorDistanceGraph points={vg.points} edges={vg.edges} />}
+              </div>
+            );
+          })()}
 
           {/* Insight tags */}
           {insightTags.length > 0 && (

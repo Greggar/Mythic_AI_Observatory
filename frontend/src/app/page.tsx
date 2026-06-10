@@ -22,6 +22,7 @@ import { HoverProvider } from "@/lib/HoverContext";
 import CelestialDistribution from "@/components/CelestialDistribution";
 import LatencyBreakdown from "@/components/LatencyBreakdown";
 import PerformanceInsights from "@/components/PerformanceInsights";
+import PersonalityProfile from "@/components/PersonalityProfile";
 import TraceSummaryModal from "@/components/TraceSummaryModal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -292,7 +293,7 @@ export default function Home() {
           </section>
 
           <aside className="w-64 shrink-0 space-y-4">
-            {/* Future: aggregate stats, fingerprints, trace list */}
+            {<PersonalityProfile />}
           </aside>
         </div>
       )}

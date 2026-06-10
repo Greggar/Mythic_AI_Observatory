@@ -254,13 +254,13 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
             />
           )}
 
-          {dots.map((dot) => {
+          {dots.map((dot, di) => {
             const isCrossHovered = hoveredTraceId !== null && hoveredTraceId === dot.entry.id;
             const isDimmed = hoveredTraceId !== null && !isCrossHovered;
 
             return (
               <motion.g
-                key={dot.entry.id}
+                key={`${dot.entry.id}-${di}`}
                 onClick={() => onSelect(dot.entry.id)}
                 style={{ cursor: "pointer" }}
                 initial={{ opacity: 0, scale: 0 }}

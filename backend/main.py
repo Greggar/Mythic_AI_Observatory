@@ -17,6 +17,7 @@ from prometheus_client import Gauge, generate_latest, REGISTRY
 from pydantic import BaseModel
 
 from models.trace import TraceSession
+from services.profile import compute_profile, ModelProfile
 from models.annotation import Annotation
 from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, get_activity_events, get_model_provider, set_model_provider, warmup_model
 from services import annotation_service
@@ -266,6 +267,11 @@ async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
     _async_tasks[session.id] = task
     task.add_done_callback(lambda _: _async_tasks.pop(session.id, None))
     return {"trace_id": session.id, "status": "started"}
+
+
+@app.get("/api/traces/profile", response_model=list[ModelProfile])
+async def api_trace_profiles() -> list[ModelProfile]:
+    return compute_profile()
 
 
 @app.get("/api/traces", response_model=list[TraceSession])
