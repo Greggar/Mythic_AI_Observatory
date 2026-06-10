@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { detectContradiction } from "./StageDebate";
 import type { TraceSession } from "@/types/trace";
 
@@ -65,7 +66,16 @@ function computeValues(trace: TraceSession) {
 
 type Values = Record<string, number>;
 
+const AXIS_DESCRIPTIONS: Record<string, string> = {
+  honesty: "Rate of self-limiting phrases (\"I cannot\", \"no access\") — higher means more disclaimers",
+  confidence: "Model's stated confidence in its own output (0–1)",
+  relevance: "Mean similarity score of retrieved memory chunks — higher means more relevant context",
+  adherence: "How closely the output follows its own synthesized context — drops when contradictions detected",
+  substance: "Output length normalized to 500 chars — higher means more substantive response",
+};
+
 export default function TraceRadar({ trace }: Props) {
+  const [showLegend, setShowLegend] = useState(false);
   const vals = computeValues(trace);
   const data = AXES.map((a) => ({ ...a, value: vals[a.key] }));
 
@@ -78,13 +88,21 @@ export default function TraceRadar({ trace }: Props) {
 
   return (
     <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]">
-      <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-600 mb-1">
-        Trace Radar
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-600">
+          Trace Radar
+        </div>
+        <button
+          onClick={() => setShowLegend((p) => !p)}
+          className="text-[8px] font-mono text-zinc-600 hover:text-teal-mystic/60 transition-colors"
+        >
+          {showLegend ? "Hide" : "?"}
+        </button>
       </div>
       <svg
-        viewBox="0 0 200 185"
+        viewBox="0 0 200 190"
         className="w-full h-auto"
-        style={{ maxHeight: 170 }}
+        style={{ maxHeight: 175 }}
       >
         {/* Grid — concentric pentagons */}
         {GRIDS.map((level) => {
@@ -159,7 +177,6 @@ export default function TraceRadar({ trace }: Props) {
         {data.map((d, i) => {
           const [x, y] = dataPoints[i];
           const labelAngle = ANGLE(i);
-          // Place the value text slightly outward from the point
           const tx = x + 10 * Math.cos(labelAngle);
           const ty = y + 10 * Math.sin(labelAngle);
           return (
@@ -178,6 +195,17 @@ export default function TraceRadar({ trace }: Props) {
           );
         })}
       </svg>
+
+      {showLegend && (
+        <div className="mt-2 space-y-1.5 border-t border-white/[0.04] pt-2">
+          {data.map((d) => (
+            <div key={d.key} className="text-[8px] text-zinc-500 leading-tight">
+              <span className="font-semibold text-zinc-400">{d.label.replace("\n", " ")}</span>
+              {" — "}{AXIS_DESCRIPTIONS[d.key]}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

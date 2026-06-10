@@ -155,7 +155,7 @@ export default function VectorDistanceGraph({ points, edges }: Props) {
           })}
 
           {/* Nodes */}
-          {layout.map((l) => {
+          {layout.map((l, li) => {
             const isQuery = l.pt.is_query;
             const isHovered = hoveredId === l.pt.id;
             const r = isQuery ? 6 : 4.5;
@@ -166,19 +166,17 @@ export default function VectorDistanceGraph({ points, edges }: Props) {
                 : "oklch(55% 0.1 280)";
             const dim = hoveredId !== null && !isHovered;
             return (
-              <g
-                key={l.pt.id}
-                style={{ cursor: "pointer" }}
-                onMouseEnter={(e) => {
-                  setHoveredId(l.pt.id);
-                  tooltipRef.current = { x: e.clientX, y: e.clientY };
-                }}
-                onMouseMove={(e) => {
-                  tooltipRef.current = { x: e.clientX, y: e.clientY };
-                }}
-              >
-                <circle cx={l.x} cy={l.y} r={r + 4} fill={fill}
-                  opacity={dim ? 0.02 : isHovered ? 0.15 : 0.05} />
+              <g key={`${l.pt.id}-${li}`} style={{ cursor: "pointer" }}>
+                <circle cx={l.x} cy={l.y} r={r + 6} fill="transparent"
+                  style={{ cursor: "pointer" }}
+                  onMouseEnter={(e) => {
+                    setHoveredId(l.pt.id);
+                    tooltipRef.current = { x: e.clientX, y: e.clientY };
+                  }}
+                  onMouseMove={(e) => {
+                    tooltipRef.current = { x: e.clientX, y: e.clientY };
+                  }}
+                />
                 <circle cx={l.x} cy={l.y} r={r + 1.5} fill="none" stroke={fill}
                   strokeWidth={0.5} opacity={dim ? 0.15 : 0.4} />
                 <circle cx={l.x} cy={l.y} r={r} fill={fill}
