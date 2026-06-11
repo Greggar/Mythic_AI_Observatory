@@ -146,8 +146,13 @@ async def collect_telemetry() -> dict[str, Any]:
     oc = await loop.run_in_executor(executor, _poll_openclaw)
 
     remotes: list[dict[str, Any]] = []
+    service_to_machine: dict[str, str] = {}
+    for mid, mc in config_manager.get_machines_config().items():
+        for sid in mc.get("services", []):
+            service_to_machine[sid] = mc.get("name", mid)
     for name, url in config_manager.get_remote_targets().items():
         res = await loop.run_in_executor(executor, _poll_remote, name, url)
+        res["machine"] = service_to_machine.get(name, "")
         remotes.append(res)
 
     # Update prometheus gauges

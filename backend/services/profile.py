@@ -1,8 +1,45 @@
+import re
 from statistics import median
 
 from pydantic import BaseModel
 
 from models.trace import TraceSession
+
+
+HEDGE_PATTERNS = re.compile(
+    r"\b(?:I\s+(?:cannot|can\'t|don\'t|do not|think|suppose|guess|believe|imagine|would\s+say)"
+    r"|generally\s+speaking"
+    r"|it\'?s?\s+(?:worth\s+noting|important\s+to\s+note|possible|likely|unclear)"
+    r"|as\s+an?\s+AI"
+    r"|perhaps\s*$|maybe\s*$"
+    r"|however,?\s+(?:this|that|it)"
+    r"|it\s+depends"
+    r"|to\s+my\s+knowledge"
+    r"|I\'?m?\s+not\s+(?:sure|certain|qualified)"
+    r"|that\s+said"
+    r"|in\s+my\s+opinion"
+    r"|strictly\s+speaking"
+    r"|for\s+what\s+it\s+worth"
+    r"|more\s+often\s+than\s+not"
+    r"|in\s+general"
+    r"|overall,?"
+    r"|arguably"
+    r"|presumably"
+    r"|reportedly"
+    r"|supposedly"
+    r"|technically,?"
+    r"|essentially"
+    r"|basically"
+    r"|frankly"
+    r"|honestly"
+    r"|admittedly"
+    r")\b",
+    re.IGNORECASE,
+)
+
+BULLET_RE = re.compile(r"^\s*[-*]\s")
+TABLE_RE = re.compile(r"^\s*\|.*\|$")
+CODE_FENCE_RE = re.compile(r"^```")
 
 
 class ModelProfile(BaseModel):
@@ -18,6 +55,17 @@ class ModelProfile(BaseModel):
     stage_avgs: dict[str, float]  # stage_label -> avg_duration_ms
     avg_steps: float  # avg number of steps per trace
 
+    # Personality metrics
+    verbosity_score: float = 0.5  # 0=laconic, 1=prolix
+    avg_output_tokens: float = 0
+    formatting_bullet_pct: float = 0
+    formatting_table_pct: float = 0
+    formatting_code_pct: float = 0
+    formatting_prose_pct: float = 1.0
+    hedging_freq: float = 0  # occurrences per 1000 chars
+    lexical_diversity: float = 0  # type-token ratio 0-1
+    directness_score: float = 0.5  # 0=blunt, 1=discursive
+
 
 def _percentile(sorted_data: list[float], p: float) -> float:
     """Linear-interpolated percentile, works for any dataset size >= 1."""
@@ -32,6 +80,108 @@ def _percentile(sorted_data: list[float], p: float) -> float:
     if f + 1 < n:
         return sorted_data[f] * (1 - c) + sorted_data[f + 1] * c
     return sorted_data[f]
+
+
+def _format_breakdown(text: str) -> dict[str, float]:
+    """Classify lines into bullet / table / code / prose, return pct distribution."""
+    lines = text.split("\n")
+    in_code = False
+    counts: dict[str, int] = {"bullet": 0, "table": 0, "code": 0, "prose": 0}
+    for line in lines:
+        if CODE_FENCE_RE.match(line):
+            in_code = not in_code
+            counts["code"] += 1
+            continue
+        if in_code:
+            counts["code"] += 1
+        elif BULLET_RE.match(line):
+            counts["bullet"] += 1
+        elif TABLE_RE.match(line):
+            counts["table"] += 1
+        else:
+            stripped = line.strip()
+            if stripped:
+                counts["prose"] += 1
+    total = sum(counts.values()) or 1
+    return {k: v / total for k, v in counts.items()}
+
+
+def _compute_personality(traces: list[TraceSession]) -> dict:
+    outputs = [t.output for t in traces if t.output and t.status == "complete"]
+    if not outputs:
+        return {
+            "verbosity_score": 0.5,
+            "avg_output_tokens": 0,
+            "formatting_bullet_pct": 0,
+            "formatting_table_pct": 0,
+            "formatting_code_pct": 0,
+            "formatting_prose_pct": 1.0,
+            "hedging_freq": 0,
+            "lexical_diversity": 0,
+            "directness_score": 0.5,
+        }
+
+    total_tokens = 0
+    all_chars = 0
+    hedge_count = 0
+    total_words = 0
+    unique_words: set[str] = set()
+    first_sentence_chars = 0
+    total_chars = 0
+    format_acc: dict[str, float] = {"bullet": 0, "table": 0, "code": 0, "prose": 0}
+
+    for out in outputs:
+        words = out.split()
+        total_tokens += len(words)
+        all_chars += len(out)
+
+        # Hedge
+        matches = HEDGE_PATTERNS.findall(out)
+        hedge_count += len(matches)
+
+        # Lexical diversity (global across all outputs for stability)
+        unique_words.update(w.lower() for w in words)
+        total_words += len(words)
+
+        # Directness: char position of first sentence boundary
+        first_period = out.find(".")
+        first_newline = out.find("\n")
+        boundary = first_period if first_period >= 0 else len(out)
+        if first_newline >= 0 and first_newline < boundary:
+            boundary = first_newline
+        first_sentence_chars += boundary
+        total_chars += len(out)
+
+        # Formatting
+        fmt = _format_breakdown(out)
+        for k in format_acc:
+            format_acc[k] += fmt[k]
+
+    n = len(outputs)
+    avg_tokens = total_tokens / n
+    tok_p90 = 300  # rough calibration: ~300 tokens = wordy boundary
+    verbosity = min(avg_tokens / tok_p90, 1.0)
+
+    fmt_final = {k: v / n for k, v in format_acc.items()}
+
+    hedge_freq = (hedge_count / all_chars) * 1000 if all_chars else 0
+
+    ttr = len(unique_words) / total_words if total_words else 0
+
+    first_ratio = first_sentence_chars / total_chars if total_chars else 1
+    directness = min(first_ratio * 2, 1.0)  # 0=blunt(<0.1), 1=discursive(>0.5)
+
+    return {
+        "verbosity_score": round(verbosity, 3),
+        "avg_output_tokens": round(avg_tokens, 1),
+        "formatting_bullet_pct": round(fmt_final["bullet"], 3),
+        "formatting_table_pct": round(fmt_final["table"], 3),
+        "formatting_code_pct": round(fmt_final["code"], 3),
+        "formatting_prose_pct": round(fmt_final["prose"], 3),
+        "hedging_freq": round(hedge_freq, 2),
+        "lexical_diversity": round(ttr, 3),
+        "directness_score": round(directness, 3),
+    }
 
 
 def compute_profile() -> list[ModelProfile]:
@@ -80,6 +230,8 @@ def compute_profile() -> list[ModelProfile]:
         p95 = _percentile(sorted_durs, 95) if sorted_durs else 0
         p99 = _percentile(sorted_durs, 99) if sorted_durs else 0
 
+        personality = _compute_personality(group)
+
         profiles.append(ModelProfile(
             model=model,
             trace_count=len(group),
@@ -95,6 +247,7 @@ def compute_profile() -> list[ModelProfile]:
                 for sid, ds in stage_durs.items()
             },
             avg_steps=sum(len(t.steps) for t in group) / len(group) if group else 0,
+            **personality,
         ))
 
     return profiles

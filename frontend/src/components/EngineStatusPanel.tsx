@@ -9,6 +9,7 @@ interface TelemetryRemote {
   status: string;
   target: string;
   detail?: string;
+  machine?: string;
 }
 
 interface Telemetry {
@@ -32,12 +33,36 @@ interface StatusDetail {
   name: string;
   status: string;
   target?: string;
+  machine?: string;
 }
 
 export default function EngineStatusPanel({ telemetry }: Props) {
   const [traces, setTraces] = useState<TraceEntry[]>([]);
   const [hoveredMetric, setHoveredMetric] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+
+  const healthHistory = useRef<{ ok: number; err: number; off: number }[]>([]);
+
+  useEffect(() => {
+    if (!telemetry) return;
+    let ok = 0, err = 0, off = 0;
+    if (telemetry.ollama?.status === "ok") ok++;
+    else if (telemetry.ollama?.status === "error") err++;
+    else if (telemetry.ollama?.status) off++;
+    if (telemetry.openclaw?.status === "ok") ok++;
+    else if (telemetry.openclaw?.status === "error") err++;
+    else if (telemetry.openclaw?.status) off++;
+    for (const r of telemetry.remotes || []) {
+      if (r.status === "ok") ok++;
+      else if (r.status === "error") {
+        if (r.detail === "connection_refused") off++;
+        else err++;
+      }
+      else if (r.status) off++;
+    }
+    healthHistory.current.push({ ok, err, off });
+    if (healthHistory.current.length > 30) healthHistory.current.shift();
+  }, [telemetry]);
 
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const POLL_MS = 15000;
@@ -104,21 +129,21 @@ export default function EngineStatusPanel({ telemetry }: Props) {
     let unknown = 0;
     const problemDetails: StatusDetail[] = [];
     if (telemetry) {
-      const tally = (name: string, status: string, target?: string, detail?: string) => {
+      const tally = (name: string, status: string, target?: string, detail?: string, machine?: string) => {
         if (status === "ok") ok++;
         else if (status === "error") {
           if (detail === "connection_refused") {
-            off++; problemDetails.push({ name, status: "stopped", target });
+            off++; problemDetails.push({ name, status: "stopped", target, machine });
           } else {
-            err++; problemDetails.push({ name, status: "error", target });
+            err++; problemDetails.push({ name, status: "error", target, machine });
           }
         }
-        else if (status === "disabled") { off++; problemDetails.push({ name, status: "disabled", target }); }
+        else if (status === "disabled") { off++; problemDetails.push({ name, status: "disabled", target, machine }); }
         else unknown++;
       };
       tally("Ollama", telemetry.ollama?.status || "unknown");
       tally("OpenClaw", telemetry.openclaw?.status || "unknown");
-      for (const r of telemetry.remotes || []) tally(r.target, r.status, r.target, r.detail);
+      for (const r of telemetry.remotes || []) tally(r.target, r.status, r.target, r.detail, r.machine);
     }
 
     return { counts, avgDuration, minDuration, maxDuration, recentBars, maxBar, ok, err, off, unknown, problemDetails };
@@ -168,24 +193,55 @@ export default function EngineStatusPanel({ telemetry }: Props) {
           <div className={`text-sm font-mono ${metrics.err + metrics.off > 0 ? "text-[oklch(55%_0.22_30)]" : "text-zinc-600"}`}>
             {metrics.err + metrics.off}
           </div>
-          {hoveredMetric === "errors" && metrics.problemDetails.length > 0 && (
-            <div className="absolute z-20 top-full mt-1.5 left-1/2 -translate-x-1/2 w-44
+          {hoveredMetric === "errors" && (
+            <div className="absolute z-20 top-full mt-1.5 left-1/2 -translate-x-1/2 w-48
               bg-[rgba(6,20,35,0.96)] border border-white/[0.1] rounded-md px-2.5 py-1.5 shadow-xl text-left">
-              <div className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase mb-1">Issues</div>
-              {metrics.problemDetails.map((d) => {
-                const isErr = d.status === "error";
-                const isStopped = d.status === "stopped";
-                const dotColor = isErr ? "bg-[oklch(55%_0.22_30)]" : isStopped ? "bg-[oklch(78%_0.14_85)]" : "bg-zinc-600";
-                const labelColor = isErr ? "text-[oklch(55%_0.22_30/0.7)]" : isStopped ? "text-[oklch(78%_0.14_85/0.7)]" : "text-zinc-500";
-                const displayLabel = isErr ? "error" : isStopped ? "stopped" : d.status;
-                return (
-                  <div key={d.name} className="flex items-center gap-1.5 py-0.5">
-                    <span className={`w-1 h-1 rounded-full shrink-0 ${dotColor}`} />
-                    <span className="text-[10px] text-zinc-300">{d.name}</span>
-                    <span className={`text-[8px] font-mono ml-auto ${labelColor}`}>{displayLabel}</span>
-                  </div>
-                );
-              })}
+              {metrics.problemDetails.length > 0 && (
+                <>
+                  <div className="text-[9px] font-mono tracking-wider text-zinc-500 uppercase mb-1">Issues</div>
+                  {metrics.problemDetails.map((d) => {
+                    const isErr = d.status === "error";
+                    const isStopped = d.status === "stopped";
+                    const dotColor = isErr ? "bg-[oklch(55%_0.22_30)]" : isStopped ? "bg-[oklch(78%_0.14_85)]" : "bg-zinc-600";
+                    const labelColor = isErr ? "text-[oklch(55%_0.22_30/0.7)]" : isStopped ? "text-[oklch(78%_0.14_85/0.7)]" : "text-zinc-500";
+                    const displayLabel = isErr ? "error" : isStopped ? "stopped" : d.status;
+                    const displayName = d.machine ? `${d.machine}–${d.name}` : d.name;
+                    return (
+                      <div key={d.name} className="flex items-center gap-1.5 py-0.5">
+                        <span className={`w-1 h-1 rounded-full shrink-0 ${dotColor}`} />
+                        <span className="text-[10px] text-zinc-300 truncate">{displayName}</span>
+                        <span className={`text-[8px] font-mono ml-auto shrink-0 ${labelColor}`}>{displayLabel}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {/* ── Health sparkline ── */}
+              {healthHistory.current.length > 1 && (
+                <div className={metrics.problemDetails.length > 0 ? "mt-2 pt-2 border-t border-white/[0.06]" : ""}>
+                  <div className="text-[8px] font-mono tracking-wider text-zinc-600 uppercase mb-1">Health Timeline</div>
+                  <svg width={healthHistory.current.length * 5} height="18" className="w-full">
+                    {healthHistory.current.map((h, i) => {
+                      const total = h.ok + h.err + h.off || 1;
+                      const oh = (h.ok / total) * 18;
+                      const eh = (h.err / total) * 18;
+                      const ffh = (h.off / total) * 18;
+                      const x = i * 5;
+                      return (
+                        <g key={i}>
+                          {h.ok > 0 && <rect x={x} y={0} width={3} height={oh} fill="oklch(65% 0.18 145)" />}
+                          {h.err > 0 && (
+                            <rect x={x} y={oh} width={3} height={eh} fill="oklch(55% 0.22 30)" />
+                          )}
+                          {h.off > 0 && (
+                            <rect x={x} y={oh + eh} width={3} height={ffh} fill="oklch(78% 0.14 85)" />
+                          )}
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              )}
             </div>
           )}
         </div>

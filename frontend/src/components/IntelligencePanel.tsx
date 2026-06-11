@@ -363,7 +363,34 @@ export default function IntelligencePanel({
     return entries;
   }, [trace]);
 
-  function findRootCause(session: TraceSession): { index: number; reason: string } | null {
+  const STOPWORDS = new Set([
+  "the", "and", "for", "this", "that", "with", "from", "have", "been", "was",
+  "are", "has", "had", "but", "not", "what", "all", "were", "when", "where",
+  "how", "which", "their", "about", "would", "into", "over", "such", "than",
+  "they", "will", "each", "also", "very", "just", "more",
+]);
+
+function highlightKeyWords(text: string, query: string): (string | React.ReactNode)[] {
+  const queryWords = query
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length >= 4 && !STOPWORDS.has(w));
+  if (queryWords.length === 0) return [text];
+
+  const unique = [...new Set(queryWords)];
+  const parts = text.split(/\b/);
+  return parts.map((part, i) => {
+    const lower = part.toLowerCase();
+    if (unique.includes(lower)) {
+      return (
+        <span key={i} className="text-teal-mystic font-semibold">{part}</span>
+      );
+    }
+    return part;
+  });
+}
+
+function findRootCause(session: TraceSession): { index: number; reason: string } | null {
     const steps = session.steps;
     if (!steps || steps.length === 0) return null;
     // 1. Error stage takes priority
@@ -459,7 +486,7 @@ export default function IntelligencePanel({
             )}
             {(currentStage.metadata?.output as string | undefined) && (
               <div className="mt-2 text-[11px] text-zinc-400 font-mono leading-relaxed line-clamp-2">
-                {(currentStage.metadata.output as string)}
+                {highlightKeyWords(currentStage.metadata.output as string, trace?.prompt || "")}
               </div>
             )}
             {currentStage.context_assembled && (
@@ -669,6 +696,45 @@ export default function IntelligencePanel({
             return (
               <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
                 <ChunkDisplay chunks={chunks} />
+                {/* Confidence Filter Gauge */}
+                {(() => {
+                  const total = chunks.length;
+                  const used = chunks.filter((c) => c.used).length;
+                  const pct = total > 0 ? used / total : 0;
+                  const R = 16;
+                  const circ = 2 * Math.PI * R;
+                  return (
+                    <div className="flex items-center gap-3 py-1">
+                      <svg width="44" height="44" viewBox="0 0 44 44">
+                        <circle cx="22" cy="22" r={R} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                        <circle
+                          cx="22" cy="22" r={R}
+                          fill="none"
+                          stroke={pct < 0.5 ? "oklch(55% 0.22 30)" : "oklch(65% 0.18 145)"}
+                          strokeWidth="5"
+                          strokeDasharray={circ}
+                          strokeDashoffset={circ * (1 - pct)}
+                          strokeLinecap="round"
+                          transform="rotate(-90 22 22)"
+                          style={{ transition: "stroke-dashoffset 0.5s" }}
+                        />
+                        <text x="22" y="22" textAnchor="middle" dominantBaseline="central"
+                          fill="oklch(72% 0.11 75)" fontSize="11" fontFamily="monospace"
+                        >
+                          {used}
+                        </text>
+                      </svg>
+                      <div className="flex flex-col">
+                        <span className="text-[8px] font-mono tracking-wider text-zinc-600 uppercase">
+                          Confidence Filter
+                        </span>
+                        <span className="text-[9px] font-mono text-zinc-400">
+                          {used}/{total} relevant{(pct < 0.5 && total > 0) ? " — low confidence" : ""}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {vg && <VectorDistanceGraph points={vg.points} edges={vg.edges} />}
               </div>
             );

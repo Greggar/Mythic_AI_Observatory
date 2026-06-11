@@ -473,6 +473,15 @@ def load_history(limit: int = 50) -> list[TraceSession]:
                         sessions.append(TraceSession.model_validate_json(line))
                     except Exception:
                         continue
+        # Deduplicate: keep last occurrence of each trace_id
+        seen: set[str] = set()
+        deduped: list[TraceSession] = []
+        for s in reversed(sessions):
+            if s.id not in seen:
+                seen.add(s.id)
+                deduped.append(s)
+        deduped.reverse()
+        sessions = deduped
     except Exception as e:
         logger.error("Failed to load history: %s", e)
     return sessions[-limit:]
