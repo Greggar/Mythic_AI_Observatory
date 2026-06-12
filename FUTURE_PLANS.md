@@ -125,6 +125,13 @@ We are a long way toward health + function transparency. The items below extend 
 5. **Live thought stream** — real-time text flow through each stage during orchestration ✓ *(2026-06-07)*
 6. **Comparative mode** — side-by-side A/B of two providers on the same prompt
 
+## Session summary — 2026-06-12
+
+- **Session review** — comprehensive project summary provided to user covering all panels, infrastructure, and lessons learned
+- **TraceRadar "Honesty" → "Dishonesty" axis** — renamed axis label and updated descriptions; HONESTY_PAT regex now described as "self-limiting phrases" with 0 = direct, 1 = evasive framing
+- **LLM insight prompt improvements** — added `active_local_model: {LOCAL_MODEL}` to trace data and instruction to use the active model from TRACE DATA; removed model label enrichment from `_build_architecture_context()` to simplify reachable/unreachable display
+- **network.json formatting** — prettier array formatting for services lists, unicode em dashes in desc/insight fields
+
 ## Session summary — 2026-06-11
 
 - **#13 Service health sparkline** — `EngineStatusPanel.tsx`: rolling 30-sample history of ok/err/off proportions rendered as a stacked SVG bar chart inside the Issues tooltip. Each 3px-wide column = one telemetry poll (~1.5s), green (ok) / red (error) / amber (stopped/disabled) stacked vertically. Visible on hover of the Issues count regardless of whether problems exist.

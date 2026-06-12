@@ -173,7 +173,6 @@ async def _build_architecture_context() -> str:
     lines: list[str] = []
     machines = config_manager.get_machines_config()
     services = config_manager.get_services()
-
     for mid, m in machines.items():
         desc = m.get("insight", m.get("desc", ""))
         host = m.get("host", "?")
@@ -181,11 +180,7 @@ async def _build_architecture_context() -> str:
         svc_names = []
         for sid in svc_list:
             svc = services[sid]
-            label = svc.get("label", sid)
-            model = svc.get("model", "")
-            if model:
-                label = f"{label} ({model})"
-            svc_names.append(label)
+            svc_names.append(svc.get("label", sid))
 
         reachable = await _check_machine_reachable(m, services)
         status = "reachable" if reachable else "unreachable"
@@ -246,6 +241,7 @@ async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
         "Rules:\n"
         "- info: factual observation about the trace\n"
         "- recommendation: specific actionable suggestion based on architecture\n"
+        "- The active model is listed in TRACE DATA — use that\n"
         "- Do NOT mention the model response content, only latency and system behavior\n"
         "- Focus on bottlenecks, cold starts, and hardware-specific observations\n"
         "- If a remote GPU worker is unreachable, recommend investigating the connection\n"
@@ -255,7 +251,8 @@ async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
     prompt = (
         f"TRACE DATA:\n"
         f'prompt: "{session.prompt[:100]}"\n'
-        f"model: {session.model_used or 'unknown'}\n"
+        f"model: {session.model_used or LOCAL_MODEL or 'unknown'}\n"
+        f"active_local_model: {LOCAL_MODEL}\n"
         f"total_ms: {total_ms}\n"
         f"stages:\n{stages_json}\n\n"
         f"Generate 2-4 insights as a JSON array."

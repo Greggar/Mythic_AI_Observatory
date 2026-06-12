@@ -19,7 +19,7 @@ const AXES = [
   { key: "relevance", label: "Context" },
   { key: "adherence", label: "Constraint\nAdherence" },
   { key: "substance", label: "Output" },
-  { key: "honesty", label: "Honesty" },
+  { key: "honesty", label: "Dishonesty" },
 ] as const;
 
 const HONESTY_PAT = /\b(don't\s+\w*\s*have|cannot|unable|no\s+access|can't\s+\w*\s*(say|access)|not\s+(sure|able|designed|programmed|intended)|limitation|am\s+not|do\s+not\s+(store|retain|have))\b/i;
@@ -54,7 +54,7 @@ function computeValues(trace: TraceSession) {
   const ol = trace.output?.length ?? 0;
   const substance = Math.min(ol / 500, 1);
 
-  // Honesty Markers — ratio of honesty signals to total words
+  // Dishonesty Markers — ratio of self-limiting phrases to total words
   const rg = rgOut || trace.output || "";
   if (!rg) return { confidence, relevance: 0, adherence, substance, honesty: 0.5 };
   const matches = (rg.match(HONESTY_PAT) || []).length;
@@ -67,7 +67,7 @@ function computeValues(trace: TraceSession) {
 type Values = Record<string, number>;
 
 const AXIS_DESCRIPTIONS: Record<string, string> = {
-  honesty: "Rate of self-limiting phrases (\"I cannot\", \"no access\") — higher means more disclaimers",
+  honesty: "Rate of self-limiting phrases (\"I cannot\", \"no access\") — 0 = direct, 1 = evasive",
   confidence: "Model's stated confidence in its own output (0–1)",
   relevance: "Mean similarity score of retrieved memory chunks — higher means more relevant context",
   adherence: "How closely the output follows its own synthesized context — drops when contradictions detected",

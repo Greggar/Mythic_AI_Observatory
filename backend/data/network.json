@@ -42,21 +42,28 @@
     "primary-server": {
       "name": "Gingerlong",
       "host": "127.0.0.1",
-      "desc": "Primary orchestration server — API, UI, Ollama, OpenClaw",
+      "desc": "Primary orchestration server \u2014 API, UI, Ollama, OpenClaw",
       "insight": "The conductor. Hosts the API, UI, Ollama, OpenClaw. All orchestration originates here.",
-      "services": ["ollama", "openclaw"]
+      "services": [
+        "ollama",
+        "openclaw"
+      ]
     },
     "backoffice": {
       "name": "BackOffice",
       "host": "198.51.100.100",
-      "desc": "Worker node — inference cluster, Docker Model Runner",
-      "insight": "Compute heart. Runs qwen3.5:9B, Hermes Bridge, ComfyUI. GPU-bound inference specialist.",
-      "services": ["backoffice_llm", "hermes", "comfyui"]
+      "desc": "Worker node \u2014 inference cluster, Docker Model Runner",
+      "insight": "Compute heart. GPU-bound inference worker with Hermes Bridge and ComfyUI.",
+      "services": [
+        "backoffice_llm",
+        "hermes",
+        "comfyui"
+      ]
     },
     "loungeroom": {
       "name": "LoungeRoom",
       "host": "100.89.142.70",
-      "desc": "Worker node — batch tasks, training pipelines",
+      "desc": "Worker node \u2014 batch tasks, training pipelines",
       "insight": "Pipeline worker. Handles batch tasks, long-running training loops, and data processing.",
       "services": []
     }
