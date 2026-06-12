@@ -393,6 +393,43 @@ async def export_stages_csv(limit: int = 500):
     return _csv_response(rows, "stages.csv")
 
 
+@app.get("/api/export/traces_with_steps.csv")
+async def export_traces_with_steps_csv(limit: int = 500):
+    from services.orchestrator import load_history
+
+    traces = load_history(limit=limit)
+    if not traces:
+        return _csv_response([], "traces_with_steps.csv")
+
+    all_labels: list[str] = []
+    seen_labels: set[str] = set()
+    for t in traces:
+        for s in t.steps:
+            if s.label not in seen_labels:
+                all_labels.append(s.label)
+                seen_labels.add(s.label)
+
+    rows = []
+    for t in traces:
+        dur = sum(s.duration_ms or 0 for s in t.steps)
+        row: dict[str, Any] = {
+            "trace_id": t.id,
+            "prompt": t.prompt,
+            "model": t.model_used or "",
+            "status": t.status,
+            "confidence": t.confidence if t.confidence is not None else "",
+            "total_duration_ms": dur,
+            "created_at": t.created_at or "",
+        }
+        step_map = {s.label: s.duration_ms for s in t.steps}
+        for lbl in all_labels:
+            ms = step_map.get(lbl)
+            col = lbl.lower().replace(" ", "_") + "_ms"
+            row[col] = ms if ms is not None else ""
+        rows.append(row)
+    return _csv_response(rows, "traces_with_steps.csv")
+
+
 # ── Services ──────────────────────────────────────────────────────
 @app.get("/api/services")
 async def api_get_services() -> dict:

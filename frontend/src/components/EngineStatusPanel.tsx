@@ -188,6 +188,13 @@ export default function EngineStatusPanel({ telemetry }: Props) {
           >
             [ stages.csv ]
           </button>
+          <button
+            onClick={() => downloadCSV(`${API_BASE}/api/export/traces_with_steps.csv?limit=500`, "traces_with_steps.csv")}
+            className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
+            title="Download traces with per-step latencies as CSV"
+          >
+            [ steps.csv ]
+          </button>
         </div>
       </div>
 
