@@ -21,32 +21,49 @@ export function useWebSocket(_url?: string) {
   const [data, setData] = useState<Telemetry | null>(null);
   const [connected, setConnected] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const stoppedRef = useRef(false);
+
+  async function pollOnce() {
+    try {
+      const res = await fetch(POLL_URL);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!stoppedRef.current) {
+        setData(json);
+        setConnected(true);
+      }
+    } catch {
+      if (!stoppedRef.current) setConnected(false);
+    }
+  }
+
+  function schedule() {
+    timerRef.current = setTimeout(async () => {
+      if (stoppedRef.current) return;
+      await pollOnce();
+      if (!stoppedRef.current) schedule();
+    }, POLL_INTERVAL);
+  }
 
   useEffect(() => {
-    let stopped = false;
+    stoppedRef.current = false;
+    pollOnce();
+    schedule();
 
-    async function poll() {
-      try {
-        const res = await fetch(POLL_URL);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (!stopped) {
-          setData(json);
-          setConnected(true);
-        }
-      } catch {
-        if (!stopped) setConnected(false);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        pollOnce();
+        schedule();
+      } else {
+        if (timerRef.current) clearTimeout(timerRef.current);
       }
-      if (!stopped) {
-        timerRef.current = setTimeout(poll, POLL_INTERVAL);
-      }
-    }
-
-    poll();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      stopped = true;
-      clearTimeout(timerRef.current);
+      stoppedRef.current = true;
+      if (timerRef.current) clearTimeout(timerRef.current);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 

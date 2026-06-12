@@ -13,7 +13,7 @@ from typing import Any
 
 import requests
 import psutil
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Gauge, generate_latest, REGISTRY
 from pydantic import BaseModel
@@ -30,6 +30,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("conductor")
 
 app = FastAPI(title="Mythic AI Observatory — Conductor API")
+
+_last_activity: float = time.time()
+
+
+@app.middleware("http")
+async def track_activity(request: Request, call_next):
+    global _last_activity
+    _last_activity = time.time()
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
@@ -184,9 +193,26 @@ async def start_telemetry_broadcaster() -> None:
     asyncio.create_task(_telemetry_loop())
     asyncio.create_task(warmup_model())
 
+IDLE_SECONDS = 300  # 5 min before standby
+STANDBY_INTERVAL = 60.0
+ACTIVE_INTERVAL = 1.5
+
+
 async def _telemetry_loop() -> None:
-    global _latest_telemetry
+    global _last_activity, _latest_telemetry
     while True:
+        now = time.time()
+        idle = now - _last_activity
+        is_standby = idle > IDLE_SECONDS
+        if is_standby:
+            if not getattr(_telemetry_loop, "_was_standby", False):
+                logger.info("No activity for %.0fs — entering standby (60s poll)", idle)
+                _telemetry_loop._was_standby = True
+            await asyncio.sleep(STANDBY_INTERVAL)
+            continue
+        if getattr(_telemetry_loop, "_was_standby", False):
+            logger.info("Activity detected — resuming live telemetry")
+            _telemetry_loop._was_standby = False
         try:
             telemetry = await collect_telemetry()
             _latest_telemetry = telemetry
@@ -194,7 +220,7 @@ async def _telemetry_loop() -> None:
             await manager.broadcast(payload)
         except Exception as exc:
             logger.error("Telemetry loop error: %s", exc)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(ACTIVE_INTERVAL)
 
 # ── Endpoints ────────────────────────────────────────────────────
 @app.get("/health")
