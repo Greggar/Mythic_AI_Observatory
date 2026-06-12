@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 import json
 import logging
 import platform
@@ -293,6 +295,102 @@ async def api_get_trace(trace_id: str) -> TraceSession | None:
 async def api_delete_trace(trace_id: str) -> dict:
     ok = delete_trace(trace_id)
     return {"deleted": ok}
+
+
+# ── CSV Exports ──────────────────────────────────────────────────
+from fastapi.responses import StreamingResponse
+
+
+def _csv_response(rows: list[dict[str, Any]], filename: str) -> StreamingResponse:
+    out = io.StringIO()
+    if rows:
+        writer = csv.DictWriter(out, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+    else:
+        out.write("(no data)\n")
+    out.seek(0)
+    return StreamingResponse(
+        iter([out.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/export/traces.csv")
+async def export_traces_csv(limit: int = 500):
+    from services.orchestrator import load_history
+
+    traces = load_history(limit=limit)
+    rows = []
+    for t in traces:
+        dur = sum(s.duration_ms or 0 for s in t.steps)
+        rows.append({
+            "trace_id": t.id,
+            "prompt": t.prompt,
+            "model": t.model_used or "",
+            "status": t.status,
+            "confidence": t.confidence if t.confidence is not None else "",
+            "output_length_chars": len(t.output) if t.output else 0,
+            "total_duration_ms": dur,
+            "step_count": len(t.steps),
+            "created_at": t.created_at or "",
+            "completed_at": t.completed_at or "",
+        })
+    return _csv_response(rows, "traces.csv")
+
+
+@app.get("/api/export/profiles.csv")
+async def export_profiles_csv():
+    profiles = compute_profile()
+    rows = []
+    for p in profiles:
+        rows.append({
+            "model": p.model,
+            "trace_count": p.trace_count,
+            "avg_latency_ms": p.avg_latency_ms,
+            "p50_latency_ms": p.p50_latency_ms,
+            "p95_latency_ms": p.p95_latency_ms,
+            "p99_latency_ms": p.p99_latency_ms,
+            "failure_rate": p.failure_rate,
+            "avg_confidence": p.avg_confidence if p.avg_confidence is not None else "",
+            "verbosity_score": p.verbosity_score,
+            "avg_output_tokens": p.avg_output_tokens,
+            "formatting_bullet_pct": p.formatting_bullet_pct,
+            "formatting_prose_pct": p.formatting_prose_pct,
+            "formatting_table_pct": p.formatting_table_pct,
+            "formatting_code_pct": p.formatting_code_pct,
+            "hedging_freq": p.hedging_freq,
+            "lexical_diversity": p.lexical_diversity,
+            "directness_score": p.directness_score,
+        })
+    return _csv_response(rows, "profiles.csv")
+
+
+@app.get("/api/export/stages.csv")
+async def export_stages_csv(limit: int = 500):
+    from services.orchestrator import load_history
+
+    traces = load_history(limit=limit)
+    rows = []
+    for t in traces:
+        for s in t.steps:
+            rows.append({
+                "trace_id": t.id,
+                "model": t.model_used or "",
+                "prompt_preview": t.prompt[:80] if t.prompt else "",
+                "stage_id": s.id,
+                "stage_label": s.label,
+                "status": s.status,
+                "duration_ms": s.duration_ms if s.duration_ms is not None else "",
+                "model_used": s.model_used or "",
+                "eval_count": s.eval_count if s.eval_count is not None else "",
+                "eval_duration_ns": s.eval_duration_ns if s.eval_duration_ns is not None else "",
+                "cpu_before": s.cpu_before if s.cpu_before is not None else "",
+                "mem_before": s.mem_before if s.mem_before is not None else "",
+                "timestamp": s.timestamp or "",
+            })
+    return _csv_response(rows, "stages.csv")
 
 
 # ── Services ──────────────────────────────────────────────────────

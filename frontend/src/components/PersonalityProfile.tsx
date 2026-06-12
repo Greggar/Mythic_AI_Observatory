@@ -4,6 +4,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
+function downloadCSV(url: string, filename: string) {
+  fetch(url)
+    .then((r) => r.blob())
+    .then((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    })
+    .catch(() => {});
+}
+
 interface ModelProfileData {
   model: string;
   trace_count: number;
@@ -202,6 +215,13 @@ export default function PersonalityProfile() {
         <p className="text-[8px] font-mono text-zinc-600 leading-relaxed text-center max-w-[260px]">
           Linguistic style and cognitive fingerprints computed per model from completed trace outputs.
         </p>
+        <button
+          onClick={() => downloadCSV(`${API_BASE}/api/export/profiles.csv`, "profiles.csv")}
+          className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
+          title="Download profiles as CSV"
+        >
+          [ export .csv ]
+        </button>
       </div>
 
       <div className="space-y-2">

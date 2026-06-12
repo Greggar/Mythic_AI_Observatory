@@ -5,6 +5,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const MAX_BARS = 16;
 
+function downloadCSV(url: string, filename: string) {
+  fetch(url)
+    .then((r) => r.blob())
+    .then((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    })
+    .catch(() => {});
+}
+
 interface TelemetryRemote {
   status: string;
   target: string;
@@ -160,6 +173,22 @@ export default function EngineStatusPanel({ telemetry }: Props) {
         <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
           Runtime Metrics
         </span>
+        <div className="flex gap-2">
+          <button
+            onClick={() => downloadCSV(`${API_BASE}/api/export/traces.csv?limit=500`, "traces.csv")}
+            className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
+            title="Download traces as CSV"
+          >
+            [ traces.csv ]
+          </button>
+          <button
+            onClick={() => downloadCSV(`${API_BASE}/api/export/stages.csv?limit=500`, "stages.csv")}
+            className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
+            title="Download stage breakdown as CSV"
+          >
+            [ stages.csv ]
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2">
