@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 import requests
 import psutil
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -21,7 +22,7 @@ from pydantic import BaseModel
 from models.trace import TraceSession
 from services.profile import compute_profile, ModelProfile
 from models.annotation import Annotation
-from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, get_activity_events, get_model_provider, set_model_provider, warmup_model
+from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, warmup_model
 from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
@@ -279,6 +280,37 @@ async def post_model_config(body: ModelConfigBody) -> dict[str, str]:
     try:
         set_model_provider(body.provider)
         return {"provider": get_model_provider(), "status": "ok"}
+    except ValueError as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+# ── Ollama model selection ─────────────────────────────────────────
+class ModelSelectBody(BaseModel):
+    model: str
+
+@app.get("/api/models")
+async def list_ollama_models() -> dict[str, list[str]]:
+    """List available models from the local Ollama instance."""
+    from services.config_manager import get_ollama_url
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{get_ollama_url()}/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+            models = [m["name"] for m in data.get("models", [])]
+            return {"models": sorted(models)}
+    except Exception as e:
+        return {"models": [], "error": str(e)}
+
+@app.get("/api/models/current")
+async def get_current_model() -> dict[str, str]:
+    return {"model": get_local_model(), "provider": get_model_provider()}
+
+@app.post("/api/models/select")
+async def select_model(body: ModelSelectBody) -> dict[str, str]:
+    try:
+        set_local_model(body.model)
+        return {"model": get_local_model(), "status": "ok"}
     except ValueError as e:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=400, content={"error": str(e)})

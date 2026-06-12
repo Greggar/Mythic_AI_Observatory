@@ -118,3 +118,69 @@ body {
   background-clip: text;
   margin-top: 0.08em;
 }
+
+/* ── Print Styles ─────────────────────────────────── */
+@media print {
+  html, body {
+    background: #fff !important;
+    color: #333 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  /* hide everything except the print backdrop */
+  body > div > *:not(.print-context) {
+    display: none !important;
+  }
+  /* unfold the backdrop */
+  .print-context {
+    position: static !important;
+    background: #fff !important;
+    backdrop-filter: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    padding: 0 !important;
+  }
+  /* unfold the modal content */
+  .print-body {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: #fff !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    width: 100% !important;
+  }
+  /* reset all descendants to light mode */
+  .print-body, .print-body * {
+    background: #fff !important;
+    color: #333 !important;
+    border-color: #ccc !important;
+    box-shadow: none !important;
+  }
+  /* re-enable colour for specific accent elements */
+  .print-body [class*="text-teal-mystic"] { color: #0d9488 !important; }
+  .print-body [class*="text-violet-glow"] { color: #9333ea !important; }
+  .print-body [class*="text-solar-gold"] { color: #b8871a !important; }
+  .print-body [class*="text-jade-glow"]  { color: #1f8b6a !important; }
+  .print-body [class*="text-amber-"]     { color: #d97706 !important; }
+  /* keep bar fill colours */
+  .print-body [class*="bg-teal-"],
+  .print-body [class*="bg-jade-"],
+  .print-body [class*="bg-violet-"] {
+    background: initial !important;
+  }
+  .print-body [class*="bg-teal-500"] { background: #0d9488 !important; }
+  /* SVG radar chart */
+  .print-body svg text { fill: #333 !important; }
+  .print-body svg line,
+  .print-body svg path { stroke: #ccc !important; }
+  .print-body svg circle[stroke*="rgba(139"] { stroke: #7c3aed !important; }
+  .print-body svg circle[fill*="rgba(139"] { fill: rgba(124, 58, 237, 0.2) !important; }
+  .print-body svg circle[fill*="#1a1a2e"] { stroke: #fff !important; }
+  /* hide interactive controls */
+  .print-hidden { display: none !important; }
+}

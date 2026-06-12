@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2 } from "lucide-react";
+import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check } from "lucide-react";
 
 interface ServiceConfig {
   label: string;
@@ -47,6 +47,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [saved, setSaved] = useState(false);
   const [tab, setTab] = useState<"services" | "machines" | "models">("services");
   const [modelProvider, setModelProvider] = useState<string>("local");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [currentModel, setCurrentModel] = useState<string>("phi4-mini");
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelSaved, setModelSaved] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
@@ -72,13 +76,33 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   }, []);
 
+  const fetchModels = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      const [listRes, currentRes] = await Promise.all([
+        fetch(`${API_BASE}/api/models`),
+        fetch(`${API_BASE}/api/models/current`),
+      ]);
+      const list = await listRes.json();
+      const cur = await currentRes.json();
+      if (list.models) setAvailableModels(list.models);
+      if (cur.model) setCurrentModel(cur.model);
+    } catch {
+      // silently fail
+    } finally {
+      setModelsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (open) {
       fetchConfig();
       fetchModelProvider();
+      fetchModels();
       setSaved(false);
+      setModelSaved(false);
     }
-  }, [open, fetchConfig, fetchModelProvider]);
+  }, [open, fetchConfig, fetchModelProvider, fetchModels]);
 
   const updateService = (id: string, field: string, value: string | number | boolean) => {
     if (!config) return;
@@ -329,6 +353,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
 
               {!loading && tab === "models" && (
                 <div className="space-y-4">
+                  {/* Inference Provider */}
                   <div className="glass-panel !rounded-xl p-4">
                     <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-3">
                       Inference Provider
@@ -352,7 +377,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         />
                         <div>
                           <div className="text-sm text-zinc-200 font-medium">Local (CPU)</div>
-                          <div className="text-[10px] text-zinc-500">qwen2.5:3b on Gingerlong — slow but self-contained</div>
+                          <div className="text-[10px] text-zinc-500">{currentModel} on Gingerlong — slow but self-contained</div>
                         </div>
                       </label>
                       <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -407,6 +432,71 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         </>
                       )}
                     </button>
+                  </div>
+
+                  {/* Model Selector (local only) */}
+                  <div className="glass-panel !rounded-xl p-4">
+                    <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-3">
+                      Local Model
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mb-3">
+                      Select which model Ollama runs locally. Changes take effect on the next trace.
+                    </p>
+                    {modelsLoading ? (
+                      <div className="flex items-center gap-2 text-zinc-500 text-sm py-2">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Loading models...
+                      </div>
+                    ) : availableModels.length === 0 ? (
+                      <div className="text-zinc-600 text-xs py-2">
+                        No models found. Make sure Ollama is running.
+                      </div>
+                    ) : (
+                      <div className="space-y-1 max-h-48 overflow-y-auto scrollbar-thin">
+                        {availableModels.map((m) => (
+                          <button
+                            key={m}
+                            onClick={async () => {
+                              setCurrentModel(m);
+                              setModelSaved(false);
+                              try {
+                                const res = await fetch(`${API_BASE}/api/models/select`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ model: m }),
+                                });
+                                if (res.ok) {
+                                  setModelSaved(true);
+                                  setTimeout(() => setModelSaved(false), 2000);
+                                }
+                              } catch {
+                                // silently fail
+                              }
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                              currentModel === m
+                                ? "bg-teal-mystic/10 text-teal-mystic border border-teal-mystic/20"
+                                : "text-zinc-400 hover:bg-white/[0.03] border border-transparent"
+                            }`}
+                          >
+                            <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                              currentModel === m
+                                ? "border-teal-mystic bg-teal-mystic/20"
+                                : "border-zinc-600"
+                            }`}>
+                              {currentModel === m && <Check className="w-2 h-2 text-teal-mystic" />}
+                            </div>
+                            <span className="font-mono text-xs">{m}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {modelSaved && (
+                      <div className="mt-3 text-[11px] text-jade-glow flex items-center gap-1">
+                        <Check className="w-3 h-3" />
+                        Switched to {currentModel}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

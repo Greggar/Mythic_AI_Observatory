@@ -1,7 +1,7 @@
 {
   "Gingerlong": [
     { "x": 0, "y": -14, "label": "API", "color": "#2dd4bf", "name": "API", "desc": "REST API endpoints for frontend communication, trace management, and config" },
-    { "x": 12, "y": -7, "label": "Ollama", "color": "#34d399", "name": "Ollama", "desc": "Local LLM inference server — runs qwen2.5:3b for CPU-bound orchestration calls" },
+    { "x": 12, "y": -7, "label": "Ollama", "color": "#34d399", "name": "Ollama", "desc": "Local LLM inference server — runs phi4-mini for CPU-bound orchestration calls" },
     { "x": 12, "y": 7, "label": "OC", "color": "#fbbf24", "name": "OpenClaw Gateway", "desc": "Agent gateway — connects to Telegram, manages multi-model routing; amber = degraded or disconnected channel" },
     { "x": 0, "y": 14, "label": "UI", "color": "#2dd4bf", "name": "Solar Interface", "desc": "Next.js frontend — glassmorphic dashboard served on port 3001" },
     { "x": -12, "y": 7, "label": "FastAPI", "color": "#34d399", "name": "FastAPI", "desc": "ASGI web framework powering the Conductor backend" },

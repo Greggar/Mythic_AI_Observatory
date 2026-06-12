@@ -52,7 +52,18 @@ STAGES: list[dict[str, Any]] = [
     {"id": "step-7", "label": "Final Response", "model": None, "system": None},
 ]
 
-LOCAL_MODEL = "qwen2.5:3b"
+LOCAL_MODEL: str = os.environ.get("OLLAMA_MODEL", "phi4-mini")
+
+def get_local_model() -> str:
+    return LOCAL_MODEL
+
+def set_local_model(value: str) -> None:
+    global LOCAL_MODEL
+    value = value.strip()
+    if not value:
+        raise ValueError("Model name cannot be empty")
+    LOCAL_MODEL = value
+    logger.info("Local model switched to: %s", value)
 
 
 async def warmup_model() -> None:
@@ -115,7 +126,7 @@ async def _call_model(model: str, prompt: str, system: str | None = None) -> tup
             return result, eval_count, eval_duration
         except Exception as e:
             logger.error("Model call failed: %s", e)
-            return f"[{model} error: {e}]", None, None
+            return f"[{model_name} error: {e}]", None, None
 
 
 def _compute_confidence(session: TraceSession) -> float:
@@ -670,15 +681,19 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
         cpu_samples.extend([cpu_before, cpu_after])
         mem_samples.extend([mem_before, mem_after])
 
-        session.steps[i].status = "complete"
+        is_error = model and output.startswith("[") and "error:" in output
+        if is_error:
+            session.steps[i].status = "error"
+        else:
+            session.steps[i].status = "complete"
         session.steps[i].duration_ms = elapsed_ms
         session.steps[i].cpu_after = cpu_after
         session.steps[i].mem_after = mem_after
         session.steps[i].context_assembled = step.context_assembled
 
-        emit_event("stage_complete", f"{label} completed", trace_id, f"{elapsed_ms}ms")
+        emit_event("stage_complete", f"{label} {'error' if is_error else 'completed'}", trace_id, f"{elapsed_ms}ms")
 
-    session.status = "complete"
+    session.status = "error" if any(s.status == "error" for s in session.steps) else "complete"
     session.output = context[-1] if context else prompt
     session.completed_at = datetime.now(timezone.utc).isoformat()
     session.confidence = _compute_confidence(session)

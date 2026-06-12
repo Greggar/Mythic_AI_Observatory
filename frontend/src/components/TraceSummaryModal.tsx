@@ -36,32 +36,14 @@ export default function TraceSummaryModal({ trace, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
+    <div className="print-context fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div
         ref={printRef}
         className="print-body relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[#0a0a1a] border border-white/[0.08] p-6 space-y-5"
         onClick={(e) => e.stopPropagation()}
         style={{ fontFamily: "system-ui, monospace" }}
       >
-        {/* ── print styles: white background, colour ink ── */}
-        <style>{`
-          @media print {
-            body, .print-body { background: #fff !important; }
-            .print-body, .print-body * { border-color: #ccc !important; }
-            .print-body [class*="bg-"] { background: #f9f9f9 !important; }
-            .print-body [class*="text-zinc-"] { color: #333 !important; }
-            .print-body [class*="text-teal-mystic"] { color: #0d9488 !important; }
-            .print-body [class*="text-violet-glow"] { color: #9333ea !important; }
-            .print-body svg text { fill: #333 !important; }
-            .print-body svg line, .print-body svg path, .print-body svg circle { stroke-width: 0.5 !important; }
-            .print-body svg [stroke*="255,255,255"] { stroke: #ccc !important; }
-            .print-body svg [fill*="rgba(139"] { fill: rgba(139, 92, 246, 0.25) !important; }
-            .print-body svg [stroke*="rgba(139"] { stroke: rgba(139, 92, 246, 0.6) !important; }
-            .print-body svg [fill*="#1a1a2e"] { stroke: #fff !important; }
-            .print-body svg [fill*="rgba(255,255,255"] { fill: #666 !important; }
-            .print\\:hidden { display: none !important; }
-          }
-        `}</style>
+
         {/* header */}
         <div className="flex items-center justify-between print:hidden">
           <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-teal-mystic">
