@@ -28,6 +28,36 @@ class TraceStep(BaseModel):
     context_assembled: str | None = None
 
 
+class DdcEntry(BaseModel):
+    code: str  # e.g. "006.3"
+    label: str  # e.g. "Artificial Intelligence"
+    action: str | None = None  # e.g. "Programming", "Analysis", "Explanation"
+    domain: str | None = None  # e.g. "Computer Science", "Economics"
+    lineage: list[dict] = Field(default_factory=list)  # tier: {tier, code, label}
+
+
+class DdcMetadata(BaseModel):
+    prompt: DdcEntry | None = None
+    response: DdcEntry | None = None
+    prompt_alternatives: list[DdcEntry] = Field(default_factory=list)
+    response_alternatives: list[DdcEntry] = Field(default_factory=list)
+
+
+class LccEntry(BaseModel):
+    code: str  # e.g. "QA76"
+    label: str  # e.g. "Computer Science"
+    action: str | None = None
+    domain: str | None = None
+    lineage: list[dict] = Field(default_factory=list)
+
+
+class LccMetadata(BaseModel):
+    prompt: LccEntry | None = None
+    response: LccEntry | None = None
+    prompt_alternatives: list[LccEntry] = Field(default_factory=list)
+    response_alternatives: list[LccEntry] = Field(default_factory=list)
+
+
 class TelemetryImpact(BaseModel):
     peak_cpu: float = 0.0
     peak_mem: float = 0.0
@@ -52,3 +82,5 @@ class TraceSession(BaseModel):
     embedding: list[float] | None = None
     response_rationale: str | None = None
     trace_explanation: str | None = None
+    ddc: DdcMetadata | None = None
+    lcc: LccMetadata | None = None

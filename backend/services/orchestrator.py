@@ -14,6 +14,8 @@ logger = logging.getLogger("conductor")
 
 from models.trace import TraceSession, TraceStep, TelemetryImpact, LlmInsight
 from services import config_manager
+from services.ddc_embeddings import classify_ddc, classify_multi as classify_multi_ddc
+from services.lcc_embeddings import classify_lcc, classify_multi as classify_multi_lcc
 
 # Set to "local" to use Gingerlong's CPU, "backoffice" for GPU worker
 # Use set_model_provider() to change at runtime
@@ -52,7 +54,7 @@ STAGES: list[dict[str, Any]] = [
     {"id": "step-7", "label": "Final Response", "model": None, "system": None},
 ]
 
-LOCAL_MODEL: str = os.environ.get("OLLAMA_MODEL", "phi4-mini")
+LOCAL_MODEL: str = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
 
 def get_local_model() -> str:
     return LOCAL_MODEL
@@ -739,6 +741,28 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
             logger.info("Trace explanation generated for %s", trace_id)
     except Exception as e:
         logger.warning("Trace explanation failed for %s: %s", trace_id, e)
+
+    try:
+        ddc = await classify_ddc(session.prompt, session.output)
+        if ddc.prompt or ddc.response:
+            ddc_alt = await classify_multi_ddc(session.prompt, top_n=3)
+            if ddc.prompt:
+                ddc.prompt_alternatives = [a for a in ddc_alt if a.code != ddc.prompt.code][:2]
+            session.ddc = ddc
+            logger.info("DDC classification complete for %s", trace_id)
+    except Exception as e:
+        logger.warning("DDC classification failed for %s: %s", trace_id, e)
+
+    try:
+        lcc = await classify_lcc(session.prompt, session.output)
+        if lcc.prompt or lcc.response:
+            lcc_alt = await classify_multi_lcc(session.prompt, top_n=3)
+            if lcc.prompt:
+                lcc.prompt_alternatives = [a for a in lcc_alt if a.code != lcc.prompt.code][:2]
+            session.lcc = lcc
+            logger.info("LCC classification complete for %s", trace_id)
+    except Exception as e:
+        logger.warning("LCC classification failed for %s: %s", trace_id, e)
 
     _persist(session)
 

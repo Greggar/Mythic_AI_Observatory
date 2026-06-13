@@ -23,6 +23,19 @@ export interface TelemetryImpact {
   avg_mem: number;
 }
 
+export interface DdcEntry {
+  code: string;
+  label: string;
+  action: string | null;
+  domain: string | null;
+  lineage: { tier: number; code: string; label: string }[];
+}
+
+export interface DdcMetadata {
+  prompt: DdcEntry | null;
+  response: DdcEntry | null;
+}
+
 export interface LlmInsight {
   type: "info" | "recommendation";
   title: string;
@@ -46,4 +59,5 @@ export interface TraceSession {
   embedding?: number[];
   response_rationale?: string;
   trace_explanation?: string;
+  ddc?: DdcMetadata;
 }

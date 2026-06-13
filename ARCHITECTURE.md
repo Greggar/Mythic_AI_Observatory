@@ -999,10 +999,14 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/components/LatencyBreakdown.tsx` | Per-stage colored progress bars with historical averages and live trace overlay |
 | `frontend/src/components/PerformanceInsights.tsx` | LLM-generated insight cards for trace performance analysis |
 | `frontend/src/components/CelestialDistribution.tsx` | Statistical distribution chart (mean/median/mode) with legend tooltips |
+| `frontend/src/components/SunburstChart.tsx` | 2/3-level radial treemap for DDC, LCC, and Multi-Label classification — d3.arc() wedges, portaled tooltip, click-to-highlight, CSV export, keyword-clusters placeholder |
 | `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect (currently HTTP polling) |
 | `frontend/src/hooks/useOrchestrate.ts` | Orchestration hook — async POST returns trace_id, polls for incremental updates every 1.5s |
 | `frontend/src/hooks/useTraceReplay.ts` | Step-by-step animation hook for historical trace replay |
 | `frontend/src/types/trace.ts` | TypeScript types mirroring backend Pydantic models — includes `context_assembled` on TraceStep |
+| `backend/services/ddc_embeddings.py` | DDC classifier — 55 categories via all-minilm cosine similarity, 0.10 threshold, `classify_ddc()` + `classify_multi()` |
+| `backend/services/lcc_embeddings.py` | LCC classifier — 70+ subclasses via all-minilm, single-letter main classes removed, `classify_lcc()` + `classify_multi()` |
+| `backend/models/trace.py` | Pydantic models including `DdcEntry`, `DdcMetadata`, `LccEntry`, `LccMetadata` with alternatives fields |
 | `backend/data/network.json` | Persistent network config (machines, remotes, endpoints) |
 | `backend/data/services.json` | Service definitions (glyph layout, name, description) served via `GET /api/services` |
 | `DEVELOPMENT.md` | Quick-start guide for local dev |
@@ -1014,4 +1018,4 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 
 ---
 
-*Generated 2026-06-10. Update this document when making architectural changes.*
+*Generated 2026-06-13. Update this document when making architectural changes.*

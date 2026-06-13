@@ -41,8 +41,13 @@ We are a long way toward health + function transparency. The items below extend 
 | 17 | **Personality fingerprinting** — over many traces, build a per-model profile: avg latency distribution, token efficiency (output/input ratio), failure mode frequency, typical confidence. Show as a radar or summary card. ✓ *(2026-06-08)* — Enhanced 2026-06-11: linguistic style (verbosity slider, directness slider, formatting DNA donut) and cognitive fingerprint (hedging gauge, lexical diversity) added; performance collapsed under a "Performance & Latency" toggle. | — | ★★☆ | 1.5 h |
 | 18 | **Agentic Step-Level Latency Monitor** — standalone Python script that polls `http://127.0.0.1:8001/api/trace/<id>`, extracts per-stage durations, computes rolling averages, and renders a stacked horizontal bar chart to visualize pipeline bottlenecks. Includes a verification harness with mock data. | — | ★☆☆ | 30 min |
 | 19 | **Live trace overlay on latency panel** — overlay the current trace's per-stage durations (as a brighter inner bar or dot) on top of the historical averages in the Step Latency panel, so you can compare the live run against the baseline at a glance. ✓ *(2026-06-06)* | — | ★☆☆ | 30 min |
+| 39 | **Backfill DDC for existing traces** — one-time script that reads `traces.jsonl`, runs the `classify_ddc()` service on each prompt/output, and writes back updated records with DDC metadata ✓ *(2026-06-13)* | — | ★☆☆ | 30 min |
+| 40 | **DDC group-by in MemoryConstellation** — `clusterByDdcDomain()` and `clusterByDdcAction()` functions added to the dispatch map; traces without DDC data fall into a configurable default group ✓ *(2026-06-13)* | — | ★☆☆ | 30 min |
+| 41 | **Sunburst / Circular Dendrogram view** — first alternative visualization option: radial DDC hierarchy with wedges sized by trace count, zoomable through lineage tiers ✓ *(2026-06-13)* | — | ★★☆ | 2 h |
+| 42 | **DDC lineage breadcrumb in tooltip** — expand hover tooltip to show the full DDC lineage (e.g. 000 → 006 → 006.3) when DDC data is available ✓ *(2026-06-13)* | — | ★☆☆ | 15 min |
 
 | 37 | **Enhanced Personality Profile (linguistic style + cognitive fingerprint)** — expand the current Personality Profiles panel beyond latency metrics into quantifiable stylistic descriptors computed per-model from trace outputs: **Verbosity** (avg token count, laconic ↔ prolix slider), **Formatting DNA** (pie chart: bullet / paragraph / table / code), **Hedging Frequency** (density of cautious qualifiers like "I cannot", "generally speaking"), **Lexical Diversity** (type-token ratio), **Directness** (first-sentence response time), and **Sentiment Baseline** (optimistic/neutral/skeptical undertone). ✓ *(2026-06-11)* — formality index and creativity entropy still require backend token-logit analysis. | — | ★★☆ | 1.5 h |
+| 38 | **Four-dropdown History controls (Group by, Prompt, Response, View)** — refactored the single "group by" into four independent selectors: Group by (clustering scheme), Prompt (action/domain facet), Response (action/domain facet), View (visualization type). Backend DDC and LCC embedding classifiers added with Sunburst visualization and Multi-Label mode. ✓ *(2026-06-13)* | — | ★★☆ | 1.5 h |
 
 ## Phase 2 — Moderate (★★☆)
 
@@ -124,6 +129,16 @@ We are a long way toward health + function transparency. The items below extend 
 4. **Causal tracing** — walk back through stages from a bad output to find root cause ✓ *(2026-06-07)*
 5. **Live thought stream** — real-time text flow through each stage during orchestration ✓ *(2026-06-07)*
 6. **Comparative mode** — side-by-side A/B of two providers on the same prompt
+
+## Session summary — 2026-06-13
+
+- **Embedding-based DDC classification** — `backend/services/ddc_embeddings.py`: 55 DDC categories classified via all-minilm:22m cosine similarity; threshold lowered 0.25→0.10; margin check removed entirely; enriched descriptions fix "rainbow→Physics" (was misclassifying as Religion)
+- **Embedding-based LCC classification** — `backend/services/lcc_embeddings.py`: 70+ subclasses; single-letter broad main classes removed (matched everything at 0.12-0.14); HB/HA enriched so "linear regression" maps to Statistics, not Economic Theory; 128/128 traces in 12.9s
+- **SunburstChart component** — `frontend/src/components/SunburstChart.tsx`: d3.arc() radial treemap; 2-level (DDC/LCC) + 3-level (Multi-Label); portaled tooltip; click-to-highlight; CSV export
+- **Four-dropdown History controls** — Group by (Keywords/DDC/LCC/Multi-Label) + Prompt/Response facets + View (Constellation/Sunburst); dropdown scales for new systems
+- **Multi-Label classification** — `classify_multi()` returns top-3 above 0.10; 3-level sunburst with alternative-class outer ring; MemoryConstellation clusters by primary DDC digit; 123/128 traces backfilled in 10.9s
+- **CSV export** — all 16 DDC+LCC columns (prompt/response code, label, action, domain); tooltip overflow fix via createPortal to document.body
+- **Keyword+Sunburst** — explanatory message shown (no hierarchy for flat clusters)
 
 ## Session summary — 2026-06-12
 

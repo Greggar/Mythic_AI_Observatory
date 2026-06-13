@@ -38,6 +38,10 @@ export default function Home() {
   const [discoveryTrigger, setDiscoveryTrigger] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [groupingMethod, setGroupingMethod] = useState<string>("prompt-keywords");
+  const [promptFacet, setPromptFacet] = useState<string>("domain");
+  const [responseFacet, setResponseFacet] = useState<string>("domain");
+  const [visualizationType, setVisualizationType] = useState<string>("constellation");
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to timeline when a history trace is selected
@@ -292,11 +296,64 @@ export default function Home() {
             </aside>
 
             <section className="flex-1 flex flex-col gap-6">
+              {/* Grouping, facets, and visualization controls */}
+              <div className="flex items-center gap-4 px-1 flex-wrap">
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Group by</span>
+                    <select
+                      value={groupingMethod}
+                      onChange={(e) => setGroupingMethod(e.target.value)}
+                      className="bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+                    >
+                      <option value="prompt-keywords">Prompt Keyword Clusters</option>
+                      <option value="ddc">DDC Facets</option>
+                      <option value="lcc">LCC Facets</option>
+                      <option value="multilabel">Multi-Label</option>
+                    </select>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Prompt</span>
+                  <select
+                    value={promptFacet}
+                    onChange={(e) => setPromptFacet(e.target.value)}
+                    className="bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+                  >
+                    <option value="domain">Domain</option>
+                    <option value="action">Action</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Response</span>
+                  <select
+                    value={responseFacet}
+                    onChange={(e) => setResponseFacet(e.target.value)}
+                    className="bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+                  >
+                    <option value="domain">Domain</option>
+                    <option value="action">Action</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">View</span>
+                  <select
+                    value={visualizationType}
+                    onChange={(e) => setVisualizationType(e.target.value)}
+                    className="bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+                  >
+                    <option value="constellation">Constellation</option>
+                    <option value="sunburst">Sunburst</option>
+                  </select>
+                </div>
+              </div>
               <HoverProvider>
                 <ErrorBoundary>
                   <MemoryConstellation
                     onSelect={handleHistorySelect}
                     refreshTrigger={historyRefresh}
+                    grouping={groupingMethod}
+                    promptFacet={promptFacet}
+                    responseFacet={responseFacet}
+                    visualization={visualizationType}
                   />
                 </ErrorBoundary>
                 <ErrorBoundary>

@@ -3,12 +3,20 @@
 import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHover } from "@/lib/HoverContext";
+import SunburstChart from "@/components/SunburstChart";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const W = 280;
 const H = 280;
 const CX = W / 2;
 const CY = H / 2;
+
+interface ClassDisplay {
+  code: string;
+  label: string;
+  action: string | null;
+  domain: string | null;
+}
 
 interface HistoryEntry {
   id: string;
@@ -17,6 +25,8 @@ interface HistoryEntry {
   created_at: string;
   output: string | null;
   steps: { duration_ms: number | null }[];
+  ddc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
+  lcc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
 }
 
 interface Annotation {
@@ -32,6 +42,10 @@ interface Annotation {
 interface Props {
   onSelect: (traceId: string) => void;
   refreshTrigger: number;
+  grouping?: string;
+  promptFacet?: string;
+  responseFacet?: string;
+  visualization?: string;
 }
 
 function computeSimilarity(a: string, b: string): number {
@@ -45,7 +59,39 @@ function computeSimilarity(a: string, b: string): number {
   return common / Math.max(wordsA.size + wordsB.size - common, 1);
 }
 
-function extractTheme(entries: HistoryEntry[]): string {
+function extractTheme(entries: HistoryEntry[], grouping?: string): string {
+  if (grouping === "ddc") {
+    const first = entries[0];
+    const pd = first?.ddc?.prompt?.domain;
+    const pa = first?.ddc?.prompt?.action;
+    const rd = first?.ddc?.response?.domain;
+    const ra = first?.ddc?.response?.action;
+    const parts: string[] = [];
+    if (pd) parts.push(pd);
+    if (pa) parts.push(pa);
+    if (rd && rd !== pd) parts.push(rd);
+    if (ra && ra !== pa) parts.push(ra);
+    if (parts.length > 0) return parts.slice(0, 2).join(" ▸ ");
+  }
+  if (grouping === "lcc") {
+    const first = entries[0];
+    const pc = first?.lcc?.prompt?.code;
+    const pl = first?.lcc?.prompt?.label;
+    if (pc && pl) return `${pc} ${pl}`;
+    if (pc) return pc;
+    if (pl) return pl;
+  }
+  if (grouping === "multilabel") {
+    const first = entries[0];
+    const pc = first?.ddc?.prompt?.code;
+    const pl = first?.ddc?.prompt?.label;
+    const alts = first?.ddc?.prompt_alternatives;
+    let label = pc && pl ? `${pc} ${pl}` : (pc || "Unclassified");
+    if (alts && alts.length > 0) {
+      label += ` +${alts.map((a) => a.code).join("/")}`;
+    }
+    return label;
+  }
   const freq = new Map<string, number>();
   const stopwords = new Set(["the", "a", "an", "is", "are", "was", "were", "be", "been",
     "this", "that", "these", "those", "to", "of", "in", "for", "on", "with",
@@ -72,7 +118,30 @@ function extractTheme(entries: HistoryEntry[]): string {
   return sorted.slice(0, 2).map(([w]) => w).join(" / ");
 }
 
-function clusterEntries(entries: HistoryEntry[]): HistoryEntry[][] {
+function getDDCValue(entry: HistoryEntry, side: "prompt" | "response", field: string): string {
+  const ddc = entry.ddc?.[side];
+  if (!ddc) return "Unclassified";
+  if (field === "domain") return ddc.domain || "Unclassified";
+  if (field === "action") return ddc.action || "Unclassified";
+  return ddc.code || "Unclassified";
+}
+
+function clusterByDDC(entries: HistoryEntry[], promptFacet: string, responseFacet: string): HistoryEntry[][] {
+  if (entries.length === 0) return [];
+  const groups = new Map<string, HistoryEntry[]>();
+  for (const e of entries) {
+    const pVal = promptFacet ? getDDCValue(e, "prompt", promptFacet) : "—";
+    const rVal = responseFacet ? getDDCValue(e, "response", responseFacet) : "—";
+    const key = `${pVal} ▸ ${rVal}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(e);
+  }
+  return [...groups.values()]
+    .map((g) => g.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()))
+    .sort((a, b) => b.length - a.length);
+}
+
+function clusterByPromptKeywords(entries: HistoryEntry[]): HistoryEntry[][] {
   if (entries.length === 0) return [];
   const n = entries.length;
   const adj: number[][] = Array.from({ length: n }, () => []);
@@ -114,7 +183,7 @@ interface ClusterLayout {
   connections: [number, number][];
 }
 
-function layoutGalaxy(clusters: HistoryEntry[][]): ClusterLayout[] {
+function layoutGalaxy(clusters: HistoryEntry[][], grouping?: string): ClusterLayout[] {
   const n = clusters.length;
   if (n === 0) return [];
 
@@ -158,7 +227,7 @@ function layoutGalaxy(clusters: HistoryEntry[][]): ClusterLayout[] {
     }
 
     return {
-      label: extractTheme(entries),
+      label: extractTheme(entries, grouping),
       cx: ccx,
       cy: ccy,
       dots,
@@ -181,7 +250,7 @@ function galaxySpokePaths(clusters: ClusterLayout[]): string[] {
   });
 }
 
-export default function MemoryConstellation({ onSelect, refreshTrigger }: Props) {
+export default function MemoryConstellation({ onSelect, refreshTrigger, grouping = "prompt-keywords", promptFacet = "domain", responseFacet = "domain", visualization = "constellation" }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -265,8 +334,54 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
     () => searchQuery ? entries.filter((e) => e.prompt.toLowerCase().includes(searchQuery.toLowerCase())) : entries,
     [entries, searchQuery]
   );
-  const clusters = useMemo(() => clusterEntries(filteredEntries), [filteredEntries]);
-  const galaxy = useMemo(() => layoutGalaxy(clusters), [clusters]);
+
+function clusterByLCC(entries: HistoryEntry[]): HistoryEntry[][] {
+  if (entries.length === 0) return [];
+  const groups = new Map<string, HistoryEntry[]>();
+  for (const e of entries) {
+    const l = e.lcc?.prompt;
+    const key = l?.code ? l.code[0].toUpperCase() : "Unclassified";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(e);
+  }
+  return [...groups.values()]
+    .map((g) => g.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()))
+    .sort((a, b) => b.length - a.length);
+}
+
+function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
+  if (entries.length === 0) return [];
+  const groups = new Map<string, HistoryEntry[]>();
+  for (const e of entries) {
+    const d = e.ddc?.prompt;
+    const key = d?.code ? d.code[0] : "Unclassified";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(e);
+  }
+  return [...groups.values()]
+    .map((g) => g.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()))
+    .sort((a, b) => b.length - a.length);
+}
+
+  const clusterFn = useCallback((entries: HistoryEntry[]) => {
+    if (grouping === "ddc") {
+      return clusterByDDC(entries, promptFacet, responseFacet);
+    }
+    if (grouping === "lcc") {
+      return clusterByLCC(entries);
+    }
+    if (grouping === "multilabel") {
+      return clusterByMultiLabel(entries);
+    }
+    return clusterByPromptKeywords(entries);
+  }, [grouping, promptFacet, responseFacet]);
+
+  const layoutFn = useMemo(() => {
+    return (clusters: HistoryEntry[][]) => layoutGalaxy(clusters, grouping);
+  }, [visualization, grouping]);
+
+  const clusters = useMemo(() => clusterFn(filteredEntries), [filteredEntries, clusterFn]);
+  const galaxy = useMemo(() => layoutFn(clusters), [clusters, layoutFn]);
 
   const handleDelete = async (traceId: string) => {
     setHovered(null);
@@ -374,6 +489,23 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
         )}
       </div>
 
+      {visualization === "sunburst" && grouping === "prompt-keywords" ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-600 mb-3">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4M12 16h.01" />
+          </svg>
+          <p className="text-[10px] font-mono text-zinc-500 max-w-[200px] leading-relaxed">
+            Keyword clusters are flat connected-components — no hierarchy to display in a sunburst.
+          </p>
+          <p className="text-[9px] font-mono text-zinc-700 mt-2">
+            Switch Group by to DDC, LCC, or Multi-Label to see this view.
+          </p>
+        </div>
+      ) : visualization === "sunburst" ? (
+        <SunburstChart entries={filteredEntries} onSelect={onSelect} grouping={grouping} />
+      ) : (
+        <>
       <div
         ref={containerRef}
         className="relative overflow-hidden rounded-lg"
@@ -601,8 +733,10 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
           </div>
         </div>
       )}
+        </>
+      )}
     </div>
-      {hovered && (() => {
+      {visualization !== "sunburst" && hovered && (() => {
         const gap = 8;
         const rect = containerRef.current?.getBoundingClientRect();
         if (!rect) return null;
@@ -645,6 +779,16 @@ export default function MemoryConstellation({ onSelect, refreshTrigger }: Props)
                   <span>· {dotAnnotations.length} note{dotAnnotations.length > 1 ? "s" : ""}</span>
                 )}
               </div>
+              {hovered.entry.ddc?.prompt && (
+                <div className="mt-1.5 text-[8px] text-teal-mystic/50 leading-tight">
+                  <span>DDC: {hovered.entry.ddc.prompt.code} {hovered.entry.ddc.prompt.label}</span>
+                </div>
+              )}
+              {hovered.entry.lcc?.prompt && (
+                <div className="text-[8px] text-purple-400/50 leading-tight">
+                  <span>LCC: {hovered.entry.lcc.prompt.code} {hovered.entry.lcc.prompt.label}</span>
+                </div>
+              )}
             </div>
           </div>
         );

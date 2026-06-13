@@ -383,6 +383,10 @@ async def export_traces_csv(limit: int = 500):
     rows = []
     for t in traces:
         dur = sum(s.duration_ms or 0 for s in t.steps)
+        pd = t.ddc.prompt if t.ddc and t.ddc.prompt else None
+        rd = t.ddc.response if t.ddc and t.ddc.response else None
+        pl = t.lcc.prompt if t.lcc and t.lcc.prompt else None
+        rl = t.lcc.response if t.lcc and t.lcc.response else None
         rows.append({
             "trace_id": t.id,
             "prompt": t.prompt,
@@ -394,6 +398,22 @@ async def export_traces_csv(limit: int = 500):
             "step_count": len(t.steps),
             "created_at": t.created_at or "",
             "completed_at": t.completed_at or "",
+            "ddc_prompt_code": pd.code if pd else "",
+            "ddc_prompt_label": pd.label if pd else "",
+            "ddc_prompt_action": pd.action if pd and pd.action else "",
+            "ddc_prompt_domain": pd.domain if pd and pd.domain else "",
+            "ddc_response_code": rd.code if rd else "",
+            "ddc_response_label": rd.label if rd else "",
+            "ddc_response_action": rd.action if rd and rd.action else "",
+            "ddc_response_domain": rd.domain if rd and rd.domain else "",
+            "lcc_prompt_code": pl.code if pl else "",
+            "lcc_prompt_label": pl.label if pl else "",
+            "lcc_prompt_action": pl.action if pl and pl.action else "",
+            "lcc_prompt_domain": pl.domain if pl and pl.domain else "",
+            "lcc_response_code": rl.code if rl else "",
+            "lcc_response_label": rl.label if rl else "",
+            "lcc_response_action": rl.action if rl and rl.action else "",
+            "lcc_response_domain": rl.domain if rl and rl.domain else "",
         })
     return _csv_response(rows, "traces.csv")
 
