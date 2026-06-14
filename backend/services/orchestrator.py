@@ -5,6 +5,7 @@ import os
 import uuid
 from collections import deque
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -564,7 +565,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
 
         emit_event("stage_start", f"{label} started", trace_id, agent_name)
 
-        start = asyncio.get_event_loop().time()
+        start = perf_counter()
 
         if model:
             combined = "\n".join(context + [prompt])
@@ -593,7 +594,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
                 step.metadata["output"] = output[:2000]
             emit_event("inference", f"Inference: {label}", trace_id, resolved_model)
         else:
-            step.context_assembled = f"[non-model stage — no context assembly]"
+            step.context_assembled = None
             if stage_id == "step-4":
                 past_sessions = load_history(limit=20)
                 query_emb = await _embed(prompt)
@@ -675,7 +676,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
             else:
                 await asyncio.sleep(0.05)
 
-        elapsed_ms = int((asyncio.get_event_loop().time() - start) * 1000)
+        elapsed_ms = int((perf_counter() - start) * 1000)
         cpu_after, mem_after = _snapshot_cpu_mem()
         cpu_samples.extend([cpu_before, cpu_after])
         mem_samples.extend([mem_before, mem_after])

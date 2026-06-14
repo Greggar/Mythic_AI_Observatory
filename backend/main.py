@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 import requests
 import psutil
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Gauge, generate_latest, REGISTRY
 from pydantic import BaseModel
@@ -344,9 +344,14 @@ async def api_list_traces(limit: int = 50) -> list[TraceSession]:
     return list_traces(limit)
 
 
+from fastapi import HTTPException
+
 @app.get("/api/traces/{trace_id}", response_model=TraceSession | None)
 async def api_get_trace(trace_id: str) -> TraceSession | None:
-    return get_trace(trace_id)
+    t = get_trace(trace_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return t
 
 
 @app.delete("/api/traces/{trace_id}")

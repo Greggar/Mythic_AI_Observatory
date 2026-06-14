@@ -52,7 +52,7 @@ class ModelProfile(BaseModel):
     avg_eval_count: float | None = None
     failure_rate: float
     avg_confidence: float | None = None
-    stage_avgs: dict[str, float]  # stage_label -> avg_duration_ms
+    stage_avgs: dict[str, float | None]  # stage_label -> avg_duration_ms (None = no data)
     avg_steps: float  # avg number of steps per trace
 
     # Personality metrics
@@ -243,7 +243,7 @@ def compute_profile() -> list[ModelProfile]:
             failure_rate=errors / len(group) if group else 0,
             avg_confidence=sum(confidences) / len(confidences) if confidences else None,
             stage_avgs={
-                sid: (sum(ds) / len(ds)) if ds else 0
+                sid: (sum(ds) / len(ds)) if ds else None
                 for sid, ds in stage_durs.items()
             },
             avg_steps=sum(len(t.steps) for t in group) / len(group) if group else 0,

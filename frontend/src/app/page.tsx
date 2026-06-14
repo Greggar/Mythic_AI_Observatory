@@ -38,7 +38,7 @@ export default function Home() {
   const [discoveryTrigger, setDiscoveryTrigger] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
-  const [groupingMethod, setGroupingMethod] = useState<string>("prompt-keywords");
+  const [groupingMethod, setGroupingMethod] = useState<string>("ddc");
   const [promptFacet, setPromptFacet] = useState<string>("domain");
   const [responseFacet, setResponseFacet] = useState<string>("domain");
   const [visualizationType, setVisualizationType] = useState<string>("constellation");
@@ -305,7 +305,6 @@ export default function Home() {
                       onChange={(e) => setGroupingMethod(e.target.value)}
                       className="bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
                     >
-                      <option value="prompt-keywords">Prompt Keyword Clusters</option>
                       <option value="ddc">DDC Facets</option>
                       <option value="lcc">LCC Facets</option>
                       <option value="multilabel">Multi-Label</option>

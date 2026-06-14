@@ -11,6 +11,20 @@ const H = 280;
 const CX = W / 2;
 const CY = H / 2;
 
+const DDC_COLORS: Record<string, string> = {
+  "0": "#6b7280", "1": "#a78bfa", "2": "#f87171",
+  "3": "#60a5fa", "4": "#34d399", "5": "#fbbf24",
+  "6": "#f472b6", "7": "#fb923c", "8": "#818cf8",
+  "9": "#2dd4bf",
+};
+
+const LCC_COLORS: Record<string, string> = {
+  A: "#8b5cf6", B: "#ec4899", C: "#f97316", D: "#eab308",
+  G: "#22c55e", H: "#06b6d4", J: "#6366f1", N: "#d946ef",
+  P: "#14b8a6", Q: "#f43f5e", R: "#0ea5e9", T: "#a855f7",
+  U: "#78716c", V: "#57534e", Z: "#a1a1aa",
+};
+
 interface ClassDisplay {
   code: string;
   label: string;
@@ -27,6 +41,17 @@ interface HistoryEntry {
   steps: { duration_ms: number | null }[];
   ddc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
   lcc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
+}
+
+function entryColor(entry: HistoryEntry, grouping: string): string {
+  if (grouping === "lcc") {
+    const c = entry.lcc?.prompt?.code?.[0];
+    if (c) return LCC_COLORS[c.toUpperCase()] || "#2dd4bf";
+    return "#2dd4bf";
+  }
+  const c = entry.ddc?.prompt?.code?.[0];
+  if (c) return DDC_COLORS[c] || "#2dd4bf";
+  return "#2dd4bf";
 }
 
 interface Annotation {
@@ -62,16 +87,16 @@ function computeSimilarity(a: string, b: string): number {
 function extractTheme(entries: HistoryEntry[], grouping?: string): string {
   if (grouping === "ddc") {
     const first = entries[0];
-    const pd = first?.ddc?.prompt?.domain;
-    const pa = first?.ddc?.prompt?.action;
-    const rd = first?.ddc?.response?.domain;
-    const ra = first?.ddc?.response?.action;
-    const parts: string[] = [];
-    if (pd) parts.push(pd);
-    if (pa) parts.push(pa);
-    if (rd && rd !== pd) parts.push(rd);
-    if (ra && ra !== pa) parts.push(ra);
-    if (parts.length > 0) return parts.slice(0, 2).join(" ▸ ");
+    const code = first?.ddc?.prompt?.code;
+    if (code) {
+      const names: Record<string, string> = {
+        "0": "General & CS", "1": "Philosophy", "2": "Religion",
+        "3": "Social Sciences", "4": "Language", "5": "Science",
+        "6": "Technology", "7": "Arts", "8": "Literature", "9": "History & Geo",
+      };
+      return `${code[0]}00 — ${names[code[0]] || `Class ${code[0]}`}`;
+    }
+    return "Unclassified";
   }
   if (grouping === "lcc") {
     const first = entries[0];
@@ -126,13 +151,12 @@ function getDDCValue(entry: HistoryEntry, side: "prompt" | "response", field: st
   return ddc.code || "Unclassified";
 }
 
-function clusterByDDC(entries: HistoryEntry[], promptFacet: string, responseFacet: string): HistoryEntry[][] {
+function clusterByDDC(entries: HistoryEntry[]): HistoryEntry[][] {
   if (entries.length === 0) return [];
   const groups = new Map<string, HistoryEntry[]>();
   for (const e of entries) {
-    const pVal = promptFacet ? getDDCValue(e, "prompt", promptFacet) : "—";
-    const rVal = responseFacet ? getDDCValue(e, "response", responseFacet) : "—";
-    const key = `${pVal} ▸ ${rVal}`;
+    const code = e.ddc?.prompt?.code;
+    const key = code ? code[0] : "Unclassified";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(e);
   }
@@ -202,12 +226,12 @@ function layoutGalaxy(clusters: HistoryEntry[][], grouping?: string): ClusterLay
 
   return clusters.map((entries, ci) => {
     const armAngle = (ci / n) * Math.PI * 2 - Math.PI / 2;
-    const armLength = 75;
+    const armLength = 115;
     const ccx = CX + armLength * Math.cos(armAngle);
     const ccy = CY + armLength * Math.sin(armAngle);
 
     const dotCount = entries.length;
-    const spread = Math.min(10 + dotCount * 5, 35);
+    const spread = Math.min(8 + dotCount * 2, 20);
     const dots = entries.map((entry, ei) => {
       const da = (ei / dotCount) * Math.PI * 2;
       return {
@@ -250,7 +274,7 @@ function galaxySpokePaths(clusters: ClusterLayout[]): string[] {
   });
 }
 
-export default function MemoryConstellation({ onSelect, refreshTrigger, grouping = "prompt-keywords", promptFacet = "domain", responseFacet = "domain", visualization = "constellation" }: Props) {
+export default function MemoryConstellation({ onSelect, refreshTrigger, grouping = "ddc", promptFacet = "domain", responseFacet = "domain", visualization = "constellation" }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -364,16 +388,10 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
 }
 
   const clusterFn = useCallback((entries: HistoryEntry[]) => {
-    if (grouping === "ddc") {
-      return clusterByDDC(entries, promptFacet, responseFacet);
-    }
-    if (grouping === "lcc") {
-      return clusterByLCC(entries);
-    }
-    if (grouping === "multilabel") {
-      return clusterByMultiLabel(entries);
-    }
-    return clusterByPromptKeywords(entries);
+    if (grouping === "ddc") return clusterByDDC(entries);
+    if (grouping === "lcc") return clusterByLCC(entries);
+    if (grouping === "multilabel") return clusterByMultiLabel(entries);
+    return clusterByDDC(entries);
   }, [grouping, promptFacet, responseFacet]);
 
   const layoutFn = useMemo(() => {
@@ -489,20 +507,7 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
         )}
       </div>
 
-      {visualization === "sunburst" && grouping === "prompt-keywords" ? (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-zinc-600 mb-3">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 8v4M12 16h.01" />
-          </svg>
-          <p className="text-[10px] font-mono text-zinc-500 max-w-[200px] leading-relaxed">
-            Keyword clusters are flat connected-components — no hierarchy to display in a sunburst.
-          </p>
-          <p className="text-[9px] font-mono text-zinc-700 mt-2">
-            Switch Group by to DDC, LCC, or Multi-Label to see this view.
-          </p>
-        </div>
-      ) : visualization === "sunburst" ? (
+      {visualization === "sunburst" ? (
         <SunburstChart entries={filteredEntries} onSelect={onSelect} grouping={grouping} />
       ) : (
         <>
@@ -530,7 +535,7 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
           )}
 
           {galaxy.length > 0 && (
-            <g>
+            <g transform={`translate(${CX}, ${CY}) scale(0.89) translate(${-CX}, ${-CY})`}>
               {/* Curved spokes — one per knowledge domain */}
               {galaxySpokePaths(galaxy).map((d, i) => (
                 <path key={`spoke-${i}`} d={d} fill="none" stroke="rgba(45,212,191,0.07)" strokeWidth={0.7} />
@@ -593,9 +598,10 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
                         {isNew && (
                           <motion.circle
                             cx={dot.x} cy={dot.y} r={dot.r}
-                            fill="none" stroke="#f59e0b" strokeWidth={1.5}
-                            initial={{ scale: 0.5, opacity: 0.9 }}
-                            animate={{ scale: [0.5, 3.5], opacity: [0.9, 0] }}
+                            fill="none" stroke={entryColor(dot.entry, grouping)} strokeWidth={1.5}
+                            style={{ opacity: 0.5 }}
+                            initial={{ scale: 0.5 }}
+                            animate={{ scale: [0.5, 3.5], opacity: [0.5, 0] }}
                             transition={{ duration: 5, ease: "easeOut" }}
                             onAnimationComplete={() =>
                               setNewIds((prev) => { const c = new Set(prev); c.delete(dot.entry.id); return c; })
@@ -605,15 +611,16 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
                         {isNew && (
                           <motion.circle
                             cx={dot.x} cy={dot.y} r={dot.r * 0.6}
-                            fill="#f59e0b"
-                            initial={{ opacity: 1 }}
-                            animate={{ opacity: [1, 0.4, 1] }}
+                            fill={entryColor(dot.entry, grouping)}
+                            style={{ opacity: 0.5 }}
+                            initial={{ opacity: 0.5 }}
+                            animate={{ opacity: [0.5, 0.2, 0.5] }}
                             transition={{ duration: 1.2, repeat: 3, ease: "easeInOut" }}
                           />
                         )}
-                        <circle cx={dot.x} cy={dot.y} r={dot.r + 3} fill="rgba(45,212,191,0.05)" />
-                        <circle cx={dot.x} cy={dot.y} r={dot.r} fill="none" stroke="rgba(45,212,191,0.4)" strokeWidth={0.7} />
-                        <circle cx={dot.x} cy={dot.y} r={dot.r * 0.55} fill="#2dd4bf" />
+                        <circle cx={dot.x} cy={dot.y} r={dot.r + 3} fill={entryColor(dot.entry, grouping)} style={{ opacity: 0.05 }} />
+                        <circle cx={dot.x} cy={dot.y} r={dot.r} fill="none" stroke={entryColor(dot.entry, grouping)} style={{ opacity: 0.4 }} strokeWidth={0.7} />
+                        <circle cx={dot.x} cy={dot.y} r={dot.r * 0.55} fill={entryColor(dot.entry, grouping)} />
                       </motion.g>
                     );
                   })

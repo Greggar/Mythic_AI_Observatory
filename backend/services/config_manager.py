@@ -76,6 +76,7 @@ def get_prometheus_url() -> str:
 
 
 def get_remote_targets() -> dict[str, str]:
+    # Internal services are skipped — they have dedicated endpoints
     targets: dict[str, str] = {}
     for sid, svc in get_services().items():
         if sid in ("ollama", "openclaw", "backoffice_llm", "prometheus"):
