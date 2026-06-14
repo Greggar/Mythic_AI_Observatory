@@ -33,13 +33,13 @@ We are a long way toward health + function transparency. The items below extend 
 | 9 | **System Orbit hover tooltips** — hover any service glyph or planet to see expanded name, purpose, and status explanation ✓ *(2026-06-05)* | List 1 | ★☆☆ | 30 min |
 | 10 | **LAN-distributed architecture research** — investigate best practices for running the observatory over a small network with multiple AI nodes | — | ★★☆ | research + implement |
 | 11 | **Context Assembly Viewer enhancement** — syntax-highlighted split-pane (system prompt / assembled context / user input) with token count breakdown per section | — | ★★☆ | 1 h |
-| 12 | **Runtime Metrics auto-refresh** — visibility-aware polling (15s interval, stops when tab hidden) to keep throughput/latency/bar chart live | — | ★☆☆ | 15 min |
+| 12 | **Runtime Metrics auto-refresh** — visibility-aware polling (15s interval, stops when tab hidden) to keep throughput/latency/bar chart live ✓ *(2026-06-08)* | — | ★☆☆ | 15 min |
 | 13 | **Service health timeline** — mini sparkline in the Issues tooltip showing ok/err/off proportions over the last N telemetry polls | — | ★☆☆ | 30 min |
 | 14 | **Stage descriptions & Assembled Context Viewer** — descriptive tooltips for each orchestration stage explaining what it does ✓ *(2026-06-05)* | — | ★☆☆ | 30 min |
 | 15 | **Intent classification probabilities** — show top-3 intent labels and their confidence scores in IntelligencePanel stage 2, so the user sees not just *what* was classified but *how sure* the model was ✓ *(2026-06-07)* | — | ★☆☆ | 30 min |
 | 16 | **Used vs discarded chunks indicator** — in Context Synthesis step, tag each retrieved chunk as "used" or "discarded" with a relevance score; show both in the IntelligencePanel breakdown ✓ *(2026-06-07)* | — | ★★☆ | 1 h |
 | 17 | **Personality fingerprinting** — over many traces, build a per-model profile: avg latency distribution, token efficiency (output/input ratio), failure mode frequency, typical confidence. Show as a radar or summary card. ✓ *(2026-06-08)* — Enhanced 2026-06-11: linguistic style (verbosity slider, directness slider, formatting DNA donut) and cognitive fingerprint (hedging gauge, lexical diversity) added; performance collapsed under a "Performance & Latency" toggle. | — | ★★☆ | 1.5 h |
-| 18 | **Agentic Step-Level Latency Monitor** — standalone Python script that polls `http://127.0.0.1:8001/api/trace/<id>`, extracts per-stage durations, computes rolling averages, and renders a stacked horizontal bar chart to visualize pipeline bottlenecks. Includes a verification harness with mock data. | — | ★☆☆ | 30 min |
+| 18 | **Agentic Step-Level Latency Monitor** — standalone Python script that polls `http://127.0.0.1:8001/api/trace/<id>`, extracts per-stage durations, computes rolling averages, and renders a stacked horizontal bar chart to visualize pipeline bottlenecks. Includes a verification harness with mock data. ✓ *(2026-06-06)* | — | ★☆☆ | 30 min |
 | 19 | **Live trace overlay on latency panel** — overlay the current trace's per-stage durations (as a brighter inner bar or dot) on top of the historical averages in the Step Latency panel, so you can compare the live run against the baseline at a glance. ✓ *(2026-06-06)* | — | ★☆☆ | 30 min |
 | 39 | **Backfill DDC for existing traces** — one-time script that reads `traces.jsonl`, runs the `classify_ddc()` service on each prompt/output, and writes back updated records with DDC metadata ✓ *(2026-06-13)* | — | ★☆☆ | 30 min |
 | 40 | **DDC group-by in MemoryConstellation** — `clusterByDdcDomain()` and `clusterByDdcAction()` functions added to the dispatch map; traces without DDC data fall into a configurable default group ✓ *(2026-06-13)* | — | ★☆☆ | 30 min |
@@ -139,6 +139,15 @@ We are a long way toward health + function transparency. The items below extend 
 - **Multi-Label classification** — `classify_multi()` returns top-3 above 0.10; 3-level sunburst with alternative-class outer ring; MemoryConstellation clusters by primary DDC digit; 123/128 traces backfilled in 10.9s
 - **CSV export** — all 16 DDC+LCC columns (prompt/response code, label, action, domain); tooltip overflow fix via createPortal to document.body
 - **Keyword+Sunburst** — explanatory message shown (no hierarchy for flat clusters)
+
+## Session summary — 2026-06-14
+
+- **Prompt Keyword Clusters removed** — default Group by changed to DDC Facets; keyword-clusters option and sunburst placeholder removed; constellation now clusters exclusively by DDC/LCC main class
+- **DDC main class clustering** — `clusterByDDC` changed from domain/action facet combos to DDC first digit (e.g. 000 → Class 0). Same color = same cluster — fixes traces of the same subject being split across groups
+- **Constellation colored by DDC/LCC** — dots use the same per-class color palette as SunburstChart (DDC `0`-`9`, LCC `A`-`Z` maps). Glow burst on new traces uses matching class color at 50% opacity
+- **Tighter cluster spread** — dot spread reduced from `min(16 + dotCount*5, 55)` to `min(8 + dotCount*2, 20)`. Galaxy scaled to 89% via `translate(140,140) scale(0.89) translate(-140,-140)`
+- **Hermes code review fixes** — `api_get_trace` raises `HTTPException(404)`; `context_assembled` = `None` for non-model stages; `stage_avgs` uses `None` instead of `0` for missing stages; `asyncio.get_event_loop().time()` → `perf_counter()`
+- **FUTURE_PLANS.md cleanup** — #12 (Runtime Metrics auto-refresh) and #18 (Latency Monitor) marked as done
 
 ## Session summary — 2026-06-12
 
