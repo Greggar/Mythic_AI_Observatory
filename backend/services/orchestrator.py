@@ -749,6 +749,9 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
             ddc_alt = await classify_multi_ddc(session.prompt, top_n=3)
             if ddc.prompt:
                 ddc.prompt_alternatives = [a for a in ddc_alt if a.code != ddc.prompt.code][:2]
+            ddc_resp_alt = await classify_multi_ddc(session.output or "", is_empty=not session.output)
+            if ddc.response and ddc_resp_alt:
+                ddc.response_alternatives = [a for a in ddc_resp_alt if a.code != ddc.response.code][:2]
             session.ddc = ddc
             logger.info("DDC classification complete for %s", trace_id)
     except Exception as e:
@@ -760,6 +763,9 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
             lcc_alt = await classify_multi_lcc(session.prompt, top_n=3)
             if lcc.prompt:
                 lcc.prompt_alternatives = [a for a in lcc_alt if a.code != lcc.prompt.code][:2]
+            lcc_resp_alt = await classify_multi_lcc(session.output or "", is_empty=not session.output)
+            if lcc.response and lcc_resp_alt:
+                lcc.response_alternatives = [a for a in lcc_resp_alt if a.code != lcc.response.code][:2]
             session.lcc = lcc
             logger.info("LCC classification complete for %s", trace_id)
     except Exception as e:

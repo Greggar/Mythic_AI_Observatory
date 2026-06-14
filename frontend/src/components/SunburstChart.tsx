@@ -65,8 +65,8 @@ interface HistoryEntry {
   id: string; prompt: string; status: string; created_at: string;
   output: string | null;
   steps: { duration_ms: number | null }[];
-  ddc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
-  lcc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
+  ddc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[]; response_alternatives?: ClassDisplay[] } | null;
+  lcc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[]; response_alternatives?: ClassDisplay[] } | null;
 }
 
 interface Wedge {
@@ -193,10 +193,12 @@ function computeMultilabelWedges(entries: HistoryEntry[]): Wedge[] {
   }
 
   const altMap = new Map<string, Map<string, number>>();
+  const respAltMap = new Map<string, Map<string, number>>();
   for (const e of entries) {
     const primary = e.ddc?.prompt?.code;
     if (!primary) continue;
     const pmc = primary[0];
+
     const alts = e.ddc?.prompt_alternatives ?? [];
     for (const a of alts) {
       if (!a.code) continue;
@@ -204,6 +206,16 @@ function computeMultilabelWedges(entries: HistoryEntry[]): Wedge[] {
       if (amc === pmc) continue;
       if (!altMap.has(pmc)) altMap.set(pmc, new Map());
       const inner = altMap.get(pmc)!;
+      inner.set(amc, (inner.get(amc) || 0) + 1);
+    }
+
+    const resAlts = e.ddc?.response_alternatives ?? [];
+    for (const a of resAlts) {
+      if (!a.code) continue;
+      const amc = a.code[0];
+      if (amc === pmc) continue;
+      if (!respAltMap.has(pmc)) respAltMap.set(pmc, new Map());
+      const inner = respAltMap.get(pmc)!;
       inner.set(amc, (inner.get(amc) || 0) + 1);
     }
   }
@@ -242,8 +254,9 @@ function computeMultilabelWedges(entries: HistoryEntry[]): Wedge[] {
       cursor += ca;
     }
 
-    const alts = altMap.get(digit);
-    if (alts && alts.size > 0) {
+    const addAltRing = (ringMap: Map<string, Map<string, number>>, depth: number, labelPrefix: string) => {
+      const alts = ringMap.get(digit);
+      if (!alts || alts.size === 0) return;
       const altTotal = [...alts.values()].reduce((s, c) => s + c, 0);
       let altCursor = wedgeStart + 0.004;
       const sortedAlts = [...alts.entries()].sort((a, b) => b[1] - a[1]);
@@ -251,17 +264,20 @@ function computeMultilabelWedges(entries: HistoryEntry[]): Wedge[] {
         const fraction = count / altTotal;
         const aa = fraction * (classAngle - 0.008);
         raw.push({
-          name: `Alt → ${CLASS_NAMES[amc] || amc}`,
-          code: `alt-${digit}-${amc}`,
+          name: `${labelPrefix} ${CLASS_NAMES[amc] || amc}`,
+          code: `${labelPrefix === 'Resp' ? 'resp-alt' : 'alt'}-${digit}-${amc}`,
           count,
-          depth: 2,
+          depth,
           startAngle: altCursor,
           endAngle: altCursor + aa,
           color: COLORS[amc] || UNCLASS,
         });
         altCursor += aa;
       }
-    }
+    };
+
+    addAltRing(altMap, 2, "Prompt Alt →");
+    addAltRing(respAltMap, 3, "Resp Alt →");
   }
 
   if (unclassified > 0) {
@@ -273,7 +289,8 @@ function computeMultilabelWedges(entries: HistoryEntry[]): Wedge[] {
     let r0: number, r1: number;
     if (w.depth === 0) { r0 = INNER; r1 = LEVEL1_OUTER; }
     else if (w.depth === 1) { r0 = LEVEL2_INNER; r1 = OUTER; }
-    else { r0 = OUTER + 4; r1 = OUTER + 18; }
+    else if (w.depth === 2) { r0 = OUTER + 4; r1 = OUTER + 11; }
+    else { r0 = OUTER + 12; r1 = OUTER + 19; }
     const safe = (a: number) => isNaN(a) || !isFinite(a) ? 0 : a;
     return {
       ...w,
@@ -407,7 +424,7 @@ export default function SunburstChart({ entries, onSelect, grouping }: { entries
               }}
               onMouseLeave={() => setHovered(null)}
               onClick={() => {
-                if (w.code?.startsWith?.("alt-")) return;
+                if (w.depth >= 2) return;
                 const digit = w.code?.[0];
                 setSelectedDigit(selectedDigit === digit ? null : (digit ?? null));
                 const code = w.depth === 0 ? (w.code?.length === 1 ? w.code : w.code?.[0]) : w.code;

@@ -46,6 +46,7 @@ async def main() -> None:
             return
 
         prompt = data.get("prompt", "")
+        output = data.get("output", "")
         changed = False
 
         # DDC alternatives
@@ -55,6 +56,12 @@ async def main() -> None:
                 alts = await classify_multi_ddc(prompt, top_n=3)
                 ddc["prompt_alternatives"] = [
                     a.model_dump() for a in alts if a.code != ddc["prompt"]["code"]
+                ][:2]
+                changed = True
+            if ddc.get("response") and ddc["response"].get("code") and not ddc.get("response_alternatives"):
+                resp_alts = await classify_multi_ddc(output or "", is_empty=not bool(output))
+                ddc["response_alternatives"] = [
+                    a.model_dump() for a in resp_alts if a.code != ddc["response"]["code"]
                 ][:2]
                 changed = True
 
@@ -67,15 +74,23 @@ async def main() -> None:
                     a.model_dump() for a in alts if a.code != lcc["prompt"]["code"]
                 ][:2]
                 changed = True
+            if lcc.get("response") and lcc["response"].get("code") and not lcc.get("response_alternatives"):
+                resp_alts = await classify_multi_lcc(output or "", is_empty=not bool(output))
+                lcc["response_alternatives"] = [
+                    a.model_dump() for a in resp_alts if a.code != lcc["response"]["code"]
+                ][:2]
+                changed = True
 
         if changed:
             lines[idx] = json.dumps(data) + "\n"
             updated += 1
             pid = data.get("id", "?")[:8]
             prompt_preview = prompt[:50].replace("\n", " ")
-            ddc_alts = len(ddc.get("prompt_alternatives", [])) if ddc else 0
-            lcc_alts = len(lcc.get("prompt_alternatives", [])) if lcc else 0
-            print(f"  [{idx+1}/{total}] {pid}: +{ddc_alts} DDC +{lcc_alts} LCC alts | {prompt_preview}")
+            ddc_pa = len(ddc.get("prompt_alternatives", [])) if ddc else 0
+            ddc_ra = len(ddc.get("response_alternatives", [])) if ddc else 0
+            lcc_pa = len(lcc.get("prompt_alternatives", [])) if lcc else 0
+            lcc_ra = len(lcc.get("response_alternatives", [])) if lcc else 0
+            print(f"  [{idx+1}/{total}] {pid}: DDC alts {ddc_pa}+{ddc_ra} LCC alts {lcc_pa}+{lcc_ra} | {prompt_preview}")
         else:
             skipped += 1
 

@@ -25,6 +25,7 @@ import LatencyBreakdown from "@/components/LatencyBreakdown";
 import PerformanceInsights from "@/components/PerformanceInsights";
 import PersonalityProfile from "@/components/PersonalityProfile";
 import TraceSummaryModal from "@/components/TraceSummaryModal";
+import RelationshipsPanel from "@/components/RelationshipsPanel";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -354,6 +355,9 @@ export default function Home() {
                     responseFacet={responseFacet}
                     visualization={visualizationType}
                   />
+                </ErrorBoundary>
+                <ErrorBoundary>
+                  <RelationshipsPanel refreshTrigger={historyRefresh} />
                 </ErrorBoundary>
                 <ErrorBoundary>
                   <CelestialDistribution

@@ -34,6 +34,23 @@ export interface DdcEntry {
 export interface DdcMetadata {
   prompt: DdcEntry | null;
   response: DdcEntry | null;
+  prompt_alternatives?: DdcEntry[];
+  response_alternatives?: DdcEntry[];
+}
+
+export interface LccEntry {
+  code: string;
+  label: string;
+  action: string | null;
+  domain: string | null;
+  lineage: { tier: number; code: string; label: string }[];
+}
+
+export interface LccMetadata {
+  prompt: LccEntry | null;
+  response: LccEntry | null;
+  prompt_alternatives?: LccEntry[];
+  response_alternatives?: LccEntry[];
 }
 
 export interface LlmInsight {

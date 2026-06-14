@@ -39,8 +39,8 @@ interface HistoryEntry {
   created_at: string;
   output: string | null;
   steps: { duration_ms: number | null }[];
-  ddc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
-  lcc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[] } | null;
+  ddc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[]; response_alternatives?: ClassDisplay[] } | null;
+  lcc?: { prompt: ClassDisplay | null; response: ClassDisplay | null; prompt_alternatives?: ClassDisplay[]; response_alternatives?: ClassDisplay[] } | null;
 }
 
 function entryColor(entry: HistoryEntry, grouping: string): string {
