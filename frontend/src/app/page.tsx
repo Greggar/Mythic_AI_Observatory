@@ -40,8 +40,6 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [groupingMethod, setGroupingMethod] = useState<string>("ddc");
-  const [promptFacet, setPromptFacet] = useState<string>("domain");
-  const [responseFacet, setResponseFacet] = useState<string>("domain");
   const [visualizationType, setVisualizationType] = useState<string>("constellation");
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -311,28 +309,7 @@ export default function Home() {
                       <option value="multilabel">Multi-Label</option>
                     </select>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Prompt</span>
-                  <select
-                    value={promptFacet}
-                    onChange={(e) => setPromptFacet(e.target.value)}
-                    className="bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
-                  >
-                    <option value="domain">Domain</option>
-                    <option value="action">Action</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Response</span>
-                  <select
-                    value={responseFacet}
-                    onChange={(e) => setResponseFacet(e.target.value)}
-                    className="bg-white/[0.04] border border-white/[0.08] rounded text-[10px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
-                  >
-                    <option value="domain">Domain</option>
-                    <option value="action">Action</option>
-                  </select>
-                </div>
+
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">View</span>
                   <select
@@ -351,8 +328,6 @@ export default function Home() {
                     onSelect={handleHistorySelect}
                     refreshTrigger={historyRefresh}
                     grouping={groupingMethod}
-                    promptFacet={promptFacet}
-                    responseFacet={responseFacet}
                     visualization={visualizationType}
                   />
                 </ErrorBoundary>

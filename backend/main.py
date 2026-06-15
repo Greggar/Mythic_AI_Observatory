@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from models.trace import TraceSession
 from services.profile import compute_profile, ModelProfile
 from models.annotation import Annotation
-from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, warmup_model
+from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, warmup_model
 from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
@@ -269,6 +269,7 @@ async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
 
 class ModelConfigBody(BaseModel):
     provider: str  # "local" or "backoffice"
+    model: str | None = None
 
 # ── Model config ──────────────────────────────────────────────────
 @app.get("/api/config/model")
@@ -279,6 +280,9 @@ async def get_model_config() -> dict[str, str]:
 async def post_model_config(body: ModelConfigBody) -> dict[str, str]:
     try:
         set_model_provider(body.provider)
+        if body.model and body.provider == "backoffice":
+            from services.config_manager import set_backoffice_model
+            set_backoffice_model(body.model)
         return {"provider": get_model_provider(), "status": "ok"}
     except ValueError as e:
         from fastapi.responses import JSONResponse
@@ -302,9 +306,51 @@ async def list_ollama_models() -> dict[str, list[str]]:
     except Exception as e:
         return {"models": [], "error": str(e)}
 
+
+@app.get("/api/models/network")
+async def list_network_models() -> dict[str, list[dict[str, Any]]]:
+    """Discover models on network LLM services (services with a model field)."""
+    from services.config_manager import get_services
+    sources: list[dict[str, Any]] = []
+    for sid, svc in get_services().items():
+        if not svc.get("enabled", True):
+            continue
+        model_field = svc.get("model")
+        if not model_field:
+            continue
+        host = svc.get("host", "")
+        port = svc.get("port", 0)
+        label = svc.get("label", sid)
+        base = f"http://{host}:{port}"
+        discovered: list[str] = []
+        error: str | None = None
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base}/api/tags")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    discovered = sorted(m["name"] for m in data.get("models", []))
+                else:
+                    error = f"HTTP {resp.status_code}"
+        except Exception as e:
+            error = str(e)
+        sources.append({
+            "id": sid,
+            "label": label,
+            "host": host,
+            "port": port,
+            "configured_model": model_field,
+            "models": discovered,
+            "error": error,
+        })
+    return {"sources": sources}
+
 @app.get("/api/models/current")
 async def get_current_model() -> dict[str, str]:
-    return {"model": get_local_model(), "provider": get_model_provider()}
+    from services.config_manager import get_backoffice_model
+    if get_model_provider() == "backoffice":
+        return {"model": get_backoffice_model(), "provider": "backoffice"}
+    return {"model": get_local_model(), "provider": "local"}
 
 @app.post("/api/models/select")
 async def select_model(body: ModelSelectBody) -> dict[str, str]:
@@ -358,6 +404,16 @@ async def api_get_trace(trace_id: str) -> TraceSession | None:
 async def api_delete_trace(trace_id: str) -> dict:
     ok = delete_trace(trace_id)
     return {"deleted": ok}
+
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[str]
+
+
+@app.post("/api/traces/bulk-delete")
+async def api_bulk_delete_traces(req: BulkDeleteRequest) -> dict:
+    count = bulk_delete_traces(req.ids)
+    return {"deleted": count}
 
 
 # ── CSV Exports ──────────────────────────────────────────────────

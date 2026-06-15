@@ -12,6 +12,7 @@ import {
   Activity,
 } from "lucide-react";
 import VectorDistanceGraph from "@/components/VectorDistanceGraph";
+import ContextAssemblyBreakdown from "@/components/ContextAssemblyBreakdown";
 import type { Telemetry } from "@/hooks/useWebSocket";
 import type { TraceSession, TraceStep } from "@/types/trace";
 import StageDebate from "@/components/StageDebate";
@@ -316,6 +317,19 @@ const STAGES: StageInfo[] = [
   { label: "Final Response",       desc: "Generated output is post-processed, formatted, and delivered. Insights and confidence are computed from the result." },
 ];
 
+const SYSTEM_PROMPTS: Record<string, string | null> = {
+  "step-2": "You are an intent classifier. Respond with one short sentence classifying the user request.",
+  "step-5": "You are a synthesizer. In one sentence, note the key context for responding to this request.",
+  "step-6": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user.",
+};
+
+function getSystemPrompt(step: TraceStep | null): string | null {
+  if (!step) return null;
+  const stepIndex = ["Request Received","Intent Classification","Agent Selection","Memory Retrieval","Context Synthesis","Response Generation","Final Response"].indexOf(step.label);
+  if (stepIndex === -1) return null;
+  return SYSTEM_PROMPTS[`step-${stepIndex + 1}`] ?? null;
+}
+
 function stageDesc(label: string): string {
   return STAGES.find((s) => s.label === label)?.desc || "";
 }
@@ -490,18 +504,18 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
               </div>
             )}
             {currentStage.context_assembled && (
-              <div className="mt-2">
+              <div className="mt-3 space-y-2">
                 <button
                   onClick={() => setShowContext(!showContext)}
                   className="text-[9px] font-mono tracking-wider text-teal-mystic/50 hover:text-teal-mystic/80 transition-colors"
                 >
-                  {showContext ? "▾ Hide assembled context" : "▸ Show assembled context"}
+                  {showContext ? "▾ Hide context assembly" : "▸ Show context assembly"}
                 </button>
                 {showContext && (
-                  <pre className="mt-1 text-[9px] text-zinc-500 font-mono leading-relaxed max-h-24 overflow-y-auto whitespace-pre-wrap
-                    bg-white/[0.03] rounded p-1.5">
-                    {currentStage.context_assembled}
-                  </pre>
+                  <ContextAssemblyBreakdown
+                    step={currentStage}
+                    systemPrompt={getSystemPrompt(currentStage)}
+                  />
                 )}
               </div>
             )}
@@ -780,6 +794,29 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
               </div>
             </div>
           )}
+
+          {/* Context Assembly Breakdown */}
+          {(() => {
+            const csStep = trace.steps.find((s) => s.label === "Context Synthesis");
+            if (!csStep?.context_assembled) return null;
+            return (
+              <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
+                <button
+                  onClick={() => setShowReplayContext(showReplayContext === "cs" ? null : "cs")}
+                  className="w-full flex items-center justify-between text-[9px] font-semibold tracking-widest uppercase text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  <span>Context Assembly</span>
+                  <span className="text-zinc-600">{showReplayContext === "cs" ? "▾" : "▸"}</span>
+                </button>
+                {showReplayContext === "cs" && (
+                  <ContextAssemblyBreakdown
+                    step={csStep}
+                    systemPrompt={getSystemPrompt(csStep)}
+                  />
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

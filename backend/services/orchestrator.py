@@ -244,7 +244,6 @@ async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
         "Rules:\n"
         "- info: factual observation about the trace\n"
         "- recommendation: specific actionable suggestion based on architecture\n"
-        "- The active model is listed in TRACE DATA — use that\n"
         "- Do NOT mention the model response content, only latency and system behavior\n"
         "- Focus on bottlenecks, cold starts, and hardware-specific observations\n"
         "- If a remote GPU worker is unreachable, recommend investigating the connection\n"
@@ -255,7 +254,6 @@ async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
         f"TRACE DATA:\n"
         f'prompt: "{session.prompt[:100]}"\n'
         f"model: {session.model_used or LOCAL_MODEL or 'unknown'}\n"
-        f"active_local_model: {LOCAL_MODEL}\n"
         f"total_ms: {total_ms}\n"
         f"stages:\n{stages_json}\n\n"
         f"Generate 2-4 insights as a JSON array."
@@ -806,3 +804,23 @@ def delete_trace(trace_id: str) -> bool:
     except Exception as e:
         logger.error("Failed to delete trace %s from history: %s", trace_id, e)
     return removed
+
+
+def bulk_delete_traces(trace_ids: list[str]) -> int:
+    count = 0
+    for tid in trace_ids:
+        if tid in _store:
+            del _store[tid]
+            count += 1
+    try:
+        if os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE) as f:
+                lines = f.readlines()
+            id_set = set(trace_ids)
+            kept = [l for l in lines if not any(tid in l for tid in id_set)]
+            if len(kept) < len(lines):
+                with open(HISTORY_FILE, "w") as f:
+                    f.writelines(kept)
+    except Exception as e:
+        logger.error("Failed to bulk delete from history: %s", e)
+    return count

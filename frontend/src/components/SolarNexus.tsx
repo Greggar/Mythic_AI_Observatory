@@ -1,8 +1,9 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
-import { useEffect, useState, useCallback } from "react";
+import { X, Info } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { Telemetry } from "@/hooks/useWebSocket";
 import type { TraceSession, TraceStep } from "@/types/trace";
 
@@ -28,6 +29,44 @@ const STEP_LABELS = [
   "Context Synthesis",
   "Response Generation",
   "Final Response",
+];
+
+const STAGE_DESCRIPTIONS: { role: string; detail: string }[] = [
+  {
+    role: "The ingestion point.",
+    detail:
+      "Handles the raw API boundary. It captures the user\u2019s input, logs the initial timestamp, sanitizes the data, and prepares the payload for the internal pipeline.",
+  },
+  {
+    role: "The gatekeeper / router.",
+    detail:
+      "Before throwing the prompt at a massive LLM, a small, fast model (or specialized classifier) determines what the user actually wants. Are they trying to run code? Are they asking a historical question? Are they trying to bypass guardrails?",
+  },
+  {
+    role: "Orchestration / Dispatching.",
+    detail:
+      "Based on the intent classified in step 2, the system chooses the best specialized agent or tool for the job. If the intent was \u201CAnalytical,\u201D it selects the data-analyst agent; if \u201CCreative,\u201D it routes to a narrative sub-routine.",
+  },
+  {
+    role: "Contextual awareness.",
+    detail:
+      "The selected agent fetches relevant history. This means pulling semantic memories from a vector database (long-term memory) and gathering the recent conversational turns (short-term memory) so the model has continuity.",
+  },
+  {
+    role: "Prompt construction / De-duplication.",
+    detail:
+      "A crucial step that many basic systems skip. It takes the raw user request, the retrieved memories, and any injected RAG data, and weaves them together into a single, cohesive, optimized prompt context. It strips out noise so the generation model doesn\u2019t get confused.",
+  },
+  {
+    role: "The heavy lifting.",
+    detail:
+      "This is where the core model finally executes. Because all the routing, memory gathering, and context filtering were done in steps 2\u20135, this model can focus purely on generating a high-quality, precise token stream.",
+  },
+  {
+    role: "Post-processing / Egress.",
+    detail:
+      "The raw text from step 6 is checked one last time (guardrails, formatting fixes, or tracking token telemetry) before being packaged and sent back to the user interface, closing the orchestration loop.",
+  },
 ];
 
 const AGENT_NAMES: Record<string, string> = {
@@ -133,6 +172,8 @@ export default function SolarNexus({
   const [mounted, setMounted] = useState(false);
   const [timeOffset, setTimeOffset] = useState(0);
   const [selectedStep, setSelectedStep] = useState<number | null>(null);
+  const [hoveredStage, setHoveredStage] = useState<{ index: number; x: number; y: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -156,7 +197,7 @@ export default function SolarNexus({
 
   if (phase === "idle" && !trace && !traceActive) {
     return (
-      <div className="glass-panel p-5 flex flex-col items-center overflow-hidden">
+      <div className="glass-panel p-5 flex flex-col items-center overflow-hidden" ref={containerRef}>
         <div className="flex flex-col items-center gap-1.5 mb-3 z-10">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
             className="text-[oklch(72%_0.11_75)]">
@@ -206,7 +247,7 @@ export default function SolarNexus({
   const selectedSystemPrompt = selectedStep !== null ? SYSTEM_PROMPTS[`step-${selectedStep + 1}`] ?? null : null;
 
   return (
-    <div className="glass-panel p-5 flex flex-col items-center overflow-hidden">
+    <div className="glass-panel p-5 flex flex-col items-center overflow-hidden" ref={containerRef}>
       <div className="flex flex-col items-center gap-1.5 mb-3 z-10">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
           className="text-[oklch(72%_0.11_75)]">
@@ -302,6 +343,9 @@ export default function SolarNexus({
                 fill="transparent"
                 style={{ cursor: "pointer" }}
                 onClick={() => handleNodeClick(i)}
+                onMouseEnter={(e) => setHoveredStage({ index: i, x: e.clientX, y: e.clientY })}
+                onMouseMove={(e) => setHoveredStage({ index: i, x: e.clientX, y: e.clientY })}
+                onMouseLeave={() => setHoveredStage(null)}
               />
             </g>
           );
@@ -421,6 +465,29 @@ export default function SolarNexus({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {hoveredStage !== null && createPortal(
+        <div
+          className="fixed z-[100] pointer-events-none"
+          style={{ left: hoveredStage.x + 16, top: hoveredStage.y - 10 }}
+        >
+          <div className="bg-[#0f0f14] border border-white/10 rounded-xl p-3.5 shadow-2xl max-w-[320px]">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shrink-0" />
+              <span className="text-[11px] font-semibold text-teal-mystic uppercase tracking-wider">
+                {STEP_LABELS[hoveredStage.index]}
+              </span>
+            </div>
+            <div className="text-[11px] font-mono text-zinc-400 leading-relaxed mb-2">
+              {STAGE_DESCRIPTIONS[hoveredStage.index].role}
+            </div>
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              {STAGE_DESCRIPTIONS[hoveredStage.index].detail}
+            </p>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

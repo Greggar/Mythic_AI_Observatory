@@ -71,6 +71,16 @@ def get_backoffice_model() -> str:
     return svc.get("model", "docker.io/ai/qwen3.5:9B-UD-Q4_K_XL") if svc else "docker.io/ai/qwen3.5:9B-UD-Q4_K_XL"
 
 
+def set_backoffice_model(model: str) -> None:
+    """Update the backoffice LLM model name in network.json."""
+    cfg = _load()
+    if "backoffice_llm" in cfg.get("services", {}):
+        cfg["services"]["backoffice_llm"]["model"] = model
+        save(cfg)
+    else:
+        raise ValueError("backoffice_llm service not found in config")
+
+
 def get_prometheus_url() -> str:
     return service_url("prometheus")
 

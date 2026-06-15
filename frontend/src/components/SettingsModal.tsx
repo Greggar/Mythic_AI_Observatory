@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check } from "lucide-react";
+import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check, AlertTriangle } from "lucide-react";
 
 interface ServiceConfig {
   label: string;
@@ -45,13 +45,32 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [tab, setTab] = useState<"services" | "machines" | "models">("services");
+  const [tab, setTab] = useState<"services" | "machines" | "models" | "delete">("services");
   const [modelProvider, setModelProvider] = useState<string>("local");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [currentModel, setCurrentModel] = useState<string>("phi4-mini");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelSaved, setModelSaved] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [networkSources, setNetworkSources] = useState<{ id: string; label: string; host: string; port: number; configured_model: string; models: string[]; error: string | null }[]>([]);
+  const [networkSourceId, setNetworkSourceId] = useState("");
+  const [networkModelName, setNetworkModelName] = useState("");
+  const [networkSourcesLoading, setNetworkSourcesLoading] = useState(false);
+  const [netModelSaved, setNetModelSaved] = useState(false);
+  const [deleteTabReady, setDeleteTabReady] = useState(false);
+  const [deleteCriteria, setDeleteCriteria] = useState<"all" | "model" | "ddc">("all");
+  const [deleteModel, setDeleteModel] = useState("");
+  const [deleteDdc, setDeleteDdc] = useState("0");
+  const [deletePreviewCount, setDeletePreviewCount] = useState(0);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<string | null>(null);
+  const [allTraceMeta, setAllTraceMeta] = useState<{ id: string; model_used?: string | null; ddc_prompt?: string | null }[]>([]);
+  const delModels = useMemo(() => {
+    const s = new Set<string>();
+    for (const t of allTraceMeta) if (t.model_used) s.add(t.model_used);
+    return Array.from(s).sort();
+  }, [allTraceMeta]);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -94,6 +113,27 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   }, []);
 
+  const fetchNetworkSources = useCallback(async () => {
+    if (networkSources.length > 0) return;
+    setNetworkSourcesLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/models/network`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.sources) {
+        setNetworkSources(data.sources);
+        if (data.sources.length > 0 && !networkSourceId) {
+          setNetworkSourceId(data.sources[0].id);
+          setNetworkModelName(data.sources[0].configured_model);
+        }
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setNetworkSourcesLoading(false);
+    }
+  }, [networkSources.length, networkSourceId]);
+
   useEffect(() => {
     if (open) {
       fetchConfig();
@@ -101,8 +141,42 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       fetchModels();
       setSaved(false);
       setModelSaved(false);
+      setDeleteTabReady(false);
+      setDeleteConfirm(false);
+      setDeleteResult(null);
     }
   }, [open, fetchConfig, fetchModelProvider, fetchModels]);
+
+  useEffect(() => {
+    if (!open || tab !== "delete" || deleteTabReady) return;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/traces?limit=500`);
+        if (!res.ok) return;
+        const all: any[] = await res.json();
+        setAllTraceMeta(all.map((t) => ({ id: t.id, model_used: t.model_used, ddc_prompt: t.ddc?.prompt?.code })));
+        setDeleteTabReady(true);
+      } catch { /* ignore */ }
+    })();
+  }, [open, tab, deleteTabReady]);
+
+  useEffect(() => {
+    if (!open || tab !== "models") return;
+    fetchNetworkSources();
+  }, [open, tab, fetchNetworkSources]);
+
+  useEffect(() => {
+    if (!deleteTabReady) return;
+    let ids: string[] = allTraceMeta.map((t) => t.id);
+    if (deleteCriteria === "model") {
+      ids = allTraceMeta.filter((t) => t.model_used === deleteModel).map((t) => t.id);
+    } else if (deleteCriteria === "ddc") {
+      ids = allTraceMeta.filter((t) => t.ddc_prompt?.[0] === deleteDdc).map((t) => t.id);
+    }
+    setDeletePreviewCount(ids.length);
+    setDeleteConfirm(false);
+    setDeleteResult(null);
+  }, [deleteTabReady, deleteCriteria, deleteModel, deleteDdc, allTraceMeta]);
 
   const updateService = (id: string, field: string, value: string | number | boolean) => {
     if (!config) return;
@@ -228,6 +302,17 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               >
                 <Cpu className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
                 Models
+              </button>
+              <button
+                onClick={() => setTab("delete")}
+                className={`px-4 py-1.5 text-sm rounded-full transition-colors ${
+                  tab === "delete"
+                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                    : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+                }`}
+              >
+                <Trash2 className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
+                Delete
               </button>
             </div>
 
@@ -375,12 +460,45 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                           onChange={() => setModelProvider("local")}
                           className="accent-teal-mystic"
                         />
-                        <div>
+                        <div className="flex-1">
                           <div className="text-sm text-zinc-200 font-medium">Local (CPU)</div>
-                          <div className="text-[10px] text-zinc-500">{currentModel} on Gingerlong — slow but self-contained</div>
+                          {modelProvider === "local" && (
+                            <select
+                              value={currentModel}
+                              onChange={async (e) => {
+                                setCurrentModel(e.target.value);
+                                setModelSaved(false);
+                                try {
+                                  const res = await fetch(`${API_BASE}/api/models/select`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ model: e.target.value }),
+                                  });
+                                  if (res.ok) {
+                                    setModelSaved(true);
+                                    setTimeout(() => setModelSaved(false), 2000);
+                                  }
+                                } catch { /* ignore */ }
+                              }}
+                              className="mt-2 w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                            >
+                              {modelsLoading ? (
+                                <option>Loading...</option>
+                              ) : availableModels.length === 0 ? (
+                                <option>No models found</option>
+                              ) : (
+                                availableModels.map((m) => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))
+                              )}
+                            </select>
+                          )}
+                          {modelProvider !== "local" && (
+                            <div className="text-[10px] text-zinc-500 mt-1">Click to select and configure local model</div>
+                          )}
                         </div>
                       </label>
-                      <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                         modelProvider === "backoffice"
                           ? "border-teal-mystic/40 bg-teal-mystic/5"
                           : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
@@ -391,11 +509,92 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                           value="backoffice"
                           checked={modelProvider === "backoffice"}
                           onChange={() => setModelProvider("backoffice")}
-                          className="accent-teal-mystic"
+                          className="accent-teal-mystic mt-1"
                         />
-                        <div>
-                          <div className="text-sm text-zinc-200 font-medium">BackOffice (GPU)</div>
-                          <div className="text-[10px] text-zinc-500">qwen3.5:9B on BackOffice PC — fast, requires LAN connection</div>
+                        <div className="flex-1 space-y-2">
+                          <div className="text-sm text-zinc-200 font-medium">Network Source</div>
+                          {modelProvider === "backoffice" ? (
+                            <>
+                              <div className="flex gap-2">
+                                <select
+                                  value={networkSourceId}
+                                  onChange={(e) => {
+                                    const src = networkSources.find((s) => s.id === e.target.value);
+                                    setNetworkSourceId(e.target.value);
+                                    if (src) {
+                                      setNetworkModelName(
+                                        src.models.length > 0 ? src.models[0] : src.configured_model
+                                      );
+                                    }
+                                  }}
+                                  className="flex-1 bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                                >
+                                  {networkSourcesLoading ? (
+                                    <option>Loading...</option>
+                                  ) : networkSources.length === 0 ? (
+                                    <option>No network sources found</option>
+                                  ) : (
+                                    networkSources.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.label} ({s.host}:{s.port})
+                                      </option>
+                                    ))
+                                  )}
+                                </select>
+                              </div>
+                              {networkSourceId && (() => {
+                                const src = networkSources.find((s) => s.id === networkSourceId);
+                                if (!src) return null;
+                                return (
+                                  <div className="space-y-1.5">
+                                    <select
+                                      value={networkModelName}
+                                      onChange={async (e) => {
+                                        const val = e.target.value;
+                                        setNetworkModelName(val);
+                                        setNetModelSaved(false);
+                                        try {
+                                          const r = await fetch(`${API_BASE}/api/config/model`, {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ provider: "backoffice", model: val }),
+                                          });
+                                          if (r.ok) {
+                                            setNetModelSaved(true);
+                                            setTimeout(() => setNetModelSaved(false), 2000);
+                                          }
+                                        } catch { /* ignore */ }
+                                      }}
+                                      className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                                    >
+                                      {src.models.length > 0 ? (
+                                        src.models.map((m) => (
+                                          <option key={m} value={m}>{m}</option>
+                                        ))
+                                      ) : (
+                                        <option value={src.configured_model}>{src.configured_model} (configured)</option>
+                                      )}
+                                    </select>
+                                    {netModelSaved && (
+                                      <div className="text-[10px] text-jade-glow flex items-center gap-1">
+                                        <Check className="w-3 h-3" />
+                                        Switched to {networkModelName}
+                                      </div>
+                                    )}
+                                    <div className="text-[10px] text-zinc-600">
+                                      {src.models.length > 0
+                                        ? `${src.models.length} model${src.models.length !== 1 ? "s" : ""} discovered on ${src.label}`
+                                        : src.error
+                                          ? `Model discovery failed: ${src.error}`
+                                          : `Using configured model`}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </>
+                          ) : (
+                            <div className="text-[10px] text-zinc-500">Click to select a remote inference source</div>
+                          )}
                         </div>
                       </label>
                     </div>
@@ -403,12 +602,17 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       onClick={async () => {
                         setSaving(true);
                         try {
+                          const payload: Record<string, string> = { provider: modelProvider };
+                          if (modelProvider === "backoffice" && networkModelName) {
+                            payload.model = networkModelName;
+                          }
                           const res = await fetch(`${API_BASE}/api/config/model`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ provider: modelProvider }),
+                            body: JSON.stringify(payload),
                           });
                           if (res.ok) {
+                            await fetchModelProvider();
                             setSaved(true);
                             setTimeout(() => setSaved(false), 2000);
                           }
@@ -424,7 +628,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       {saving ? (
                         <RefreshCw className="w-4 h-4 animate-spin" />
                       ) : saved ? (
-                        <span className="text-jade-glow">Saved!</span>
+                        <span className="text-jade-glow flex items-center gap-1.5">
+                          <Check className="w-4 h-4" />
+                          {modelProvider === "backoffice" ? networkModelName : currentModel}
+                        </span>
                       ) : (
                         <>
                           <Save className="w-4 h-4" />
@@ -433,71 +640,187 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       )}
                     </button>
                   </div>
+                </div>
+              )}
 
-                  {/* Model Selector (local only) */}
-                  <div className="glass-panel !rounded-xl p-4">
-                    <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-3">
-                      Local Model
+              {!loading && tab === "delete" && (
+                <div className="space-y-4">
+                  {!deleteTabReady ? (
+                    <div className="flex items-center justify-center py-12 text-zinc-500">
+                      <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+                      Loading traces...
                     </div>
-                    <p className="text-[11px] text-zinc-500 mb-3">
-                      Select which model Ollama runs locally. Changes take effect on the next trace.
-                    </p>
-                    {modelsLoading ? (
-                      <div className="flex items-center gap-2 text-zinc-500 text-sm py-2">
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        Loading models...
+                  ) : deleteResult ? (
+                    <div className="flex flex-col items-center gap-4 py-8">
+                      <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
+                        <Check className="w-6 h-6 text-red-400" />
                       </div>
-                    ) : availableModels.length === 0 ? (
-                      <div className="text-zinc-600 text-xs py-2">
-                        No models found. Make sure Ollama is running.
+                      <p className="text-sm text-zinc-300">{deleteResult}</p>
+                      <button
+                        onClick={() => {
+                          setDeleteTabReady(false);
+                          setDeleteResult(null);
+                          setDeleteConfirm(false);
+                        }}
+                        className="px-4 py-1.5 text-sm bg-white/[0.04] text-zinc-400 border border-white/[0.08] rounded-lg hover:text-zinc-300 transition-colors"
+                      >
+                        Reload
+                      </button>
+                    </div>
+                  ) : deleteConfirm ? (
+                    <div className="glass-panel !rounded-xl p-6 space-y-4">
+                      <div className="flex items-center gap-3">
+                        <AlertTriangle className="w-6 h-6 text-red-400 shrink-0" />
+                        <div>
+                          <p className="text-sm text-red-300 font-medium">Are you certain?</p>
+                          <p className="text-[11px] text-zinc-500 mt-0.5">
+                            This will permanently delete {deletePreviewCount} trace{deletePreviewCount !== 1 ? "s" : ""}. This cannot be undone.
+                          </p>
+                        </div>
                       </div>
-                    ) : (
-                      <div className="space-y-1 max-h-48 overflow-y-auto scrollbar-thin">
-                        {availableModels.map((m) => (
-                          <button
-                            key={m}
-                            onClick={async () => {
-                              setCurrentModel(m);
-                              setModelSaved(false);
-                              try {
-                                const res = await fetch(`${API_BASE}/api/models/select`, {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ model: m }),
-                                });
-                                if (res.ok) {
-                                  setModelSaved(true);
-                                  setTimeout(() => setModelSaved(false), 2000);
-                                }
-                              } catch {
-                                // silently fail
-                              }
-                            }}
-                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                              currentModel === m
-                                ? "bg-teal-mystic/10 text-teal-mystic border border-teal-mystic/20"
-                                : "text-zinc-400 hover:bg-white/[0.03] border border-transparent"
-                            }`}
-                          >
-                            <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
-                              currentModel === m
-                                ? "border-teal-mystic bg-teal-mystic/20"
-                                : "border-zinc-600"
-                            }`}>
-                              {currentModel === m && <Check className="w-2 h-2 text-teal-mystic" />}
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => setDeleteConfirm(false)}
+                          className="px-4 py-1.5 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setDeleting(true);
+                            try {
+                              let ids: string[] = allTraceMeta.map((t) => t.id);
+                              if (deleteCriteria === "model") ids = allTraceMeta.filter((t) => t.model_used === deleteModel).map((t) => t.id);
+                              else if (deleteCriteria === "ddc") ids = allTraceMeta.filter((t) => t.ddc_prompt?.[0] === deleteDdc).map((t) => t.id);
+                              const res = await fetch(`${API_BASE}/api/traces/bulk-delete`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ ids }),
+                              });
+                              if (!res.ok) throw new Error("Failed");
+                              const data = await res.json();
+                              setDeleteResult(`Deleted ${data.deleted} trace${data.deleted !== 1 ? "s" : ""}.`);
+                            } catch {
+                              setDeleteResult("Deletion failed — check the backend logs.");
+                            } finally {
+                              setDeleting(false);
+                            }
+                          }}
+                          disabled={deleting}
+                          className="px-4 py-1.5 text-sm bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                        >
+                          {deleting ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                          {deleting ? "Deleting..." : `Delete ${deletePreviewCount} trace${deletePreviewCount !== 1 ? "s" : ""}`}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Criteria */}
+                      <div className="glass-panel !rounded-xl p-4 space-y-3">
+                        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                          Criteria
+                        </div>
+                        <div className="space-y-2">
+                          <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                            deleteCriteria === "all"
+                              ? "border-teal-mystic/40 bg-teal-mystic/5"
+                              : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
+                          }`}>
+                            <input
+                              type="radio"
+                              name="delete-criteria"
+                              value="all"
+                              checked={deleteCriteria === "all"}
+                              onChange={() => setDeleteCriteria("all")}
+                              className="accent-teal-mystic"
+                            />
+                            <div>
+                              <div className="text-sm text-zinc-200 font-medium">All traces</div>
+                              <div className="text-[10px] text-zinc-500">{allTraceMeta.length} trace{allTraceMeta.length !== 1 ? "s" : ""} total</div>
                             </div>
-                            <span className="font-mono text-xs">{m}</span>
+                          </label>
+                          <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                            deleteCriteria === "model"
+                              ? "border-teal-mystic/40 bg-teal-mystic/5"
+                              : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
+                          }`}>
+                            <input
+                              type="radio"
+                              name="delete-criteria"
+                              value="model"
+                              checked={deleteCriteria === "model"}
+                              onChange={() => setDeleteCriteria("model")}
+                              className="accent-teal-mystic"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm text-zinc-200 font-medium">By model</div>
+                              {deleteCriteria === "model" && (
+                                <select
+                                  value={deleteModel}
+                                  onChange={(e) => setDeleteModel(e.target.value)}
+                                  className="mt-2 w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                                >
+                                  <option value="" disabled>Select a model</option>
+                                  {delModels.map((m) => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          </label>
+                          <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                            deleteCriteria === "ddc"
+                              ? "border-teal-mystic/40 bg-teal-mystic/5"
+                              : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
+                          }`}>
+                            <input
+                              type="radio"
+                              name="delete-criteria"
+                              value="ddc"
+                              checked={deleteCriteria === "ddc"}
+                              onChange={() => setDeleteCriteria("ddc")}
+                              className="accent-teal-mystic"
+                            />
+                            <div className="flex-1">
+                              <div className="text-sm text-zinc-200 font-medium">By DDC main class</div>
+                              {deleteCriteria === "ddc" && (
+                                <select
+                                  value={deleteDdc}
+                                  onChange={(e) => setDeleteDdc(e.target.value)}
+                                  className="mt-2 w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                                >
+                                  {["0: General", "1: Philosophy", "2: Religion", "3: Social", "4: Language", "5: Science", "6: Technology", "7: Arts", "8: Literature", "9: History"].map((opt) => (
+                                    <option key={opt[0]} value={opt[0]}>{opt}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Preview */}
+                      <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                        <span className="text-sm text-zinc-400">
+                          {deletePreviewCount} trace{deletePreviewCount !== 1 ? "s" : ""} will be deleted
+                        </span>
+                        {deletePreviewCount > 0 && (
+                          <button
+                            onClick={() => setDeleteConfirm(true)}
+                            className="px-4 py-1.5 text-sm bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors flex items-center gap-1.5"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
                           </button>
-                        ))}
+                        )}
                       </div>
-                    )}
-                    {modelSaved && (
-                      <div className="mt-3 text-[11px] text-jade-glow flex items-center gap-1">
-                        <Check className="w-3 h-3" />
-                        Switched to {currentModel}
-                      </div>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
               )}
             </div>

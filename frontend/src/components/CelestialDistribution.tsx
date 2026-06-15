@@ -16,7 +16,8 @@ interface HistoryEntry {
   status: string;
   created_at: string;
   output: string | null;
-  steps: { duration_ms: number | null }[];
+  model_used?: string | null;
+  steps: { label?: string; duration_ms: number | null }[];
 }
 
 interface Props {
@@ -32,6 +33,7 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   const { hoveredTraceId, setHoveredTraceId } = useHover();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [localHover, setLocalHover] = useState<{ entry: HistoryEntry; x: number; y: number } | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string>("all");
   const [legendHover, setLegendHover] = useState<{
     label: string;
     value: string;
@@ -47,6 +49,7 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   useEffect(() => setMounted(true), []);
 
   const clearHover = useCallback(() => {
+
     setHoveredTraceId(null);
     hoverTimeout.current = setTimeout(() => setLocalHover(null), 120);
   }, [setHoveredTraceId]);
@@ -62,11 +65,22 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
       .catch(() => {});
   }, [refreshTrigger]);
 
-  const dots = useMemo(() => {
-    if (entries.length === 0) return [];
+  const availableModels = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of entries) if (e.model_used) s.add(e.model_used);
+    return Array.from(s).sort();
+  }, [entries]);
 
-    const maxDur = Math.max(...entries.map((e) => totalDuration(e.steps)), 1);
-    const sorted = [...entries].sort(
+  const filteredEntries = useMemo(
+    () => selectedModel === "all" ? entries : entries.filter((e) => e.model_used === selectedModel),
+    [entries, selectedModel]
+  );
+
+  const dots = useMemo(() => {
+    if (filteredEntries.length === 0) return [];
+
+    const maxDur = Math.max(...filteredEntries.map((e) => totalDuration(e.steps)), 1);
+    const sorted = [...filteredEntries].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
@@ -82,8 +96,8 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   }, [entries]);
 
   const xTicks = useMemo(() => {
-    if (entries.length === 0) return [];
-    const maxDur = Math.max(...entries.map((e) => totalDuration(e.steps)), 1);
+    if (filteredEntries.length === 0) return [];
+    const maxDur = Math.max(...filteredEntries.map((e) => totalDuration(e.steps)), 1);
     const n = 4;
     return Array.from({ length: n }, (_, i) => {
       const val = (maxDur / (n - 1)) * i;
@@ -93,8 +107,8 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   }, [entries]);
 
   const stats = useMemo(() => {
-    if (entries.length === 0) return null;
-    const durs = entries.map((e) => totalDuration(e.steps));
+    if (filteredEntries.length === 0) return null;
+    const durs = filteredEntries.map((e) => totalDuration(e.steps));
     const n = durs.length;
 
     const sum = durs.reduce((a, b) => a + b, 0);
@@ -125,28 +139,78 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
 
   const toPlotX = useCallback(
     (val: number) => {
-      const maxDur = Math.max(...entries.map((e) => totalDuration(e.steps)), 1);
+      const maxDur = Math.max(...filteredEntries.map((e) => totalDuration(e.steps)), 1);
       const plotW = W - PAD.left - PAD.right;
       return PAD.left + (val / maxDur) * plotW;
     },
-    [entries]
+    [filteredEntries]
   );
 
   return (
     <>
     <div className="glass-panel p-4 space-y-3">
-      <div className="flex flex-col items-center gap-1.5 text-teal-mystic">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="3" y="3" width="18" height="18" rx="2" />
-          <path d="M3 12h18" opacity="0.4" />
-          <path d="M12 3v18" opacity="0.4" />
-          <circle cx="8" cy="8" r="2" fill="currentColor" opacity="0.6" />
-          <circle cx="16" cy="14" r="3" fill="currentColor" opacity="0.4" />
-          <circle cx="12" cy="18" r="1.5" fill="currentColor" opacity="0.3" />
-        </svg>
-        <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-          Runtime Distribution
-        </span>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-teal-mystic">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M3 12h18" opacity="0.4" />
+            <path d="M12 3v18" opacity="0.4" />
+            <circle cx="8" cy="8" r="2" fill="currentColor" opacity="0.6" />
+            <circle cx="16" cy="14" r="3" fill="currentColor" opacity="0.4" />
+            <circle cx="12" cy="18" r="1.5" fill="currentColor" opacity="0.3" />
+          </svg>
+          <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
+            Runtime Distribution
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="bg-white/[0.04] border border-white/[0.08] rounded text-[9px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+          >
+            <option value="all">All models</option>
+            {availableModels.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => {
+              const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
+              const STAGE_ORDER = ["Request Received", "Intent Classification", "Agent Selection", "Memory Retrieval", "Context Synthesis", "Response Generation", "Final Response"];
+              const header = ["id", "model_used", "prompt", "output", ...STAGE_ORDER, "total_ms"];
+              const rows = [header.join(",")];
+              for (const e of filteredEntries) {
+                const stepMap: Record<string, number> = {};
+                for (const s of e.steps) {
+                  if (s.label) stepMap[s.label] = s.duration_ms ?? 0;
+                }
+                const total = totalDuration(e.steps);
+                rows.push([
+                  esc(e.id), esc(e.model_used || "unknown"), esc(e.prompt), esc(e.output || ""),
+                  ...STAGE_ORDER.map((l) => String(stepMap[l] ?? "")),
+                  String(total),
+                ].join(","));
+              }
+              const blob = new Blob(["\ufeff" + rows.join("\n")], { type: "text/csv;charset=utf-8" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `runtime-distribution-${selectedModel}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            className="text-zinc-500 hover:text-teal-mystic/70 transition-colors"
+            title="Export CSV"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div

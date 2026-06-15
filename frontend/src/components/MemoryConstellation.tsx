@@ -68,8 +68,6 @@ interface Props {
   onSelect: (traceId: string) => void;
   refreshTrigger: number;
   grouping?: string;
-  promptFacet?: string;
-  responseFacet?: string;
   visualization?: string;
 }
 
@@ -274,7 +272,7 @@ function galaxySpokePaths(clusters: ClusterLayout[]): string[] {
   });
 }
 
-export default function MemoryConstellation({ onSelect, refreshTrigger, grouping = "ddc", promptFacet = "domain", responseFacet = "domain", visualization = "constellation" }: Props) {
+export default function MemoryConstellation({ onSelect, refreshTrigger, grouping = "ddc", visualization = "constellation" }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -392,7 +390,7 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
     if (grouping === "lcc") return clusterByLCC(entries);
     if (grouping === "multilabel") return clusterByMultiLabel(entries);
     return clusterByDDC(entries);
-  }, [grouping, promptFacet, responseFacet]);
+  }, [grouping]);
 
   const layoutFn = useMemo(() => {
     return (clusters: HistoryEntry[][]) => layoutGalaxy(clusters, grouping);
