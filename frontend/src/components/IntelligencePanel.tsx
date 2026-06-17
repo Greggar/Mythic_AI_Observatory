@@ -26,6 +26,7 @@ interface Props {
   traceActive: boolean;
   activeStepIndex: number | null;
   phase: "idle" | "replaying" | "complete";
+  noTrace?: boolean;
 }
 
 function ConfidenceRing({ confidence, cx, cy, r }: { confidence: number; cx: number; cy: number; r: number }) {
@@ -341,6 +342,7 @@ export default function IntelligencePanel({
   traceActive,
   activeStepIndex,
   phase,
+  noTrace = false,
 }: Props) {
   const ollamaCount = telemetry?.ollama.count ?? null;
   const remotesOnline = telemetry?.remotes.filter((r) => r.status === "ok").length ?? 0;
@@ -444,8 +446,8 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
         </div>
       </div>
 
-      {/* IDLE STATE — system overview */}
-      {phase === "idle" && (
+      {/* IDLE STATE — system overview (also shown when noTrace=true on History tab) */}
+      {(phase === "idle" || noTrace) && (
         <div className="space-y-3">
           <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
             <Network size={14} className="text-teal-mystic" />
@@ -486,7 +488,7 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
       )}
 
       {/* PROCESSING STATE — trace active */}
-      {(phase === "replaying" || (traceActive && phase !== "complete")) && trace && currentStage && (
+      {!noTrace && (phase === "replaying" || (traceActive && phase !== "complete")) && trace && currentStage && (
         <div className="space-y-3">
           {/* Current stage */}
           <div className="p-3 rounded-xl bg-teal-mystic/[0.06] border border-teal-mystic/[0.12]">
@@ -586,7 +588,7 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
       )}
 
       {/* COMPLETED STATE */}
-      {phase === "complete" && trace && (
+      {!noTrace && phase === "complete" && trace && (
         <div className="space-y-3">
           <div className="p-3 rounded-xl bg-solar-gold/[0.06] border border-solar-gold/[0.12]">
             <div className="flex items-center gap-2 text-solar-gold mb-2">

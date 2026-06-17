@@ -50,6 +50,11 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [currentModel, setCurrentModel] = useState<string>("phi4-mini");
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [analysisModel, setAnalysisModel] = useState<string>("qwen2.5:3b");
+  const [analysisProvider, setAnalysisProvider] = useState<string>("local");
+  const [analysisNetworkSourceId, setAnalysisNetworkSourceId] = useState("");
+  const [analysisNetworkModelName, setAnalysisNetworkModelName] = useState("");
+  const [analysisModelSaved, setAnalysisModelSaved] = useState(false);
   const [modelSaved, setModelSaved] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [networkSources, setNetworkSources] = useState<{ id: string; label: string; host: string; port: number; configured_model: string; models: string[]; error: string | null }[]>([]);
@@ -98,14 +103,20 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const fetchModels = useCallback(async () => {
     setModelsLoading(true);
     try {
-      const [listRes, currentRes] = await Promise.all([
+      const [listRes, currentRes, analysisRes] = await Promise.all([
         fetch(`${API_BASE}/api/models`),
         fetch(`${API_BASE}/api/models/current`),
+        fetch(`${API_BASE}/api/config/analysis-model`),
       ]);
       const list = await listRes.json();
       const cur = await currentRes.json();
       if (list.models) setAvailableModels(list.models);
       if (cur.model) setCurrentModel(cur.model);
+      if (analysisRes.ok) {
+        const analysisData = await analysisRes.json();
+        if (analysisData.model) setAnalysisModel(analysisData.model);
+        if (analysisData.provider) setAnalysisProvider(analysisData.provider);
+      }
     } catch {
       // silently fail
     } finally {
@@ -144,6 +155,8 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       setDeleteTabReady(false);
       setDeleteConfirm(false);
       setDeleteResult(null);
+      setAnalysisNetworkSourceId("");
+      setAnalysisNetworkModelName("");
     }
   }, [open, fetchConfig, fetchModelProvider, fetchModels]);
 
@@ -164,6 +177,24 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!open || tab !== "models") return;
     fetchNetworkSources();
   }, [open, tab, fetchNetworkSources]);
+
+  useEffect(() => {
+    if (networkSources.length === 0 || analysisNetworkSourceId) return;
+    if (analysisProvider !== "backoffice" || !analysisModel) return;
+    let found = false;
+    for (const src of networkSources) {
+      if (src.models.includes(analysisModel)) {
+        setAnalysisNetworkSourceId(src.id);
+        setAnalysisNetworkModelName(analysisModel);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      setAnalysisNetworkSourceId(networkSources[0].id);
+      setAnalysisNetworkModelName(networkSources[0].configured_model);
+    }
+  }, [networkSources, analysisProvider, analysisModel, analysisNetworkSourceId]);
 
   useEffect(() => {
     if (!deleteTabReady) return;
@@ -639,6 +670,169 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         </>
                       )}
                     </button>
+                  </div>
+
+                  {/* Analysis Model */}
+                  <div className="glass-panel !rounded-xl p-4">
+                    <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-3">
+                      Analysis Model
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mb-4">
+                      Model used for AI-powered analysis (relationships, insights). Can be a larger model than the inference provider.
+                    </p>
+                    <div className="space-y-2">
+                      <label className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        analysisProvider === "local"
+                          ? "border-teal-mystic/40 bg-teal-mystic/5"
+                          : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
+                      }`}>
+                        <input
+                          type="radio"
+                          name="analysisProvider"
+                          value="local"
+                          checked={analysisProvider === "local"}
+                          onChange={() => setAnalysisProvider("local")}
+                          className="accent-teal-mystic"
+                        />
+                        <div className="flex-1">
+                          <div className="text-sm text-zinc-200 font-medium">Local (CPU)</div>
+                          {analysisProvider === "local" && (
+                            <select
+                              value={analysisModel}
+                              onChange={async (e) => {
+                                setAnalysisModel(e.target.value);
+                                setAnalysisModelSaved(false);
+                                try {
+                                  const res = await fetch(`${API_BASE}/api/config/analysis-model`, {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ model: e.target.value, provider: "local" }),
+                                  });
+                                  if (res.ok) {
+                                    setAnalysisModelSaved(true);
+                                    setTimeout(() => setAnalysisModelSaved(false), 2000);
+                                  }
+                                } catch { /* ignore */ }
+                              }}
+                              className="mt-2 w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                            >
+                              {modelsLoading ? (
+                                <option>Loading...</option>
+                              ) : availableModels.length === 0 ? (
+                                <option>No models found</option>
+                              ) : (
+                                availableModels.map((m) => (
+                                  <option key={m} value={m}>{m}</option>
+                                ))
+                              )}
+                            </select>
+                          )}
+                          {analysisProvider !== "local" && (
+                            <div className="text-[10px] text-zinc-500 mt-1">Click to select local analysis model</div>
+                          )}
+                        </div>
+                      </label>
+                      <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                        analysisProvider === "backoffice"
+                          ? "border-teal-mystic/40 bg-teal-mystic/5"
+                          : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
+                      }`}>
+                        <input
+                          type="radio"
+                          name="analysisProvider"
+                          value="backoffice"
+                          checked={analysisProvider === "backoffice"}
+                          onChange={() => setAnalysisProvider("backoffice")}
+                          className="accent-teal-mystic mt-1"
+                        />
+                        <div className="flex-1 space-y-2">
+                          <div className="text-sm text-zinc-200 font-medium">Network Source</div>
+                          {analysisProvider === "backoffice" ? (
+                            <>
+                              <div className="flex gap-2">
+                                <select
+                                  value={analysisNetworkSourceId}
+                                  onChange={(e) => {
+                                    const src = networkSources.find((s) => s.id === e.target.value);
+                                    setAnalysisNetworkSourceId(e.target.value);
+                                    if (src) {
+                                      setAnalysisNetworkModelName(
+                                        src.models.length > 0 ? src.models[0] : src.configured_model
+                                      );
+                                    }
+                                  }}
+                                  className="flex-1 bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                                >
+                                  {networkSourcesLoading ? (
+                                    <option>Loading...</option>
+                                  ) : networkSources.length === 0 ? (
+                                    <option>No network sources found</option>
+                                  ) : (
+                                    networkSources.map((s) => (
+                                      <option key={s.id} value={s.id}>
+                                        {s.label} ({s.host}:{s.port})
+                                      </option>
+                                    ))
+                                  )}
+                                </select>
+                              </div>
+                              {analysisNetworkSourceId && (() => {
+                                const src = networkSources.find((s) => s.id === analysisNetworkSourceId);
+                                if (!src) return null;
+                                return (
+                                  <div className="space-y-1.5">
+                                    <select
+                                      value={analysisNetworkModelName}
+                                      onChange={async (e) => {
+                                        const val = e.target.value;
+                                        setAnalysisNetworkModelName(val);
+                                        setAnalysisModel(val);
+                                        setAnalysisModelSaved(false);
+                                        try {
+                                          const res = await fetch(`${API_BASE}/api/config/analysis-model`, {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ model: val, provider: "backoffice" }),
+                                          });
+                                          if (res.ok) {
+                                            setAnalysisModelSaved(true);
+                                            setTimeout(() => setAnalysisModelSaved(false), 2000);
+                                          }
+                                        } catch { /* ignore */ }
+                                      }}
+                                      className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
+                                    >
+                                      {src.models.length > 0 ? (
+                                        src.models.map((m) => (
+                                          <option key={m} value={m}>{m}</option>
+                                        ))
+                                      ) : (
+                                        <option value={src.configured_model}>{src.configured_model} (configured)</option>
+                                      )}
+                                    </select>
+                                    {analysisModelSaved && (
+                                      <div className="text-[10px] text-jade-glow flex items-center gap-1">
+                                        <Check className="w-3 h-3" />
+                                        Analysis model set to {analysisModel}
+                                      </div>
+                                    )}
+                                    <div className="text-[10px] text-zinc-600">
+                                      {src.models.length > 0
+                                        ? `${src.models.length} model${src.models.length !== 1 ? "s" : ""} discovered on ${src.label}`
+                                        : src.error
+                                          ? `Model discovery failed: ${src.error}`
+                                          : `Using configured model`}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </>
+                          ) : (
+                            <div className="text-[10px] text-zinc-500">Click to select a remote analysis source</div>
+                          )}
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
               )}

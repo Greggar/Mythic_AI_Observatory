@@ -68,6 +68,49 @@ def set_local_model(value: str) -> None:
     LOCAL_MODEL = value
     logger.info("Local model switched to: %s", value)
 
+_analysis_persisted = False
+
+def _init_analysis_from_config() -> None:
+    global ANALYSIS_MODEL, ANALYSIS_PROVIDER, _analysis_persisted
+    if _analysis_persisted:
+        return
+    try:
+        ac = config_manager.get_analysis_config()
+        ANALYSIS_MODEL = ac.get("model", os.environ.get("ANALYSIS_MODEL", "qwen2.5:3b"))
+        ANALYSIS_PROVIDER = ac.get("provider", os.environ.get("ANALYSIS_PROVIDER", "local")).lower()
+    except Exception:
+        ANALYSIS_MODEL = os.environ.get("ANALYSIS_MODEL", "qwen2.5:3b")
+        ANALYSIS_PROVIDER = os.environ.get("ANALYSIS_PROVIDER", "local").lower()
+    _analysis_persisted = True
+
+ANALYSIS_MODEL: str = "qwen2.5:3b"
+ANALYSIS_PROVIDER: str = "local"
+_init_analysis_from_config()
+
+def get_analysis_model() -> str:
+    return ANALYSIS_MODEL
+
+def set_analysis_model(value: str) -> None:
+    global ANALYSIS_MODEL
+    value = value.strip()
+    if not value:
+        raise ValueError("Analysis model name cannot be empty")
+    ANALYSIS_MODEL = value
+    config_manager.set_analysis_config(value, ANALYSIS_PROVIDER)
+    logger.info("Analysis model switched to: %s", value)
+
+def get_analysis_provider() -> str:
+    return ANALYSIS_PROVIDER
+
+def set_analysis_provider(value: str) -> None:
+    global ANALYSIS_PROVIDER
+    value = value.lower()
+    if value not in ("local", "backoffice"):
+        raise ValueError(f"Invalid analysis provider: {value!r}. Must be 'local' or 'backoffice'.")
+    ANALYSIS_PROVIDER = value
+    config_manager.set_analysis_config(ANALYSIS_MODEL, value)
+    logger.info("Analysis provider switched to: %s", value)
+
 
 async def warmup_model() -> None:
     """Preload model into Ollama memory so first real trace doesn't pay cold-start cost."""
@@ -101,8 +144,15 @@ def _resolve_model_url(model_key: str) -> tuple[str, str]:
     return base_url, model_name
 
 
-async def _call_model(model: str, prompt: str, system: str | None = None) -> tuple[str, int | None, int | None]:
-    base_url, model_name = _resolve_model_url(model)
+async def _call_model(model: str, prompt: str, system: str | None = None, *, model_name_override: str | None = None) -> tuple[str, int | None, int | None]:
+    if model_name_override:
+        if ANALYSIS_PROVIDER == "local":
+            base_url = config_manager.get_ollama_url()
+        else:
+            base_url = config_manager.get_backoffice_url()
+        model_name = model_name_override
+    else:
+        base_url, model_name = _resolve_model_url(model)
 
     payload: dict[str, Any] = {
         "model": model_name,
@@ -110,7 +160,8 @@ async def _call_model(model: str, prompt: str, system: str | None = None) -> tup
         "stream": False,
     }
 
-    if _MODEL_PROVIDER == "local":
+    provider_for_ctx = ANALYSIS_PROVIDER if model_name_override else _MODEL_PROVIDER
+    if provider_for_ctx == "local":
         payload["options"] = {"num_ctx": 4096}
 
     if system:

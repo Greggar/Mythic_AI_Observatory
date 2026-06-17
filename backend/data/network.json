@@ -67,5 +67,9 @@
       "insight": "Pipeline worker. Handles batch tasks, long-running training loops, and data processing.",
       "services": []
     }
+  },
+  "analysis": {
+    "model": "qwen2.5:3b",
+    "provider": "local"
   }
 }

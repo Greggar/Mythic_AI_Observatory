@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from models.trace import TraceSession
 from services.profile import compute_profile, ModelProfile
 from models.annotation import Annotation
-from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, warmup_model
+from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, get_analysis_model, set_analysis_model, get_analysis_provider, set_analysis_provider, warmup_model, _call_model, LOCAL_MODEL
 from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
@@ -284,6 +284,25 @@ async def post_model_config(body: ModelConfigBody) -> dict[str, str]:
             from services.config_manager import set_backoffice_model
             set_backoffice_model(body.model)
         return {"provider": get_model_provider(), "status": "ok"}
+    except ValueError as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
+class AnalysisModelBody(BaseModel):
+    model: str
+    provider: str | None = None
+
+@app.get("/api/config/analysis-model")
+async def get_analysis_model_config() -> dict[str, str]:
+    return {"model": get_analysis_model(), "provider": get_analysis_provider()}
+
+@app.post("/api/config/analysis-model")
+async def post_analysis_model(body: AnalysisModelBody) -> dict[str, str]:
+    try:
+        set_analysis_model(body.model)
+        if body.provider:
+            set_analysis_provider(body.provider)
+        return {"model": get_analysis_model(), "provider": get_analysis_provider(), "status": "ok"}
     except ValueError as e:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=400, content={"error": str(e)})
@@ -610,6 +629,114 @@ async def api_delete_annotation(trace_id: str, annotation_id: str) -> dict:
     ok = annotation_service.delete_annotation(annotation_id)
     return {"deleted": ok}
 
+
+# ── Relationship analysis ────────────────────────────────────────
+class RelationshipAnalysisRequest(BaseModel):
+    rel_type: str
+    title: str
+    description: str
+    input_labels: list[str]
+    output_labels: list[str]
+    top_relationships: list[dict]
+    total_traces: int
+
+
+def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int) -> str:
+    base = (
+        f"Title: {title}\n"
+        f"Description: {description}\n\n"
+        f"Input categories: {labels_in}\n"
+        f"Output categories: {labels_out}\n\n"
+        f"Based on {total} traces, the top relationships are:\n{pairs}\n\n"
+    )
+
+    if rel_type == "cross":
+        return base + (
+            "You are analyzing a semantic drift map — how prompt topics shift into response domains.\n\n"
+            "Provide a concise analysis (3-5 paragraphs) covering:\n"
+            "1. Semantic inertia — which domains stay stable (prompt and response align) and what that reveals about the model's conceptual containers\n"
+            "2. Semantic drift — which domains are porous and leak into others; identify the wildcard domain that drifts most\n"
+            "3. Conceptual attractors — which response domains act as gravitational wells that pull in prompts from multiple source domains\n"
+            "4. Practical prompt engineering insights — how to keep the model in-domain vs. trigger cross-domain synthesis\n\n"
+            "Use plain paragraphs, not markdown or bullet lists."
+        )
+    elif rel_type == "synesthesia":
+        return base + (
+            "You are analyzing a grammar-to-structure map — how the model's input grammar (depth, mood, syntax)\n"
+            "relates to its output structure (action type, pragmatic tone, output form).\n\n"
+            "Provide a concise analysis (3-5 paragraphs) covering:\n"
+            "1. Dominant grammar-to-structure pathways and what they reveal about the model's compositional defaults\n"
+            "2. Any surprising pairings (e.g., imperative mood producing creative tone instead of instructional)\n"
+            "3. How grammatical features constrain or liberate the model's output style\n"
+            "4. Practical prompt engineering insights for controlling tone and structure\n\n"
+            "Use plain paragraphs, not markdown or bullet lists."
+        )
+    elif rel_type == "mood-intent":
+        return base + (
+            "You are analyzing a mood-to-intent map — how the user's prompt mood (imperative, interrogative, conditional, etc.)\n"
+            "correlates with the model's classified intent (information seeking, creative, casual, technical, etc.).\n\n"
+            "Provide a concise analysis (3-5 paragraphs) covering:\n"
+            "1. Which moods most reliably produce which intents — the model's default mood-intent wiring\n"
+            "2. Any mismatches where mood and intent are at odds (e.g., imperative mood producing creative intent)\n"
+            "3. How the model adapts its interpretation based on the user's framing\n"
+            "4. Practical insights for phrasing prompts to trigger specific intent categories\n\n"
+            "Use plain paragraphs, not markdown or bullet lists."
+        )
+    elif rel_type == "intonation":
+        return base + (
+            "You are analyzing a prompt intonation map — how the user's tone (Socratic, Imperative, Ambiguous, Hypothetical)\n"
+            "correlates with the model's output length (Very Low, Low, Medium, High token counts).\n\n"
+            "This is a map of cognitive load triggers. Socratic tone signals open-ended exploration and increases cognitive\n"
+            "load, producing longer responses. Imperative tone signals bounded tasks and focuses cognitive load, producing\n"
+            "variable output. Ambiguous tone diffuses cognitive load. Hypothetical tone redirects it.\n\n"
+            "Provide a concise analysis (3-5 paragraphs) covering:\n"
+            "1. Which tone is the strongest amplifier of output length and why — identify the single most powerful lever\n"
+            "2. Semantic activation: which tones reliably produce long responses across ALL length tiers vs. only spiking in one\n"
+            "3. Cognitive compression vs. expansion: which tones are interpreted as tasks (bounded, efficient) vs. dialogue (open-ended, exploratory)\n"
+            "4. Practical prompt engineering insights for deliberately shaping verbosity through tone choice\n\n"
+            "Use plain paragraphs, not markdown or bullet lists."
+        )
+    elif rel_type == "grammar":
+        return base + (
+            "You are analyzing a concentric grammar schema — a 6-ring visualization of the model's prompt-to-response pipeline.\n"
+            "Inner rings (Depth, Mood, Syntax) characterize the prompt; outer rings (Action, Tone, Form) characterize the response.\n\n"
+            "Provide a concise analysis (3-5 paragraphs) covering:\n"
+            "1. The most common pipeline paths through all 6 rings — what does the model's typical compositional flow look like\n"
+            "2. Any unusual or rare paths that indicate special-case behavior\n"
+            "3. How the inner prompt grammar constrains or enables outer response characteristics\n"
+            "4. Practical insights for designing prompts that produce specific output forms\n\n"
+            "Use plain paragraphs, not markdown or bullet lists."
+        )
+    else:
+        return base + (
+            "You are analyzing a chord diagram that visualizes how an AI assistant's behavior changes based on input characteristics.\n\n"
+            "Provide a concise analysis (3-5 paragraphs) covering:\n"
+            "1. What the dominant pattern reveals about the model's default behavior\n"
+            "2. Any surprising or notable relationships\n"
+            "3. Practical prompt engineering insights\n"
+            "4. What this says about how the model adapts its persona\n\n"
+            "Use plain paragraphs, not markdown or bullet lists."
+        )
+
+
+@app.post("/api/analyze/relationships")
+async def api_analyze_relationships(body: RelationshipAnalysisRequest) -> dict:
+    try:
+        labels_in = ", ".join(body.input_labels)
+        labels_out = ", ".join(body.output_labels)
+        pairs = "\n".join(
+            f"  {p['count']}×  {p['src']} → {p['tgt']}"
+            for p in body.top_relationships
+        )
+
+        prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces)
+
+        analysis_model = get_analysis_model()
+        response, _, _ = await _call_model("backoffice", prompt, model_name_override=analysis_model)
+        return {"response": response, "model": analysis_model}
+    except Exception as e:
+        logger.error("Relationship analysis failed: %s", e)
+        return {"response": f"Analysis failed: {e}", "model": get_analysis_model()}
 
 # ── Activity feed ─────────────────────────────────────────────────
 @app.get("/api/activity")

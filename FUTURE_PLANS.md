@@ -18,6 +18,38 @@ We are a long way toward health + function transparency. The items below extend 
 
 ---
 
+## Phase 0 — Open-Source Readiness (★☆☆–★★★)
+
+*Critical path items to ship the project to the public. Must be completed before any public release.*
+
+| # | Item | Effort | Est. Time |
+|---|------|--------|-----------|
+| 1 | **Replace `backend/data/*.json` with template defaults** — `network.json`, `machines.json`, `services.json` currently ship with Gregory Long's network (primary-server, BackOffice, LoungeRoom, Tailscale IPs, specific model tags). Replace with all-`127.0.0.1` defaults and a `TEMPLATE.md` explaining how to configure for a real network. | ★★☆ | 1 h |
+| 2 | **Frontend machine names data-driven** — `ResourceConstellation.tsx` has `Gingerlong`, `BackOffice`, `LoungeRoom` as hardcoded string constants. Make it read machine/service data from the API so any network topology is rendered automatically. | ★★☆ | 1.5 h |
+| 3 | **`frontend/next.config.ts` cleanup** — `allowedDevOrigins` contains 3 LAN IPs; rewrite proxy hardcodes `localhost:8001`. Both should be driven by `NEXT_PUBLIC_API_URL` or removed. | ★☆☆ | 20 min |
+| 4 | **`backend/services/ddc_embeddings.py` / `lcc_embeddings.py` — use config_manager** — both hardcode `OLLAMA_URL = "http://127.0.0.1:11434"` instead of reading from `config_manager.get_ollama_url()`. | ★☆☆ | 15 min |
+| 5 | **`backend/services/config_manager.py` — remove hardcoded model fallback** — line 71 defaults to `docker.io/ai/qwen3.5:9B-UD-Q4_K_XL` which is a personal model tag. Replace with `qwen2.5:3b`. | ★☆☆ | 5 min |
+| 6 | **`PerformanceInsights.tsx` — data-driven profiles** — contains hardcoded profiles for `qwen2.5:3b` with specific latency thresholds. Should be computed from actual trace data. | ★★☆ | 1 h |
+| 7 | **`frontend/.env.example` scrub** — remove references to `192.168.0.237`, primary-server. Default to `http://localhost:8001`. Uncomment the default. | ★☆☆ | 10 min |
+| 8 | **Scrub docs of personal infrastructure** — `ARCHITECTURE.md`, `DEVELOPMENT.md`, `STATUS.md`, `METRICS-AND-GRAFANA.md` contain IPs, hostnames, usernames, and absolute paths. Replace with generic examples or templated variables. | ★★☆ | 45 min |
+| 9 | **Add first-run / setup state** — detect that `network.json` is still using defaults and show a setup prompt or onboarding flow in the Settings modal. | ★★☆ | 1.5 h |
+| 10 | **`tools/latency_monitor.py` — read API_BASE from env** — currently hardcodes `http://127.0.0.1:8001`. Should use `LATENCY_API_URL` env var with that as default. | ★☆☆ | 5 min |
+| 11 | **`/tmp/` cache paths configurable** — `ddc_embeddings.py` and `lcc_embeddings.py` write to `/tmp/ddc_category_embeddings.json`. Should use a configurable cache directory via env var or `tempfile`. | ★☆☆ | 10 min |
+| 12 | **`restart.sh` — detect venv** — currently hardcodes `.venv/bin/uvicorn`. Should detect or allow override. | ★☆☆ | 10 min |
+| 13 | **Replace `phi4-mini` default in SettingsModal** — frontend default model name is `phi4-mini` (line 51). Should default to what the backend returns. | ★☆☆ | 5 min |
+
+## Licensing & Attribution
+
+The project is released under a custom MIT License (see `LICENSE`) that:
+- Grants full freedom to **use, copy, modify, merge, publish, distribute, sublicense**, and permit others to do the same
+- Allows **commercial and non-commercial** use
+- **Prohibits selling the software as a standalone product** — you may charge for hosting, support, integration, or value-added services, but not for the Software itself
+- Requires **attribution to Gregory Long** with the unique identifier **greg@mythic-ai.dev** in all copies and derivative works
+
+The unique identifier ensures that any other "Greg Long" cannot claim authorship — the email domain `mythic-ai.dev` is Gregory Long's personal domain.
+
+---
+
 ## Phase 1 — Quick Wins (★★☆ or less)
 
 | # | Idea | List | Effort | Est. Time |

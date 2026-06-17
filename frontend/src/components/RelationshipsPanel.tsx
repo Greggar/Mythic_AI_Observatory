@@ -14,12 +14,25 @@ const LABEL_R = 152;
 const INNER = 40;
 const PAD_ANGLE = 0.04;
 
-type RelType = "synesthesia" | "drift" | "cross" | "intonation" | "grammar";
+type RelType = "synesthesia" | "drift" | "cross" | "intonation" | "grammar" | "mood-intent";
+
+interface IntentProb {
+  label: string;
+  confidence: number;
+  reasoning?: string;
+}
+
+interface TraceStep {
+  id: string;
+  label: string;
+  metadata: Record<string, unknown>;
+}
 
 interface TraceData {
   id: string;
   prompt: string;
   output: string | null;
+  steps?: TraceStep[];
   model_used?: string | null;
   ddc?: { prompt?: { code?: string; action?: string } | null; response?: { code?: string } | null } | null;
   lcc?: { prompt?: { code?: string } | null } | null;
@@ -189,6 +202,43 @@ function buildIntonationMatrix(traces: TraceData[]): number[][] {
   return M;
 }
 
+// ── Mood × Intent ─────────────────────────────────────────
+const INTENT_SUPER_LABELS = ["Creative", "Privacy & System", "Casual", "Technical", "Info Seeking", "Other"];
+const INTENT_SUPER_COLORS = ["#f472b6", "#818cf8", "#34d399", "#f97316", "#60a5fa", "#6b7280"];
+
+function intentToSuper(label: string): string {
+  const l = label.toLowerCase();
+  if (/(poem|ode|lyric|creative|literary|joke|poetry)/i.test(l)) return "Creative";
+  if (/(privacy|policy|data_storage|account_access|private_message|file_format|communication_record|previous_message|interaction_history|information_management)/i.test(l)) return "Privacy & System";
+  if (/(greeting|no_intention)/i.test(l)) return "Casual";
+  if (/(techni|software|functionality|model_management|system_information)/i.test(l)) return "Technical";
+  if (/(question|query|fact|curios|explain|define|educate|trivia|information|knowledge|astronomy|history|geograph|nature|insect|entomolog|scientific|color_sci|feature_benefits|general_request|request_information|customer)/i.test(l)) return "Info Seeking";
+  return "Other";
+}
+
+function buildMoodIntentSuperMatrix(traces: TraceData[]): number[][] {
+  const N = 5 + INTENT_SUPER_LABELS.length;
+  const M = Array.from({ length: N }, () => Array(N).fill(0));
+  for (const t of traces) {
+    const moodIdx = classifyMood5(t.prompt);
+    const step = t.steps?.find(s => s.label === "Intent Classification");
+    const intentProbs = step?.metadata?.intent_probs;
+    if (Array.isArray(intentProbs)) {
+      for (const ip of intentProbs) {
+        if (ip && typeof ip.label === "string") {
+          const superLabel = intentToSuper(ip.label);
+          const superIdx = INTENT_SUPER_LABELS.indexOf(superLabel);
+          if (superIdx !== -1) {
+            M[moodIdx][5 + superIdx] += 1;
+            M[5 + superIdx][moodIdx] += 1;
+          }
+        }
+      }
+    }
+  }
+  return M;
+}
+
 // ── 6-Ring Synesthesia Schema (Prompt→Response) ────────────
 const DEPTH_LABELS = ["Interjection", "Minor Sentence", "Full Verb Phrase"];
 const DEPTH_COLORS = ["#f472b6", "#fbbf24", "#a78bfa"];
@@ -197,8 +247,11 @@ const MOOD5_COLORS = ["#ef4444", "#3b82f6", "#f59e0b", "#8b5cf6", "#10b981"];
 const SYNTAX3_LABELS = ["Simple", "Compound", "Complex"];
 const SYNTAX3_COLORS = ["#34d399", "#f97316", "#f472b6"];
 const ACTION_LABELS = ["Direct Execution", "Conversational Phatic", "Refusal/Guardrail"];
-const TONE_LABELS = ["Informative", "Instructional", "Creative", "Analytical", "Corrective"];
-const FORM_LABELS = ["Structured (Code/Tables)", "Bulleted/Fragmented", "Continuous Prose"];
+const ACTION_COLORS = ["#06b6d4", "#f59e0b", "#ef4444"];
+const TONE_LABELS = ["Informative", "Instructional", "Entertainment", "Creative", "Analytical", "Corrective"];
+const TONE_COLORS = ["#6366f1", "#22c55e", "#fcd34d", "#ec4899", "#f97316", "#8b5cf6"];
+const FORM_LABELS = ["Structured (Code/Tables)", "Bulleted/Fragmented", "Continuous Prose", "Verse"];
+const FORM_COLORS = ["#a855f7", "#eab308", "#34d399", "#f472b6"];
 
 function hasInterjection(text: string): boolean {
   return /^(Oh|Wow|Please|Ah|Hey|Alas|Ooh|Aha|Oops|Ugh|Yay|Hmm|Well)\b/i.test(text.trim());
@@ -248,9 +301,15 @@ function classifyActionType(response: string): number {
 
 function classifyPragmaticTone(response: string): number {
   if (!response) return 0;
-  if (/\b(metaphor|imagine|picture|evocative|vivid|story|poem|poetic|beautiful|art|artistic|aesthetic|mood|atmosphere|shadow|light|breathtaking|sublime|dream|dreamlike|surreal)\b/i.test(response)) return 2;
-  if (/\b(however|therefore|thus|consequently|furthermore|analysis|analyze|examine|compare|contrast|perspective|lens|dimension|factor|parameter|framework|paradigm)\b/i.test(response)) return 3;
-  if (/\b(warning|caution|careful|be careful|note that|important|critical|you should|you need to|make sure|ensure|remember to|don'?t forget|must|should not|incorrect|wrong|mistake|error|flaw|issue|problem|never)\b/i.test(response)) return 4;
+  // Entertainment: humor, playfulness, verse
+  if (/\b(joke|humor|funny|silly|amusing|hilarious|playful|limerick|light.?hearted|haiku|sonnet|limerick)\b/i.test(response)) return 2;
+  // Creative: evocative, poetic, artistic
+  if (/\b(metaphor|imagine|picture|evocative|vivid|story|poem|poetic|beautiful|art|artistic|aesthetic|mood|atmosphere|shadow|light|breathtaking|sublime|dream|dreamlike|surreal)\b/i.test(response)) return 3;
+  // Analytical
+  if (/\b(however|therefore|thus|consequently|furthermore|analysis|analyze|examine|compare|contrast|perspective|lens|dimension|factor|parameter|framework|paradigm)\b/i.test(response)) return 4;
+  // Corrective
+  if (/\b(warning|caution|careful|be careful|note that|important|critical|you should|you need to|make sure|ensure|remember to|don'?t forget|must|should not|incorrect|wrong|mistake|error|flaw|issue|problem|never)\b/i.test(response)) return 5;
+  // Instructional
   if (/\b(step|follow|instructions|how to|guide|tutorial|walkthrough|do this|you can|you will|start by|begin by|first|next|then|finally|procedure|process)\b/i.test(response)) return 1;
   return 0;
 }
@@ -259,7 +318,18 @@ function classifyOutputForm(response: string): number {
   if (!response) return 2;
   if (/```/.test(response) || /\|.*\|.*\|/.test(response) || /^#{1,6}\s/m.test(response)) return 0;
   if (/^[-*]\s/m.test(response) || /^\d+\.\s/m.test(response)) return 1;
+  // Verse detection: short, multi-line structure without prose flow
+  const lines = response.split("\n").map(l => l.trim()).filter(Boolean);
+  if (lines.length >= 3) {
+    const avgLen = lines.reduce((s, l) => s + l.length, 0) / lines.length;
+    const maxLen = Math.max(...lines.map(l => l.length));
+    if (avgLen < 55 && maxLen < 80) return 3;
+  }
   return 2;
+}
+
+function cleanResponse(text: string): string {
+  return text.replace(/^\[.*?\]:\s*/, "");
 }
 
 // ── 6-Ring Tree Building ─────────────────────────────────
@@ -267,11 +337,12 @@ interface SynesthNode {
   label: string;
   count: number;
   color: string;
-  moodIdx: number;
   children?: SynesthNode[];
   startAngle?: number;
   endAngle?: number;
 }
+
+const RING_COLORS = [DEPTH_COLORS, MOOD5_COLORS, SYNTAX3_COLORS, ACTION_COLORS, TONE_COLORS, FORM_COLORS];
 
 const RING_SPECS_6 = [
   { inner: 16, outer: 32, label: "Depth" },
@@ -285,30 +356,15 @@ const RING_SPECS_6 = [
 const LEVEL_LABELS = [DEPTH_LABELS, MOOD5_LABELS, SYNTAX3_LABELS, ACTION_LABELS, TONE_LABELS, FORM_LABELS];
 const CLASSIFIERS = [classifyDepth, classifyMood5, classifySyntax, classifyActionType, classifyPragmaticTone, classifyOutputForm];
 
-function nodeColor(moodIdx: number, depth: number, catIdx: number): string {
-  // Hues matching MOOD5_COLORS: #ef4444(0,84%,60%) #3b82f6(217,91%,60%)
-  // #f59e0b(38,92%,50%) #8b5cf6(258,90%,66%) #10b981(160,84%,39%)
-  const hues = [0, 217, 38, 258, 160];
-  const hue = hues[moodIdx % 5];
-  // Prompt rings (0-2) more saturated; response rings (3-5) slightly muted
-  const sat = [90, 92, 90, 86, 84, 82][depth];
-  const lit = [80, 74, 68, 62, 60, 58][depth];
-  let s = sat, l = lit;
-  // Tone ring: Creative pops, Informative mutes
-  if (depth === 4) {
-    if (catIdx === 2) { s = Math.min(100, sat + 14); l = lit + 5; }
-    if (catIdx === 0) { s = sat - 8; }
-    if (catIdx === 3) { s = sat + 2; l = lit - 2; }
-  }
-  // Action ring: Refusal muted
-  if (depth === 3 && catIdx === 2) { s = sat - 12; l = lit - 3; }
-  return `hsl(${hue}, ${s}%, ${l}%)`;
+function nodeColor(depth: number, catIdx: number): string {
+  const colors = RING_COLORS[depth];
+  return colors?.[catIdx] ?? "#6b7280";
 }
 
-function ensureChild(parent: SynesthNode, label: string, count: number, moodIdx: number, depth: number, catIdx: number): SynesthNode {
+function ensureChild(parent: SynesthNode, label: string, count: number, depth: number, catIdx: number): SynesthNode {
   let child = parent.children?.find(n => n.label === label);
   if (!child) {
-    child = { label, count: 0, color: nodeColor(moodIdx, depth, catIdx), moodIdx, children: [] };
+    child = { label, count: 0, color: nodeColor(depth, catIdx), children: [] };
     if (!parent.children) parent.children = [];
     parent.children.push(child);
   }
@@ -320,21 +376,22 @@ function buildSynesthTree(traces: TraceData[]): SynesthNode {
   const pathMap = new Map<string, number>();
   for (const t of traces) {
     const cats = CLASSIFIERS.map(fn => fn(t.prompt));
-    const responseCats = CLASSIFIERS.slice(3).map(fn => fn(t.output || ""));
+    const responseCats = CLASSIFIERS.slice(3).map(fn => fn(cleanResponse(t.output || "")));
     const key = [...cats, ...responseCats].join(",");
     pathMap.set(key, (pathMap.get(key) || 0) + 1);
   }
 
-  const root: SynesthNode = { label: "All Traces", count: traces.length, color: "#2dd4bf", moodIdx: 0, children: [] };
+  const root: SynesthNode = { label: "All Traces", count: traces.length, color: "#2dd4bf", children: [] };
   for (const [key, count] of pathMap) {
     const parts = key.split(",").map(Number);
     let node = root;
     for (let d = 0; d < 6; d++) {
-      const catIdx = parts[d];
+      // Rings 0-2 (Depth, Mood, Syntax) use prompt classifiers (parts[0..2])
+      // Rings 3-5 (Action, Tone, Form) use response classifiers (parts[6..8])
+      const catIdx = d < 3 ? parts[d] : parts[d + 3];
       const label = LEVEL_LABELS[d][catIdx];
-      const moodIdx = d <= 1 ? catIdx : node.moodIdx;
       const parent = node;
-      node = ensureChild(parent, label, count, moodIdx, d, catIdx);
+      node = ensureChild(parent, label, count, d, catIdx);
     }
   }
   layoutSunburst(root, 0, Math.PI * 2, -Math.PI / 2);
@@ -408,6 +465,15 @@ const REL_CONFIGS: Record<RelType, {
     outputColors: [],
     buildMatrix: () => [],
   },
+  "mood-intent": {
+    title: "Mood × Intent",
+    description: "Cross-references prompt mood (regex-classified) against the LLM's intent classification tokens (clustered into 6 supercategories). Do imperatives produce different intent patterns than interrogatives?",
+    inputLabels: MOOD5_LABELS,
+    outputLabels: INTENT_SUPER_LABELS,
+    inputColors: MOOD5_COLORS,
+    outputColors: INTENT_SUPER_COLORS,
+    buildMatrix: buildMoodIntentSuperMatrix,
+  },
 };
 
 interface Props {
@@ -419,11 +485,11 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
   const [relType, setRelType] = useState<RelType>("synesthesia");
   const [hoveredChord, setHoveredChord] = useState<{ source: number; target: number; count: number; sx: number; sy: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState("all");
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const cfg = REL_CONFIGS[relType];
-  const allLabels = useMemo(() => [...cfg.inputLabels, ...cfg.outputLabels], [cfg]);
-  const nodeColors = useMemo(() => [...cfg.inputColors, ...cfg.outputColors], [cfg]);
 
   const availableModels = useMemo(() => {
     const set = new Set<string>();
@@ -437,6 +503,32 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
     () => selectedModel === "all" ? traces : traces.filter((t) => t.model_used === selectedModel),
     [traces, selectedModel]
   );
+
+  const isMoodIntent = relType === "mood-intent";
+
+  const moodIntentLabels = useMemo(() => isMoodIntent ? {
+    inputLabels: MOOD5_LABELS,
+    outputLabels: INTENT_SUPER_LABELS,
+    inputColors: MOOD5_COLORS,
+    outputColors: INTENT_SUPER_COLORS,
+  } : null, [isMoodIntent]);
+
+  const allLabels = useMemo(() => {
+    if (moodIntentLabels) return [...moodIntentLabels.inputLabels, ...moodIntentLabels.outputLabels];
+    return [...cfg.inputLabels, ...cfg.outputLabels];
+  }, [cfg, moodIntentLabels]);
+
+  const nodeColors = useMemo(() => {
+    if (moodIntentLabels) return [...moodIntentLabels.inputColors, ...moodIntentLabels.outputColors];
+    return [...cfg.inputColors, ...cfg.outputColors];
+  }, [cfg, moodIntentLabels]);
+
+  const legendInputLabels = moodIntentLabels?.inputLabels ?? cfg.inputLabels;
+  const legendInputColors = moodIntentLabels?.inputColors ?? cfg.inputColors;
+  const legendOutputLabels = moodIntentLabels?.outputLabels ?? cfg.outputLabels;
+  const legendOutputColors = moodIntentLabels?.outputColors ?? cfg.outputColors;
+  const legendSideLeft = isMoodIntent ? "MOOD" : relType === "synesthesia" ? "INPUT →" : relType === "cross" ? "DDC" : relType === "intonation" ? "INTONATION" : "PROMPT";
+  const legendSideRight = isMoodIntent ? "INTENT" : relType === "synesthesia" ? "OUTPUT" : relType === "cross" ? "LCC" : relType === "intonation" ? "TOKENS" : "RESPONSE";
 
   const fetchTraces = useCallback(async () => {
     try {
@@ -461,24 +553,59 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
   const topRelationships = useMemo(() => {
     if (relType === "grammar") return [];
     const pairs: { src: number; tgt: number; count: number }[] = [];
-    const nInput = cfg.inputLabels.length;
+    const nInput = moodIntentLabels?.inputLabels.length ?? cfg.inputLabels.length;
+    const nOutput = moodIntentLabels?.outputLabels.length ?? cfg.outputLabels.length;
     const m = matrix as number[][];
     for (let i = 0; i < nInput; i++) {
-      for (let j = 0; j < cfg.outputLabels.length; j++) {
+      for (let j = 0; j < nOutput; j++) {
         const count = m[i]?.[nInput + j] ?? 0;
         if (count > 0) pairs.push({ src: i, tgt: nInput + j, count });
       }
     }
     return pairs.sort((a, b) => b.count - a.count).slice(0, 5);
-  }, [matrix, cfg, relType]);
+  }, [matrix, cfg, relType, moodIntentLabels]);
+
+  const runAnalysis = useCallback(async () => {
+    if (analyzing || matrix.length === 0) return;
+    setAnalyzing(true);
+    setAnalysis(null);
+    try {
+      const pairs = topRelationships.map(r => ({
+        src: allLabels[r.src],
+        tgt: allLabels[r.tgt],
+        count: r.count,
+      }));
+      const res = await fetch(`${API_BASE}/api/analyze/relationships`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rel_type: relType,
+          title: cfg.title,
+          description: cfg.description,
+          input_labels: legendInputLabels,
+          output_labels: legendOutputLabels,
+          top_relationships: pairs,
+          total_traces: filteredTraces.length,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.response || `HTTP ${res.status}`);
+      setAnalysis(data.response);
+    } catch (err) {
+      setAnalysis(`Analysis request failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [analyzing, matrix.length, topRelationships, allLabels, cfg, relType, legendInputLabels, legendOutputLabels, filteredTraces.length]);
 
   const grammarData = useMemo(() => {
     if (relType !== "grammar") return null;
     return buildSynesthTree(filteredTraces);
   }, [filteredTraces, relType]);
 
-  const groups = relType !== "grammar" && filteredTraces.length >= 3 && chords ? (chords?.groups ?? []) : [];
-  const chordRows = relType !== "grammar" && filteredTraces.length >= 3 && chords ? (chords?.filter((c) => c.source.value > 0) ?? []) : [];
+  const hasValidData = relType === "grammar" || (isMoodIntent ? INTENT_SUPER_LABELS.length > 0 : true);
+  const groups = relType !== "grammar" && filteredTraces.length >= 3 && hasValidData && chords ? (chords?.groups ?? []) : [];
+  const chordRows = relType !== "grammar" && filteredTraces.length >= 3 && hasValidData && chords ? (chords?.filter((c) => c.source.value > 0) ?? []) : [];
 
   return (
     <div className="glass-panel p-4 space-y-3">
@@ -511,6 +638,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
             <option value="drift">Semantic Drift</option>
             <option value="cross">DDC × LCC</option>
             <option value="intonation">Intonation</option>
+            <option value="mood-intent">Mood × Intent</option>
             <option value="grammar">Grammar Schema</option>
           </select>
           <select
@@ -523,6 +651,17 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
+          <button
+            onClick={runAnalysis}
+            disabled={analyzing || matrix.length === 0}
+            className={`transition-colors shrink-0 ${analyzing ? "text-teal-mystic/50" : "text-zinc-500 hover:text-teal-mystic/70"}`}
+            title="Analyze with AI"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4l3 3" />
+            </svg>
+          </button>
           <button
             onClick={() => {
               const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
@@ -574,6 +713,17 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
                     INTON_LABELS[cat], String(len), BUCKET_LABELS[bucket],
                   ].join(","));
                 }
+              } else if (relType === "mood-intent") {
+                rows.push("id,prompt,output,model_used,mood,intent_1,intent_2,intent_3");
+                for (const t of filteredTraces) {
+                  const mood = MOOD5_LABELS[classifyMood5(t.prompt)];
+                  const step = t.steps?.find(s => s.label === "Intent Classification");
+                  const ips = (step?.metadata?.intent_probs as IntentProb[])?.slice(0, 3).map(ip => ip.label).join("; ") || "";
+                  rows.push([
+                    esc(t.id), esc(t.prompt), esc(t.output || ""), esc(t.model_used || "unknown"),
+                    mood, ips,
+                  ].join(","));
+                }
               } else if (relType === "grammar") {
                 rows.push("id,prompt,output,model_used,depth,mood,syntax,action,tone,form");
                 for (const t of filteredTraces) {
@@ -582,9 +732,9 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
                     DEPTH_LABELS[classifyDepth(t.prompt)],
                     MOOD5_LABELS[classifyMood5(t.prompt)],
                     SYNTAX3_LABELS[classifySyntax(t.prompt)],
-                    ACTION_LABELS[classifyActionType(t.output || "")],
-                    TONE_LABELS[classifyPragmaticTone(t.output || "")],
-                    FORM_LABELS[classifyOutputForm(t.output || "")],
+                    ACTION_LABELS[classifyActionType(cleanResponse(t.output || ""))],
+                    TONE_LABELS[classifyPragmaticTone(cleanResponse(t.output || ""))],
+                    FORM_LABELS[classifyOutputForm(cleanResponse(t.output || ""))],
                   ].join(","));
                 }
               }
@@ -614,6 +764,10 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
         {filteredTraces.length < 3 && relType !== "grammar" ? (
           <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
             <span className="text-[10px] font-mono text-zinc-600">Need at least 3 traces — try a different model or mode</span>
+          </div>
+        ) : relType === "mood-intent" && isMoodIntent && filteredTraces.length > 0 && !filteredTraces.some(t => t.steps?.some(s => s.label === "Intent Classification" && Array.isArray(s.metadata?.intent_probs))) ? (
+          <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+            <span className="text-[10px] font-mono text-zinc-600">No intent classification data found for these traces</span>
           </div>
         ) : relType === "grammar" && grammarData ? (
           <SynesthSchemaSVG data={grammarData as SynesthNode} />
@@ -728,23 +882,23 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
                 {/* Legend */}
                 <div className="absolute top-2 left-2 flex flex-col gap-0.5">
                   <span className="text-[7px] font-mono tracking-wider text-zinc-600">
-                    {relType === "synesthesia" ? "INPUT →" : relType === "cross" ? "DDC" : relType === "intonation" ? "INTONATION" : "PROMPT"}
+                    {legendSideLeft}
                   </span>
-                  {cfg.inputLabels.map((l, i) => (
+                  {legendInputLabels.map((l, i) => (
                     <div key={`il-${i}`} className="flex items-center gap-1">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cfg.inputColors[i] }} />
+                      <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: legendInputColors[i] }} />
                       <span className="text-[6px] font-mono text-zinc-500 truncate max-w-[80px]">{l}</span>
                     </div>
                   ))}
                 </div>
                 <div className="absolute top-2 right-2 flex flex-col gap-0.5 items-end">
                   <span className="text-[7px] font-mono tracking-wider text-zinc-600">
-                    {relType === "synesthesia" ? "OUTPUT" : relType === "cross" ? "LCC" : relType === "intonation" ? "TOKENS" : "RESPONSE"}
+                    {legendSideRight}
                   </span>
-                  {cfg.outputLabels.map((l, i) => (
+                  {legendOutputLabels.map((l, i) => (
                     <div key={`ol-${i}`} className="flex items-center gap-1">
                       <span className="text-[6px] font-mono text-zinc-500 truncate max-w-[80px]">{l}</span>
-                      <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cfg.outputColors[i] }} />
+                      <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: legendOutputColors[i] }} />
                     </div>
                   ))}
                 </div>
@@ -802,6 +956,24 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
           );
         })(),
         document.body
+      )}
+
+      {/* AI Analysis */}
+      {analysis !== null && (
+        <div className="pt-2 border-t border-white/[0.04] space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] font-mono tracking-wider text-teal-mystic/60">AI Analysis</span>
+            <button
+              onClick={() => setAnalysis(null)}
+              className="text-[9px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="text-[10px] font-mono text-zinc-400 leading-relaxed whitespace-pre-wrap">
+            {analysis}
+          </div>
+        </div>
       )}
     </div>
   );

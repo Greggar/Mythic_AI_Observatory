@@ -290,6 +290,7 @@ export default function Home() {
                   traceActive={activePhase === "replaying" || activePhase === "complete"}
                   activeStepIndex={activeStep}
                   phase={activePhase}
+                  noTrace={true}
                 />
               </ErrorBoundary>
             </aside>

@@ -1,21 +1,3 @@
-export interface TraceStep {
-  id: string;
-  label: string;
-  status: "pending" | "processing" | "complete" | "error";
-  timestamp: string;
-  duration_ms: number | null;
-  metadata: Record<string, unknown>;
-  model_used: string | null;
-  agent_used: string | null;
-  cpu_before: number | null;
-  mem_before: number | null;
-  cpu_after: number | null;
-  mem_after: number | null;
-  eval_count: number | null;
-  eval_duration_ns: number | null;
-  context_assembled: string | null;
-}
-
 export interface TelemetryImpact {
   peak_cpu: number;
   peak_mem: number;
@@ -59,6 +41,24 @@ export interface LlmInsight {
   body: string;
 }
 
+export interface TraceStep {
+  id: string;
+  label: string;
+  status: "pending" | "processing" | "complete" | "error";
+  timestamp: string;
+  duration_ms: number | null;
+  metadata: Record<string, unknown>;
+  model_used: string | null;
+  agent_used: string | null;
+  cpu_before: number | null;
+  mem_before: number | null;
+  cpu_after: number | null;
+  mem_after: number | null;
+  eval_count: number | null;
+  eval_duration_ns: number | null;
+  context_assembled: string | null;
+}
+
 export interface TraceSession {
   id: string;
   prompt: string;
@@ -77,4 +77,5 @@ export interface TraceSession {
   response_rationale?: string;
   trace_explanation?: string;
   ddc?: DdcMetadata;
+  lcc?: LccMetadata;
 }

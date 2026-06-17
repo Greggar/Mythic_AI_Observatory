@@ -81,6 +81,20 @@ def set_backoffice_model(model: str) -> None:
         raise ValueError("backoffice_llm service not found in config")
 
 
+def get_analysis_config() -> dict[str, str]:
+    cfg = _load()
+    ac = cfg.get("analysis", {})
+    return {
+        "model": ac.get("model", "qwen2.5:3b"),
+        "provider": ac.get("provider", "local"),
+    }
+
+def set_analysis_config(model: str, provider: str) -> None:
+    cfg = _load()
+    cfg["analysis"] = {"model": model, "provider": provider}
+    save(cfg)
+
+
 def get_prometheus_url() -> str:
     return service_url("prometheus")
 
