@@ -643,6 +643,7 @@ class RelationshipAnalysisRequest(BaseModel):
     top_relationships: list[dict]
     total_traces: int
     paths: str | None = None  # for grammar: pre-formatted 6-ring path lines
+    samples: str | None = None  # raw prompt/response pairs for LLM to analyze directly
 
 
 def _sample_size_caveat(total: int) -> str:
@@ -678,7 +679,7 @@ def _sample_size_caveat(total: int) -> str:
         )
 
 
-def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int, paths: str | None = None) -> str:
+def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int, paths: str | None = None, samples: str | None = None) -> str:
     base = _sample_size_caveat(total) + "\n\n"
     base += (
         f"Title: {title}\n"
@@ -689,6 +690,14 @@ def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_i
     )
     if paths:
         base += f"The most common 6-ring pipelines (Depth → Mood → Syntax → Action → Tone → Form) are:\n{paths}\n\n"
+    if samples:
+        base += (
+            "Below are up to 10 raw prompt/response pairs from the traces. "
+            "Read them directly to form your own understanding of the input–output "
+            "relationships, rather than relying solely on the pre-computed categories above. "
+            "Note any patterns or insights that the category labels miss.\n\n"
+            f"{samples}\n\n"
+        )
 
     if rel_type == "cross":
         return base + (
@@ -769,7 +778,7 @@ async def api_analyze_relationships(body: RelationshipAnalysisRequest) -> dict:
             for p in body.top_relationships
         )
 
-        prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces, body.paths)
+        prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces, body.paths, body.samples)
 
         analysis_model = get_analysis_model()
         response, _, _ = await _call_model("backoffice", prompt, model_name_override=analysis_model)

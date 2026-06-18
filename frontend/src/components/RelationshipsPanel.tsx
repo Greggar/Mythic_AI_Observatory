@@ -613,6 +613,11 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
     setAnalyzing(true);
     setAnalysis(null);
     try {
+      const rawSamples = filteredTraces
+        .filter(t => t.output)
+        .slice(0, 10)
+        .map((t, i) => `=== Trace ${i + 1} ===\nPrompt: ${t.prompt}\nResponse: ${t.output}`)
+        .join("\n\n");
       let body: Record<string, unknown>;
       if (relType === "grammar") {
         const gp = getGrammarPaths(filteredTraces);
@@ -625,6 +630,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
           top_relationships: [],
           total_traces: filteredTraces.length,
           paths: gp.paths,
+          samples: rawSamples,
         };
       } else {
         const pairs = topRelationships.map(r => ({
@@ -640,6 +646,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
           output_labels: legendOutputLabels,
           top_relationships: pairs,
           total_traces: filteredTraces.length,
+          samples: rawSamples,
         };
       }
       const res = await fetch(`${API_BASE}/api/analyze/relationships`, {
