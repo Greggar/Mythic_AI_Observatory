@@ -650,6 +650,33 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
     return buildSynesthTree(filteredTraces);
   }, [filteredTraces, relType]);
 
+  const handleGrammarExport = useCallback((ring: number, label: string) => {
+    const catIdx = LEVEL_LABELS[ring].indexOf(label);
+    if (catIdx === -1) return;
+    const matching = filteredTraces.filter(t => {
+      const c = CLASSIFIERS[ring](ring < 3 ? t.prompt : (t.output || ""));
+      return c === catIdx;
+    });
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const lines = ['"prompt","depth","mood","syntax","action","tone","form"'];
+    for (const t of matching) {
+      const d = DEPTH_LABELS[classifyDepth(t.prompt)];
+      const m = MOOD5_LABELS[classifyMood5(t.prompt)];
+      const s = SYNTAX3_LABELS[classifySyntax(t.prompt)];
+      const a = ACTION_LABELS[classifyActionType(t.output || "")];
+      const to = TONE_LABELS[classifyPragmaticTone(t.output || "")];
+      const f = FORM_LABELS[classifyOutputForm(t.output || "")];
+      lines.push(`${esc(t.prompt)},${esc(d)},${esc(m)},${esc(s)},${esc(a)},${esc(to)},${esc(f)}`);
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `grammar-segment-${label.replace(/\s+/g, "-").toLowerCase()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filteredTraces]);
+
   const hasValidData = relType === "grammar" || (isMoodIntent ? INTENT_SUPER_LABELS.length > 0 : true);
   const groups = relType !== "grammar" && filteredTraces.length >= 3 && hasValidData && chords ? (chords?.groups ?? []) : [];
   const chordRows = relType !== "grammar" && filteredTraces.length >= 3 && hasValidData && chords ? (chords?.filter((c) => c.source.value > 0) ?? []) : [];
@@ -817,7 +844,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
             <span className="text-[10px] font-mono text-zinc-600">No intent classification data found for these traces</span>
           </div>
         ) : relType === "grammar" && grammarData ? (
-          <SynesthSchemaSVG data={grammarData as SynesthNode} />
+          <SynesthSchemaSVG data={grammarData as SynesthNode} onArcClick={handleGrammarExport} />
         ) : (
               <>
                 <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
@@ -1064,7 +1091,7 @@ function collectLevelNodes(root: SynesthNode, depthLevel: number): SynesthNode[]
   return result;
 }
 
-function SynesthSchemaSVG({ data }: { data: SynesthNode }) {
+function SynesthSchemaSVG({ data, onArcClick }: { data: SynesthNode; onArcClick?: (ring: number, label: string) => void }) {
   const [hovered, setHovered] = useState<{ label: string; count: number; total: number; x: number; y: number; depthRing: number } | null>(null);
   const total = data.count;
 
@@ -1113,6 +1140,7 @@ function SynesthSchemaSVG({ data }: { data: SynesthNode }) {
             }}
             onMouseMove={(e) => setHovered(h => h ? { ...h, x: e.clientX, y: e.clientY } : null)}
             onMouseLeave={() => setHovered(null)}
+            onClick={() => onArcClick?.(a.hover!.depthRing, a.hover!.label)}
           />
         ))}
 
