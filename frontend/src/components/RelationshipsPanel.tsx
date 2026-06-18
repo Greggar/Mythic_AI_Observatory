@@ -101,18 +101,31 @@ function classifySynesthesiaResponse(text: string): number {
   const hasNumbers = /^\d+[.)]\s/m.test(text);
   if (hasBullets || hasNumbers) return 3;
 
-  // Colon-formatted list: "Name: value" repeated 3+ times
+  // Colon-formatted list: "Name: value" repeated 3+ lines
   const colonListLines = lines.filter(l => /^[A-Z][a-zA-Z\s]+:\s/u.test(l.trim()));
   if (colonListLines.length >= 3) return 3;
 
-  // Verse: 8+ short lines (avg < 12 words), no single long line
-  const longLines = lines.filter(l => l.split(/\s+/).length > 16);
-  if (avgLineLen < 12 && lineCount >= 8 && longLines.length < 3) return 2;
+  // Dash/separator list: lines with consistent short pattern and separator
+  const sepListLines = lines.filter(l => /\s[—–\-|]\s/.test(l.trim()) && l.split(/\s+/).length <= 8);
+  if (sepListLines.length >= 3) return 3;
 
-  // Enumeration in prose: "first... second... third" or "X: Y, Z: W"
-  const hasEnumeration = /\b(first|second|third|fourth|fifth|one:|two:|three:)\b/i.test(lower) ||
-    (lines.filter(l => /[A-Z][a-z]+:\s+[A-Z]/.test(l)).length >= 3);
-  if (hasEnumeration || wordCount < 30) return 0;
+  // Short consistent lines: 4+ lines all under 11 words (list-like, not verse)
+  const shortConsistentLines = lines.filter(l => l.split(/\s+/).length <= 10).length;
+  if (shortConsistentLines >= 4 && shortConsistentLines >= lineCount * 0.7 && lineCount >= 4) return 0;
+
+  // Concise: short text is likely a direct answer, not verse or prose
+  if (wordCount < 30) return 0;
+
+  // Enumeration in prose: "first... second... third"
+  const hasEnumeration = /\b(first|second|third|fourth|fifth|one:|two:|three:)\b/i.test(lower);
+  if (hasEnumeration) return 0;
+
+  // Verse: many short lines WITH poetic evidence (stanzas, poetic vocabulary, or title casing)
+  const hasStanzas = /\n\n\s*\n/.test(text) || /^[A-Z][a-z]+[^a-z]*\n\n[A-Z][a-z]/.test(text);
+  const poeticWords = /\b(thou|thee|thy|shall|doth|o'er|ne'er|alas|methinks|whence|forsooth|'tis|o'er|ere|upon|yonder|behold|farewell|hath|wilt|cannot|o'\b|oh\b|aye|nay)\b/i.test(lower);
+  const titleCasedLines = lines.filter(l => /^[A-Z][a-z]/.test(l)).length;
+  const mostlyTitleCased = titleCasedLines >= lineCount * 0.7;
+  if (avgLineLen < 14 && lineCount >= 8 && (hasStanzas || poeticWords || mostlyTitleCased)) return 2;
 
   // Prose explanation: longer paragraph form
   return 1;
