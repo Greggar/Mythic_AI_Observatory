@@ -87,7 +87,17 @@ ANALYSIS_MODEL: str = "qwen2.5:3b"
 ANALYSIS_PROVIDER: str = "local"
 _init_analysis_from_config()
 
+def _sync_analysis_from_config() -> None:
+    global ANALYSIS_MODEL, ANALYSIS_PROVIDER
+    try:
+        ac = config_manager.get_analysis_config()
+        ANALYSIS_MODEL = ac["model"]
+        ANALYSIS_PROVIDER = ac["provider"]
+    except Exception:
+        pass
+
 def get_analysis_model() -> str:
+    _sync_analysis_from_config()
     return ANALYSIS_MODEL
 
 def set_analysis_model(value: str) -> None:
@@ -100,6 +110,7 @@ def set_analysis_model(value: str) -> None:
     logger.info("Analysis model switched to: %s", value)
 
 def get_analysis_provider() -> str:
+    _sync_analysis_from_config()
     return ANALYSIS_PROVIDER
 
 def set_analysis_provider(value: str) -> None:

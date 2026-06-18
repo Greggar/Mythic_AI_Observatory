@@ -294,7 +294,8 @@ class AnalysisModelBody(BaseModel):
 
 @app.get("/api/config/analysis-model")
 async def get_analysis_model_config() -> dict[str, str]:
-    return {"model": get_analysis_model(), "provider": get_analysis_provider()}
+    from services.config_manager import get_analysis_config
+    return get_analysis_config()
 
 @app.post("/api/config/analysis-model")
 async def post_analysis_model(body: AnalysisModelBody) -> dict[str, str]:
