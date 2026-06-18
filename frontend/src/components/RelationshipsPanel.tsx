@@ -410,6 +410,27 @@ function layoutSunburst(node: SynesthNode, start: number, span: number, origin: 
   }
 }
 
+function getGrammarPaths(traces: TraceData[]): { paths: string; labels_in: string; labels_out: string } {
+  const pathCounts = new Map<string, number>();
+  for (const t of traces) {
+    const depth = classifyDepth(t.prompt);
+    const mood = classifyMood5(t.prompt);
+    const syntax = classifySyntax(t.prompt);
+    const action = classifyActionType(t.output || "");
+    const tone = classifyPragmaticTone(t.output || "");
+    const form = classifyOutputForm(t.output || "");
+    const path = `${DEPTH_LABELS[depth]} → ${MOOD5_LABELS[mood]} → ${SYNTAX3_LABELS[syntax]} → ${ACTION_LABELS[action]} → ${TONE_LABELS[tone]} → ${FORM_LABELS[form]}`;
+    pathCounts.set(path, (pathCounts.get(path) || 0) + 1);
+  }
+  const sorted = [...pathCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const paths = sorted.map(([path, count]) => `  ${count}×  ${path}`).join("\n");
+  return {
+    paths,
+    labels_in: DEPTH_LABELS.join(", ") + "; " + MOOD5_LABELS.join(", ") + "; " + SYNTAX3_LABELS.join(", "),
+    labels_out: ACTION_LABELS.join(", ") + "; " + TONE_LABELS.join(", ") + "; " + FORM_LABELS.join(", "),
+  };
+}
+
 // ── Configs ──────────────────────────────────────────────
 const REL_CONFIGS: Record<RelType, {
   title: string;
@@ -486,7 +507,13 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
   const [hoveredChord, setHoveredChord] = useState<{ source: number; target: number; count: number; sx: number; sy: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState("all");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysisModel, setAnalysisModel] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+
+  useEffect(() => {
+    setAnalysis(null);
+    setAnalysisModel(null);
+  }, [relType, selectedModel]);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const cfg = REL_CONFIGS[relType];
@@ -566,19 +593,32 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
   }, [matrix, cfg, relType, moodIntentLabels]);
 
   const runAnalysis = useCallback(async () => {
-    if (analyzing || matrix.length === 0) return;
+    if (analyzing) return;
+    if (relType !== "grammar" && matrix.length === 0) return;
+    if (relType === "grammar" && filteredTraces.length < 3) return;
     setAnalyzing(true);
     setAnalysis(null);
     try {
-      const pairs = topRelationships.map(r => ({
-        src: allLabels[r.src],
-        tgt: allLabels[r.tgt],
-        count: r.count,
-      }));
-      const res = await fetch(`${API_BASE}/api/analyze/relationships`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      let body: Record<string, unknown>;
+      if (relType === "grammar") {
+        const gp = getGrammarPaths(filteredTraces);
+        body = {
+          rel_type: "grammar",
+          title: cfg.title,
+          description: cfg.description,
+          input_labels: [],
+          output_labels: [],
+          top_relationships: [],
+          total_traces: filteredTraces.length,
+          paths: gp.paths,
+        };
+      } else {
+        const pairs = topRelationships.map(r => ({
+          src: allLabels[r.src],
+          tgt: allLabels[r.tgt],
+          count: r.count,
+        }));
+        body = {
           rel_type: relType,
           title: cfg.title,
           description: cfg.description,
@@ -586,17 +626,24 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
           output_labels: legendOutputLabels,
           top_relationships: pairs,
           total_traces: filteredTraces.length,
-        }),
+        };
+      }
+      const res = await fetch(`${API_BASE}/api/analyze/relationships`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || data.response || `HTTP ${res.status}`);
       setAnalysis(data.response);
+      setAnalysisModel(data.model || null);
     } catch (err) {
       setAnalysis(`Analysis request failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      setAnalysisModel(null);
     } finally {
       setAnalyzing(false);
     }
-  }, [analyzing, matrix.length, topRelationships, allLabels, cfg, relType, legendInputLabels, legendOutputLabels, filteredTraces.length]);
+  }, [analyzing, matrix, topRelationships, allLabels, cfg, relType, legendInputLabels, legendOutputLabels, filteredTraces]);
 
   const grammarData = useMemo(() => {
     if (relType !== "grammar") return null;
@@ -653,7 +700,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
           </select>
           <button
             onClick={runAnalysis}
-            disabled={analyzing || matrix.length === 0}
+            disabled={analyzing || (relType !== "grammar" && matrix.length === 0) || (relType === "grammar" && filteredTraces.length < 3)}
             className={`transition-colors shrink-0 ${analyzing ? "text-teal-mystic/50" : "text-zinc-500 hover:text-teal-mystic/70"}`}
             title="Analyze with AI"
           >
@@ -962,13 +1009,30 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
       {analysis !== null && (
         <div className="pt-2 border-t border-white/[0.04] space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[9px] font-mono tracking-wider text-teal-mystic/60">AI Analysis</span>
-            <button
-              onClick={() => setAnalysis(null)}
-              className="text-[9px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors"
-            >
-              Dismiss
-            </button>
+            <span className="text-[9px] font-mono tracking-wider text-teal-mystic/60">AI Analysis{analysisModel ? ` by ${analysisModel}` : ""}</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const blob = new Blob([analysis || ""], { type: "text/plain" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `ai-analysis-${relType}.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+                className="text-[9px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors"
+                title="Save as .txt"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setAnalysis(null)}
+                className="text-[9px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
           <div className="text-[10px] font-mono text-zinc-400 leading-relaxed whitespace-pre-wrap">
             {analysis}

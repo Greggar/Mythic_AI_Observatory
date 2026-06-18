@@ -642,6 +642,7 @@ class RelationshipAnalysisRequest(BaseModel):
     output_labels: list[str]
     top_relationships: list[dict]
     total_traces: int
+    paths: str | None = None  # for grammar: pre-formatted 6-ring path lines
 
 
 def _sample_size_caveat(total: int) -> str:
@@ -677,7 +678,7 @@ def _sample_size_caveat(total: int) -> str:
         )
 
 
-def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int) -> str:
+def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int, paths: str | None = None) -> str:
     base = _sample_size_caveat(total) + "\n\n"
     base += (
         f"Title: {title}\n"
@@ -686,6 +687,8 @@ def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_i
         f"Output categories: {labels_out}\n\n"
         f"Based on {total} traces, the top relationships are:\n{pairs}\n\n"
     )
+    if paths:
+        base += f"The most common 6-ring pipelines (Depth → Mood → Syntax → Action → Tone → Form) are:\n{paths}\n\n"
 
     if rel_type == "cross":
         return base + (
@@ -766,7 +769,7 @@ async def api_analyze_relationships(body: RelationshipAnalysisRequest) -> dict:
             for p in body.top_relationships
         )
 
-        prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces)
+        prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces, body.paths)
 
         analysis_model = get_analysis_model()
         response, _, _ = await _call_model("backoffice", prompt, model_name_override=analysis_model)
