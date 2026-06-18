@@ -150,6 +150,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       fetchConfig();
       fetchModelProvider();
       fetchModels();
+      fetchNetworkSources();
       setSaved(false);
       setModelSaved(false);
       setDeleteTabReady(false);
@@ -158,7 +159,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       setAnalysisNetworkSourceId("");
       setAnalysisNetworkModelName("");
     }
-  }, [open, fetchConfig, fetchModelProvider, fetchModels]);
+  }, [open, fetchConfig, fetchModelProvider, fetchModels, fetchNetworkSources]);
 
   useEffect(() => {
     if (!open || tab !== "delete" || deleteTabReady) return;
@@ -180,7 +181,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   useEffect(() => {
     if (networkSources.length === 0 || analysisNetworkSourceId) return;
-    if (analysisProvider !== "backoffice" || !analysisModel) return;
+    if (analysisProvider !== "backoffice") return;
     let found = false;
     for (const src of networkSources) {
       if (src.models.includes(analysisModel)) {
@@ -191,10 +192,12 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       }
     }
     if (!found) {
+      const fallbackModel = networkSources[0].models[0] || networkSources[0].configured_model;
       setAnalysisNetworkSourceId(networkSources[0].id);
-      setAnalysisNetworkModelName(networkSources[0].configured_model);
+      setAnalysisNetworkModelName(fallbackModel);
+      setAnalysisModel(fallbackModel);
     }
-  }, [networkSources, analysisProvider, analysisModel, analysisNetworkSourceId]);
+  }, [networkSources, analysisProvider, analysisNetworkSourceId]);
 
   useEffect(() => {
     if (!deleteTabReady) return;
@@ -254,9 +257,12 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!config) return;
     setSaving(true);
     try {
+      const resolvedModel = analysisProvider === "backoffice" && analysisNetworkModelName
+        ? analysisNetworkModelName
+        : analysisModel;
       const mergedConfig = {
         ...config,
-        analysis: { model: analysisModel, provider: analysisProvider },
+        analysis: { model: resolvedModel, provider: analysisProvider },
       };
       const res = await fetch(`${API_BASE}/api/network-config`, {
         method: "PUT",

@@ -1009,6 +1009,9 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `backend/models/trace.py` | Pydantic models including `DdcEntry`, `DdcMetadata`, `LccEntry`, `LccMetadata` with alternatives fields |
 | `backend/data/network.json` | Persistent network config (machines, remotes, endpoints) |
 | `backend/data/services.json` | Service definitions (glyph layout, name, description) served via `GET /api/services` |
+| `backend/services/classifier_agent.py` | Background agent: polls every 45s, classifies unprocessed traces via LLM against `synesthesia_schema.md`, stores results in `synesth_cache.json` |
+| `backend/services/synesthesia_schema.md` | Plain-language classification schema (5 input + 5 output categories) for Cognitive Synesthesia — edit this to change classification behavior without code |
+| `tools/backfill_synesth.py` | One-shot backfill script using backoffice GPU (`gpt-oss:20B`) to classify all existing traces into `synesth_cache.json` |
 | `DEVELOPMENT.md` | Quick-start guide for local dev |
 | `LVM-ROOT-EXPAND.md` | Instructions for expanding the root LVM volume |
 | `Innovation.md` | Ideas log for practical experiments with the local 3B model |
@@ -1018,4 +1021,53 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 
 ---
 
-*Generated 2026-06-13. Update this document when making architectural changes.*
+## Session 2026-06-18 — LLM-Powered Cognitive Synesthesia Classifier
+
+### Problem
+The Cognitive Synesthesia chord diagram relied on hand-tuned regex classifiers (`classifySynesthesiaPrompt`, `classifySynesthesiaResponse`, and the 6 grammar-ring classifiers). Every new prompt type required a regex patch, and edge cases kept slipping through.
+
+### Solution — Schema-Driven LLM Classification
+Replaced regex classification with a background agent that uses the local LLM to classify traces against a plain-language schema:
+
+1. **`synesthesia_schema.md`** — defines 5 input categories (Direct Command, Factual Question, Creative Request, Simple Query, Complex Inquiry) and 5 output categories (Concise List/Facts, Prose Explanation, Creative/Verse, Bulleted List, Technical/Code) with 10+ examples each. Edit this to change classification behavior — no code changes.
+
+2. **`classifier_agent.py`** — background task polls every 45 seconds, finds traces without synesth data, classifies them via `qwen2.5:1.5b` (local, fast for 1-2 new traces), stores results in `synesth_cache.json`.
+
+3. **`backfill_synesth.py`** — one-shot script using backoffice GPU (`gpt-oss:20B`) to classify all 93 existing traces in ~45 seconds.
+
+4. **`SynesthClassification` model** — `input_cat`/`output_cat` fields on `TraceSession`. Frontend reads `trace.synesth` when available, falls back to regex for unclassified traces.
+
+### Key Architectural Decisions
+- **Separate cache file** (`synesth_cache.json`) rather than modifying `traces.jsonl` — avoids rewriting the entire history file on each classification.
+- **Merge at API layer** — `api_list_traces` calls `merge_synesth()` which overlays cache data onto `TraceSession` objects before returning them. Backward-compatible: old traces without cache entries get `synesth: null`.
+- **Two-tier model strategy** — backoffice GPU for initial backfill (fast, parallel), local CPU model for ongoing (cheap, always available).
+
+### Problems Encountered & Fixes
+
+| Problem | Fix |
+|---------|-----|
+| `qwen2.5:3b` too slow on CPU (120s+ per trace) | Switched to `qwen2.5:1.5b` for the background agent |
+| Backoffice `gpt-oss:20B` returned 500 errors with concurrency=4 | Reduced `CONCURRENCY` to 1 — model can't handle parallel requests |
+| `synesth: null` in API responses after backfill | Server's `_cache` module variable was stale — restart picked up the cache file |
+| Analysis model settings showed "qwen2.5:3b" with backoffice provider (404 error) | Race condition between `fetchModels` and `fetchNetworkSources` in SettingsModal; auto-selection effect was not updating `analysisModel` state; `handleSave` used stale model name |
+| Settings modal didn't load network sources until Models tab opened | Added `fetchNetworkSources()` to the modal mount effect |
+
+### Lessons Learned
+- **Schema-driven classification works** — the LLM correctly interpreted the plain-language schema, classifying traces with nuanced understanding that regex couldn't match.
+- **Backoffice GPU is ~100x faster** — gpt-oss:20B classified traces in 1.2s each vs 120s+ for qwen2.5:3b on CPU. But it can't handle >1 concurrent request without crashing.
+- **State sync is the hardest part** — React state + concurrent API calls + async effects create race conditions that are invisible until the wrong value persists across a save. Always test the "open settings → save without touching anything" path.
+- **Separate cache from source of truth** — storing classifications in a separate file (`synesth_cache.json`) avoided coupling to the trace persistence layer and made backfill trivially idempotent.
+
+### Relevant Files
+- `backend/services/synesthesia_schema.md` — editable classification schema
+- `backend/services/classifier_agent.py` — background classifier agent + cache management
+- `backend/models/trace.py` — `SynesthClassification` Pydantic model
+- `backend/main.py` — `merge_synesth` in `api_list_traces`, background task startup, manual classify endpoint
+- `frontend/src/components/RelationshipsPanel.tsx` — `synInputCat`/`synOutputCat` helpers with LLM-first, regex-fallback
+- `frontend/src/components/SettingsModal.tsx` — analysis model save fix (race condition, stale state)
+- `frontend/src/types/trace.ts` — `SynesthClassification` TypeScript interface
+- `tools/backfill_synesth.py` — backfill script using backoffice GPU
+
+---
+
+*Generated 2026-06-18. Update this document when making architectural changes.*

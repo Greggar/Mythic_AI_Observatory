@@ -58,6 +58,11 @@ class LccMetadata(BaseModel):
     response_alternatives: list[LccEntry] = Field(default_factory=list)
 
 
+class SynesthClassification(BaseModel):
+    input_cat: int  # 0-4: Direct Command, Factual Question, Creative Request, Simple Query, Complex Inquiry
+    output_cat: int  # 0-4: Concise List/Facts, Prose Explanation, Creative/Verse, Bulleted List, Technical/Code
+
+
 class TelemetryImpact(BaseModel):
     peak_cpu: float = 0.0
     peak_mem: float = 0.0
@@ -84,3 +89,4 @@ class TraceSession(BaseModel):
     trace_explanation: str | None = None
     ddc: DdcMetadata | None = None
     lcc: LccMetadata | None = None
+    synesth: SynesthClassification | None = None

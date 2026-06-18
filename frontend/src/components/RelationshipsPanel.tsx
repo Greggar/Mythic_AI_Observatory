@@ -28,6 +28,11 @@ interface TraceStep {
   metadata: Record<string, unknown>;
 }
 
+interface SynesthClassification {
+  input_cat: number;
+  output_cat: number;
+}
+
 interface TraceData {
   id: string;
   prompt: string;
@@ -36,6 +41,7 @@ interface TraceData {
   model_used?: string | null;
   ddc?: { prompt?: { code?: string; action?: string } | null; response?: { code?: string } | null } | null;
   lcc?: { prompt?: { code?: string } | null } | null;
+  synesth?: SynesthClassification;
 }
 
 function polar(cx: number, cy: number, r: number, a: number): [number, number] {
@@ -131,12 +137,20 @@ function classifySynesthesiaResponse(text: string): number {
   return 1;
 }
 
+function synInputCat(t: TraceData): number {
+  return t.synesth?.input_cat ?? classifySynesthesiaPrompt(t.prompt);
+}
+
+function synOutputCat(t: TraceData): number {
+  return t.synesth?.output_cat ?? classifySynesthesiaResponse(t.output || "");
+}
+
 function buildSynesthesiaMatrix(traces: TraceData[]): number[][] {
   const N = 10;
   const M = Array.from({ length: N }, () => Array(N).fill(0));
   for (const t of traces) {
-    const inputCat = classifySynesthesiaPrompt(t.prompt);
-    const outputCat = classifySynesthesiaResponse(t.output || "");
+    const inputCat = synInputCat(t);
+    const outputCat = synOutputCat(t);
     M[inputCat][5 + outputCat] += 1;
     M[5 + outputCat][inputCat] += 1;
   }
@@ -778,8 +792,8 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
               if (relType === "synesthesia") {
                 rows.push("id,prompt,output,model_used,prompt_type,response_profile");
                 for (const t of filteredTraces) {
-                  const pc = classifySynesthesiaPrompt(t.prompt);
-                  const rc = classifySynesthesiaResponse(t.output || "");
+                  const pc = synInputCat(t);
+                  const rc = synOutputCat(t);
                   rows.push([
                     esc(t.id), esc(t.prompt), esc(t.output || ""), esc(t.model_used || "unknown"),
                     SYN_INPUT_LABELS[pc], SYN_OUTPUT_LABELS[rc],

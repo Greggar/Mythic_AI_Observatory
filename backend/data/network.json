@@ -16,7 +16,7 @@
       "label": "Backoffice LLM",
       "host": "198.51.100.100",
       "port": 12434,
-      "model": "docker.io/ai/qwen3.5:9B-UD-Q4_K_XL",
+      "model": "docker.io/ai/gpt-oss:20B",
       "enabled": true
     },
     "prometheus": {
@@ -69,7 +69,7 @@
     }
   },
   "analysis": {
-    "model": "qwen2.5:3b",
-    "provider": "local"
+    "model": "docker.io/ai/gpt-oss:20B",
+    "provider": "backoffice"
   }
 }

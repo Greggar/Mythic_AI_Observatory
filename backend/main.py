@@ -26,6 +26,7 @@ from services.orchestrator import orchestrate, get_trace, list_traces, delete_tr
 from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
+from services.classifier_agent import classifier_loop, merge_synesth
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("conductor")
@@ -190,9 +191,10 @@ _latest_telemetry: dict[str, Any] | None = None
 
 # ── Background broadcast loop ────────────────────────────────────
 @app.on_event("startup")
-async def start_telemetry_broadcaster() -> None:
+async def start_background_tasks() -> None:
     asyncio.create_task(_telemetry_loop())
     asyncio.create_task(warmup_model())
+    asyncio.create_task(classifier_loop())
 
 IDLE_SECONDS = 300  # 5 min before standby
 STANDBY_INTERVAL = 60.0
@@ -407,7 +409,8 @@ async def api_trace_profiles() -> list[ModelProfile]:
 
 @app.get("/api/traces", response_model=list[TraceSession])
 async def api_list_traces(limit: int = 50) -> list[TraceSession]:
-    return list_traces(limit)
+    traces = list_traces(limit)
+    return merge_synesth(traces)
 
 
 from fastapi import HTTPException
@@ -434,6 +437,14 @@ class BulkDeleteRequest(BaseModel):
 async def api_bulk_delete_traces(req: BulkDeleteRequest) -> dict:
     count = bulk_delete_traces(req.ids)
     return {"deleted": count}
+
+
+from services.classifier_agent import _classifier_cycle
+
+@app.post("/api/traces/classify-synesth")
+async def api_classify_synesth() -> dict:
+    await _classifier_cycle()
+    return {"status": "ok"}
 
 
 # ── CSV Exports ──────────────────────────────────────────────────

@@ -59,6 +59,11 @@ export interface TraceStep {
   context_assembled: string | null;
 }
 
+export interface SynesthClassification {
+  input_cat: number;
+  output_cat: number;
+}
+
 export interface TraceSession {
   id: string;
   prompt: string;
@@ -78,4 +83,5 @@ export interface TraceSession {
   trace_explanation?: string;
   ddc?: DdcMetadata;
   lcc?: LccMetadata;
+  synesth?: SynesthClassification;
 }
