@@ -40,48 +40,30 @@ interface ModelProfile {
   stages: Record<string, StageRange>;
 }
 
-const PROFILES: Record<string, ModelProfile> = {
-  "qwen2.5:3b": {
-    label: "qwen2.5:3b on CPU",
+function buildProfile(modelKey: string, modelLabel: string): ModelProfile {
+  const isLocal = modelKey === "local" || modelKey.includes("qwen");
+  const scale = isLocal ? 1 : 0.35;
+  return {
+    label: `${modelLabel}${isLocal ? " on CPU" : " on GPU"}`,
     stages: {
       "Intent Classification": {
-        good: [12000, 20000],
-        ok: [20000, 30000],
-        bad: 30000,
+        good: [12000 * scale, 20000 * scale],
+        ok: [20000 * scale, 30000 * scale],
+        bad: 30000 * scale,
       },
       "Context Synthesis": {
-        good: [4000, 8000],
-        ok: [8000, 12000],
-        bad: 12000,
+        good: [4000 * scale, 8000 * scale],
+        ok: [8000 * scale, 12000 * scale],
+        bad: 12000 * scale,
       },
       "Response Generation": {
-        good: [20000, 35000],
-        ok: [35000, 50000],
-        bad: 50000,
+        good: [20000 * scale, 35000 * scale],
+        ok: [35000 * scale, 50000 * scale],
+        bad: 50000 * scale,
       },
     },
-  },
-  "local": {
-    label: "qwen2.5:3b on CPU",
-    stages: {
-      "Intent Classification": {
-        good: [12000, 20000],
-        ok: [20000, 30000],
-        bad: 30000,
-      },
-      "Context Synthesis": {
-        good: [4000, 8000],
-        ok: [8000, 12000],
-        bad: 12000,
-      },
-      "Response Generation": {
-        good: [20000, 35000],
-        ok: [35000, 50000],
-        bad: 50000,
-      },
-    },
-  },
-};
+  };
+}
 
 function fmt(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -112,8 +94,9 @@ function generate(
 
   const totalMs = [...stepMap.values()].reduce((a, b) => a + b, 0);
   const totalSec = totalMs / 1000;
-  const modelKey = (trace.model_used || "local").toLowerCase();
-  const profile = PROFILES[modelKey] || PROFILES["local"];
+  const modelLabel = trace.model_used || "local";
+  const modelKey = modelLabel.toLowerCase();
+  const profile = buildProfile(modelKey, modelLabel);
   const promptLen = (trace.prompt || "").length;
 
   const isFirstTrace = sessionSeen.size === 0;
@@ -196,12 +179,14 @@ function generate(
     const coldNotice = isFirstTrace
       ? " This is the first trace — cold start expected."
       : "";
+    const gpuNotice = profile.label.includes("on CPU")
+      ? " BackOffice with RTX 5070 Ti would cut these times by ~5x."
+      : "";
     insights.push({
       level: "info",
       title: profile.label,
       body:
-        `Prompt: ${promptLen} chars.${coldNotice} ` +
-        "BackOffice with RTX 5070 Ti would cut these times by ~5x.",
+        `Prompt: ${promptLen} chars.${coldNotice}${gpuNotice}`,
     });
   }
 
