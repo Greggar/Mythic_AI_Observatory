@@ -631,6 +631,9 @@ async def api_delete_annotation(trace_id: str, annotation_id: str) -> dict:
 
 
 # ── Relationship analysis ────────────────────────────────────────
+SAMPLE_SIZE_THRESHOLD = 30
+
+
 class RelationshipAnalysisRequest(BaseModel):
     rel_type: str
     title: str
@@ -641,8 +644,42 @@ class RelationshipAnalysisRequest(BaseModel):
     total_traces: int
 
 
+def _sample_size_caveat(total: int) -> str:
+    if total < 10:
+        return (
+            f"SAMPLE SIZE NOTICE: This analysis is based on only {total} trace(s). "
+            f"This is an anecdotal sample — patterns observed here are not statistically "
+            f"significant or reliable. Your analysis MUST begin by stating: "
+            f"\"This analysis is based on only {total} traces, which is an anecdotal sample. "
+            f"Results should be treated as exploratory, not indicative of a trend.\" "
+            f"Use appropriately cautious language throughout (\"may suggest\", \"could indicate\", "
+            f"\"one possible interpretation\") rather than definitive claims."
+        )
+    elif total < SAMPLE_SIZE_THRESHOLD:
+        return (
+            f"SAMPLE SIZE NOTICE: This analysis is based on {total} traces. "
+            f"This is below the conventional threshold (N≥{SAMPLE_SIZE_THRESHOLD}) for basic "
+            f"statistical reliability. Your analysis MUST begin by stating: "
+            f"\"This analysis is based on {total} traces, which is below the conventional "
+            f"threshold for statistical significance. Patterns are directional, not conclusive.\" "
+            f"Avoid definitive language; use \"tends to\", \"often\", \"suggests\" rather than \"always\", "
+            f"\"proves\", \"demonstrates\"."
+        )
+    else:
+        return (
+            f"SAMPLE SIZE NOTICE: This analysis is based on {total} traces, which meets the "
+            f"conventional threshold (N≥{SAMPLE_SIZE_THRESHOLD}) for basic statistical reliability. "
+            f"Your analysis MUST begin by stating the sample size: "
+            f"\"This analysis is based on {total} traces, providing a moderate sample for identifying "
+            f"patterns.\" "
+            f"Patterns can be discussed with moderate confidence, but acknowledge that all observational "
+            f"analysis has limitations."
+        )
+
+
 def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int) -> str:
-    base = (
+    base = _sample_size_caveat(total) + "\n\n"
+    base += (
         f"Title: {title}\n"
         f"Description: {description}\n\n"
         f"Input categories: {labels_in}\n"
