@@ -254,10 +254,14 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!config) return;
     setSaving(true);
     try {
+      const mergedConfig = {
+        ...config,
+        analysis: { model: analysisModel, provider: analysisProvider },
+      };
       const res = await fetch(`${API_BASE}/api/network-config`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({ config: mergedConfig }),
       });
       if (res.ok) {
         setSaved(true);
