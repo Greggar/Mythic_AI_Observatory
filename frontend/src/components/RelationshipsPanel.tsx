@@ -86,39 +86,36 @@ function classifySynesthesiaPrompt(prompt: string): number {
 }
 
 function classifySynesthesiaResponse(text: string): number {
-  if (!text) return 3;
+  if (!text) return 0;
   const wordCount = text.split(/\s+/).length;
   const lower = text.toLowerCase();
   const lines = text.split("\n").filter(l => l.trim().length > 0);
+  const lineCount = lines.length;
+  const avgLineLen = lineCount > 0 ? wordCount / lineCount : 0;
 
-  // Check for code
-  const hasCode = /```/.test(text);
-  if (hasCode) return 4;
-
-  // Check for verse/poetic structure: short lines, rhythmic, line breaks every ~8-12 words
-  const avgLineLen = lines.length > 0 ? wordCount / lines.length : 0;
-  const isVerse = avgLineLen < 14 && lines.length >= 4 && /\b(thou|thee|thy|shall|doth|'tis|o'er|ne'er|forsooth|alas|methinks|whence|hence|thence)\b/i.test(lower);
-  if (isVerse) return 2;
-
-  // Check for creative/literary prose
-  const hasCreativeProse = /\b(majestic|splendour|gleaming|golden|azure|emerald|crimson|ancient|timeless|endless|vast|boundless|radiant|glorious|mighty|proud|noble|fair|bright|gentle|swift|deep|wild|free)\b/i.test(lower);
-  const longLineCount = lines.filter(l => l.split(/\s+/).length > 20).length;
-  const isLiterary = hasCreativeProse && longLineCount < 2;
+  // Code
+  if (/```/.test(text)) return 4;
 
   // Bulleted or numbered list
-  const hasBullets = /^[-*]\s/m.test(text);
+  const hasBullets = /^[-*\u2022]\s/m.test(text);
   const hasNumbers = /^\d+[.)]\s/m.test(text);
   if (hasBullets || hasNumbers) return 3;
 
-  // Concise factual list (short, no bullets but enumerates items)
-  const hasEnumeration = /\b(1\.|2\.|3\.|first|second|third|one:|two:|three:)\b/i.test(lower);
-  if (hasEnumeration || (wordCount < 30 && !isLiterary)) return 0;
+  // Colon-formatted list: "Name: value" repeated 3+ times
+  const colonListLines = lines.filter(l => /^[A-Z][a-zA-Z\s]+:\s/u.test(l.trim()));
+  if (colonListLines.length >= 3) return 3;
 
-  // Prose explanation: longer, paragraph form
-  if (wordCount >= 30 || isLiterary) return 1;
+  // Verse: 8+ short lines (avg < 12 words), no single long line
+  const longLines = lines.filter(l => l.split(/\s+/).length > 16);
+  if (avgLineLen < 12 && lineCount >= 8 && longLines.length < 3) return 2;
 
-  // Default
-  return 0;
+  // Enumeration in prose: "first... second... third" or "X: Y, Z: W"
+  const hasEnumeration = /\b(first|second|third|fourth|fifth|one:|two:|three:)\b/i.test(lower) ||
+    (lines.filter(l => /[A-Z][a-z]+:\s+[A-Z]/.test(l)).length >= 3);
+  if (hasEnumeration || wordCount < 30) return 0;
+
+  // Prose explanation: longer paragraph form
+  return 1;
 }
 
 function buildSynesthesiaMatrix(traces: TraceData[]): number[][] {
