@@ -50,58 +50,75 @@ const chordLayout = d3Chord().padAngle(PAD_ANGLE).sortGroups(null);
 const SYN_INPUT_COLORS = ["#60a5fa", "#f472b6", "#34d399", "#a78bfa", "#fb923c"];
 const SYN_OUTPUT_COLORS = ["#60a5fa", "#f472b6", "#34d399", "#a78bfa", "#fb923c"];
 const SYN_INPUT_LABELS = [
-  "Simple Technical Q",
-  "Complex Technical Directive",
-  "Simple Creative Q",
-  "Simple Conversation",
-  "Complex Conversation",
+  "Direct Command",
+  "Factual Question",
+  "Creative Request",
+  "Simple Query",
+  "Complex Inquiry",
 ];
 const SYN_OUTPUT_LABELS = [
-  "Direct answer + code",
-  "Code + architecture",
-  "Evocative bullets",
-  "Concise reply",
-  "Structured, same tone",
+  "Concise List/Facts",
+  "Prose Explanation",
+  "Creative/Verse",
+  "Bulleted List",
+  "Technical/Code",
 ];
 
 function classifySynesthesiaPrompt(prompt: string): number {
   const text = prompt.trim();
-  const isTech = /\b(refactor|implement|build|create|rewrite|optimize|migrate|design|architect|convert|modify|configure)\b/i.test(text);
-  const isDirective = /^(refactor|implement|build|create|rewrite|optimize|migrate|design|architect|convert)\b/i.test(text);
-  const isCreativeWord = /\b(metaphor|idea|creative|imagine|story|narrative|poem|sci-fi|fantasy|world|character|theme|mood|aesthetic|concept)\b/i.test(text);
-  const isQuestion = text.endsWith("?") || /^(what|how|why|where|when|which|could|would|should)\b/i.test(text);
-  const isTechWord = /\b(code|function|api|command|script|library|package|npm|pip|docker|python|sql|git|cli|config|server|database|algorithm|loop|variable|class|error|bug)\b/i.test(text);
-  const isGreeting = /^(hello|hi|hey|good morning|good evening|good day|yo|sup|howdy)\b/i.test(text);
+  const lower = text.toLowerCase();
   const wordCount = text.split(/\s+/).length;
 
-  // Complex Technical Directive: long, technical, directive-like
-  if ((isTech || isDirective) && isTechWord && wordCount > 6) return 1;
-  // Simple Technical Question: question with technical keywords
-  if (isQuestion && isTechWord) return 0;
-  // Simple Creative Question: question with creative keywords
-  if (isQuestion && isCreativeWord) return 2;
-  // Simple Conversation: short greetings or very brief statements
-  if (isGreeting || wordCount <= 4) return 3;
-  // Complex Conversation: longer non-technical, narrative/personal
-  if (wordCount > 8) return 4;
-  // Default: Simple Conversation
+  const isCommand = /^(list|write|tell|show|give|create|build|find|explain|describe|summarize|generate|make|name|enumerate|state|define|compile|produce|draft|compose|prepare)\b/i.test(text);
+  const isQuestion = text.endsWith("?") || /^(what|how|why|where|when|which|who|whose|could|would|should|can|will|do|does|did|is|are|was|were)\b/i.test(lower);
+  const isCreative = /\b(sonnet|poem|poetry|verse|lyric|story|tale|narrative|metaphor|imagine|creative|song|ballad|haiku|limerick|ode|elegy|prose|fiction|fantasy|sci-fi|fable|myth)\b/i.test(lower);
+
+  // Creative Request: explicit creative keywords regardless of phrasing
+  if (isCreative) return 2;
+  // Factual Question: interrogative form seeking information
+  if (isQuestion) return 1;
+  // Direct Command: imperative action verb at start
+  if (isCommand) return 0;
+  // Complex Inquiry: long, multi-sentence
+  if (wordCount > 12) return 4;
+  // Simple Query: short, no strong signal
   return 3;
 }
 
 function classifySynesthesiaResponse(text: string): number {
   if (!text) return 3;
   const wordCount = text.split(/\s+/).length;
-  const hasCode = /```/.test(text);
-  const hasBullets = /^[-*]\s/m.test(text);
-  const hasArchitecture = /\b(architecture|design|pattern|component|module|layer|service|flow|diagram|overview|structure|approach)\b/i.test(text);
-  const isCreative = /\b(metaphor|poetic|evocative|vivid|atmosphere|mood|imagery|beautiful|stunning|breathtaking|shadow|light|color)\b/i.test(text);
-  const isConcise = wordCount < 20;
+  const lower = text.toLowerCase();
+  const lines = text.split("\n").filter(l => l.trim().length > 0);
 
-  if (hasCode && hasArchitecture) return 1;
-  if (hasCode && wordCount < 50) return 0;
-  if (isCreative && hasBullets) return 2;
-  if (isConcise) return 3;
-  return 4;
+  // Check for code
+  const hasCode = /```/.test(text);
+  if (hasCode) return 4;
+
+  // Check for verse/poetic structure: short lines, rhythmic, line breaks every ~8-12 words
+  const avgLineLen = lines.length > 0 ? wordCount / lines.length : 0;
+  const isVerse = avgLineLen < 14 && lines.length >= 4 && /\b(thou|thee|thy|shall|doth|'tis|o'er|ne'er|forsooth|alas|methinks|whence|hence|thence)\b/i.test(lower);
+  if (isVerse) return 2;
+
+  // Check for creative/literary prose
+  const hasCreativeProse = /\b(majestic|splendour|gleaming|golden|azure|emerald|crimson|ancient|timeless|endless|vast|boundless|radiant|glorious|mighty|proud|noble|fair|bright|gentle|swift|deep|wild|free)\b/i.test(lower);
+  const longLineCount = lines.filter(l => l.split(/\s+/).length > 20).length;
+  const isLiterary = hasCreativeProse && longLineCount < 2;
+
+  // Bulleted or numbered list
+  const hasBullets = /^[-*]\s/m.test(text);
+  const hasNumbers = /^\d+[.)]\s/m.test(text);
+  if (hasBullets || hasNumbers) return 3;
+
+  // Concise factual list (short, no bullets but enumerates items)
+  const hasEnumeration = /\b(1\.|2\.|3\.|first|second|third|one:|two:|three:)\b/i.test(lower);
+  if (hasEnumeration || (wordCount < 30 && !isLiterary)) return 0;
+
+  // Prose explanation: longer, paragraph form
+  if (wordCount >= 30 || isLiterary) return 1;
+
+  // Default
+  return 0;
 }
 
 function buildSynesthesiaMatrix(traces: TraceData[]): number[][] {
