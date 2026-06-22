@@ -3,6 +3,7 @@ import csv
 import io
 import json
 import logging
+import os
 import platform
 import subprocess
 import time
@@ -17,7 +18,7 @@ import psutil
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Gauge, generate_latest, REGISTRY
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models.trace import TraceSession
 from services.profile import compute_profile, ModelProfile
@@ -267,7 +268,15 @@ class NetworkConfigBody(BaseModel):
 
 @app.put("/api/network-config")
 async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
-    return config_manager.save(body.config)
+    result = config_manager.save(body.config)
+    # Sync the in-memory orchestrator model provider without re-writing disk
+    if "model_provider" in body.config:
+        mp = body.config["model_provider"]
+        from services.orchestrator import _set_model_provider_internal
+        _set_model_provider_internal(mp.get("provider", "local"))
+        if mp.get("provider") == "backoffice" and mp.get("model"):
+            config_manager.set_backoffice_model(mp["model"])
+    return result
 
 class ModelConfigBody(BaseModel):
     provider: str  # "local" or "backoffice"
@@ -276,7 +285,7 @@ class ModelConfigBody(BaseModel):
 # ── Model config ──────────────────────────────────────────────────
 @app.get("/api/config/model")
 async def get_model_config() -> dict[str, str]:
-    return {"provider": get_model_provider()}
+    return config_manager.get_model_provider_config()
 
 @app.post("/api/config/model")
 async def post_model_config(body: ModelConfigBody) -> dict[str, str]:
@@ -387,6 +396,23 @@ async def select_model(body: ModelSelectBody) -> dict[str, str]:
 class OrchestrateRequest(BaseModel):
     prompt: str
 
+class BatchRequest(BaseModel):
+    prompts: list[str]
+    model: str | None = None
+
+class BatchStatus(BaseModel):
+    batch_id: str
+    total: int
+    completed: int = 0
+    failed: int = 0
+    status: str = "running"  # running | done
+    trace_ids: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+_BATCH_CONCURRENCY = int(os.environ.get("BATCH_CONCURRENCY", "2"))
+_batch_semaphore = asyncio.Semaphore(_BATCH_CONCURRENCY)
+_batch_store: dict[str, BatchStatus] = {}
+
 _async_tasks: dict[str, asyncio.Task] = {}
 
 # ── Orchestration endpoints ───────────────────────────────────────
@@ -400,6 +426,51 @@ async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
     _async_tasks[session.id] = task
     task.add_done_callback(lambda _: _async_tasks.pop(session.id, None))
     return {"trace_id": session.id, "status": "started"}
+
+
+async def _process_batch(batch_id: str, prompts: list[str], trace_ids: list[str]) -> None:
+    from services.orchestrator import orchestrate
+    async def _run_one(prompt: str, tid: str) -> None:
+        async with _batch_semaphore:
+            try:
+                await orchestrate(prompt, tid)
+                _batch_store[batch_id].completed += 1
+            except Exception as e:
+                _batch_store[batch_id].failed += 1
+                logger.error("Batch trace %s failed: %s", tid, e)
+    tasks = [_run_one(p, tid) for p, tid in zip(prompts, trace_ids)]
+    await asyncio.gather(*tasks, return_exceptions=True)
+    _batch_store[batch_id].status = "done"
+
+
+@app.post("/api/traces/batch")
+async def api_batch_orchestrate(req: BatchRequest) -> dict:
+    if not req.prompts:
+        raise HTTPException(status_code=400, detail="No prompts provided")
+    logger.info("Batch request: %d prompts", len(req.prompts))
+    batch_id = uuid.uuid4().hex[:12]
+    from services.orchestrator import _store
+    trace_ids: list[str] = []
+    for p in req.prompts:
+        tid = uuid.uuid4().hex[:12]
+        trace_ids.append(tid)
+        session = TraceSession(id=tid, prompt=p, batch_id=batch_id)
+        _store[session.id] = session
+    _batch_store[batch_id] = BatchStatus(
+        batch_id=batch_id, total=len(req.prompts), trace_ids=trace_ids,
+    )
+    task = asyncio.create_task(_process_batch(batch_id, req.prompts, trace_ids))
+    _async_tasks[f"batch-{batch_id}"] = task
+    task.add_done_callback(lambda _: _async_tasks.pop(f"batch-{batch_id}", None))
+    return {"batch_id": batch_id, "total": len(req.prompts), "status": "started"}
+
+
+@app.get("/api/traces/batch/{batch_id}")
+async def api_batch_status(batch_id: str) -> BatchStatus:
+    status = _batch_store.get(batch_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    return status
 
 
 @app.get("/api/traces/profile", response_model=list[ModelProfile])
@@ -446,6 +517,27 @@ async def api_classify_synesth() -> dict:
     await _classifier_cycle()
     return {"status": "ok"}
 
+
+# ── Synesthesia Schema ─────────────────────────────────────────
+
+_SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "services", "synesthesia_schema.md")
+
+class SchemaBody(BaseModel):
+    content: str
+
+@app.get("/api/schema")
+async def get_schema() -> dict:
+    try:
+        with open(_SCHEMA_PATH, "r") as f:
+            return {"content": f.read()}
+    except FileNotFoundError:
+        return {"content": ""}
+
+@app.put("/api/schema")
+async def put_schema(body: SchemaBody) -> dict:
+    with open(_SCHEMA_PATH, "w") as f:
+        f.write(body.content)
+    return {"status": "ok"}
 
 # ── CSV Exports ──────────────────────────────────────────────────
 from fastapi.responses import StreamingResponse
@@ -709,7 +801,25 @@ def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_i
             "relationships, rather than relying solely on the pre-computed categories above. "
             "Note any patterns or insights that the category labels miss.\n\n"
             f"{samples}\n\n"
+            "IMPORTANT — You MUST reference specific examples from these raw samples in your analysis. "
+            "Quote or paraphrase actual prompts and responses. Do not rely solely on the aggregated "
+            "category counts above — they can hide nuance that the raw text reveals.\n\n"
         )
+
+    # Sentence-level confidence calibration
+    base += (
+        "CONFIDENCE RULES — Apply these throughout, not just in the opening:\n"
+        f"- This dataset has {total} traces total. Any relationship with fewer than 3 instances "
+        "is anecdotal and must be explicitly flagged as such.\n"
+        f"- The aggregated counts show how OFTEN each pattern occurred, not why. "
+        "Do not invent psychological explanations for the model's behavior — describe "
+        "what the data show, not what you speculate the model is 'thinking'.\n"
+        "- Use appropriately cautious language: 'suggests', 'tends to', 'may indicate' "
+        "for patterns with 3+ instances. Use 'a single instance shows', 'one example suggests' "
+        "for patterns with 1-2 instances. Never use 'always', 'proves', 'demonstrates'.\n"
+        "- If a pattern is based on 1-2 data points, say so explicitly in the same sentence, "
+        "not just in the opening caveat.\n\n"
+    )
 
     if rel_type == "cross":
         return base + (
@@ -809,4 +919,5 @@ if __name__ == "__main__":
     import uvicorn
     import os
     host = os.getenv("CONDUCTOR_HOST", "127.0.0.1")
-    uvicorn.run("main:app", host=host, port=8001, reload=True)
+    port = int(os.getenv("CONDUCTOR_PORT", "8001"))
+    uvicorn.run("main:app", host=host, port=port, reload=True)

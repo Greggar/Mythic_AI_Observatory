@@ -7,12 +7,14 @@ import SystemVitalsPanel from "@/components/SystemVitalsPanel";
 import SettingsModal from "@/components/SettingsModal";
 import SolarNexus from "@/components/SolarNexus";
 import PromptInput from "@/components/PromptInput";
+import BatchInput from "@/components/BatchInput";
 import ObservatoryPanel from "@/components/ObservatoryPanel";
 import TraceTimeline from "@/components/TraceTimeline";
 import IntelligencePanel from "@/components/IntelligencePanel";
 import ResourceConstellation from "@/components/ResourceConstellation";
 import DiscoveryEvents from "@/components/DiscoveryEvents";
 import MemoryConstellation from "@/components/MemoryConstellation";
+import TraceTable from "@/components/TraceTable";
 import EngineStatusPanel from "@/components/EngineStatusPanel";
 import ActivityFeed from "@/components/ActivityFeed";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -26,6 +28,7 @@ import PerformanceInsights from "@/components/PerformanceInsights";
 import PersonalityProfile from "@/components/PersonalityProfile";
 import TraceSummaryModal from "@/components/TraceSummaryModal";
 import RelationshipsPanel from "@/components/RelationshipsPanel";
+import { DEFAULT_CHART } from "@/data/chartOptions";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -41,6 +44,7 @@ export default function Home() {
   const [showSummary, setShowSummary] = useState(false);
   const [groupingMethod, setGroupingMethod] = useState<string>("ddc");
   const [visualizationType, setVisualizationType] = useState<string>("constellation");
+  const [batchMode, setBatchMode] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to timeline when a history trace is selected
@@ -121,7 +125,14 @@ export default function Home() {
   const activeTrace = replayTrace || trace;
 
   const isIdle = !activeTrace && !loading;
-  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "history">("systems");
+  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "history" | "analysis">("systems");
+  const [analysisType, setAnalysisType] = useState<string>("synesthesia");
+  const [chartType, setChartType] = useState<string>(DEFAULT_CHART[analysisType] || "confusion");
+
+  const handleAnalysisTypeChange = useCallback((id: string) => {
+    setAnalysisType(id);
+    setChartType(DEFAULT_CHART[id] || "chord");
+  }, []);
 
   return (
     <div className="flex flex-col flex-1 p-6 gap-6 max-w-7xl mx-auto w-full min-h-screen">
@@ -162,6 +173,16 @@ export default function Home() {
               }`}
             >
               History
+            </button>
+            <button
+              onClick={() => setActiveTab("analysis")}
+              className={`px-3 py-1.5 text-[11px] font-mono tracking-wider rounded-md transition-all ${
+                activeTab === "analysis"
+                  ? "bg-teal-mystic/15 text-teal-mystic shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Analysis
             </button>
           </nav>
         </div>
@@ -246,7 +267,33 @@ export default function Home() {
 
             <section className="flex-1 flex flex-col gap-6">
               <div className="flex flex-col gap-3">
-                <PromptInput onSubmit={handleSubmit} loading={loading} />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setBatchMode(false)}
+                    className={`text-[10px] font-mono tracking-wider px-2.5 py-1 rounded-full transition-colors ${
+                      !batchMode
+                        ? "bg-teal-mystic/15 text-teal-mystic border border-teal-mystic/20"
+                        : "text-zinc-600 hover:text-zinc-400 border border-transparent"
+                    }`}
+                  >
+                    Single
+                  </button>
+                  <button
+                    onClick={() => setBatchMode(true)}
+                    className={`text-[10px] font-mono tracking-wider px-2.5 py-1 rounded-full transition-colors ${
+                      batchMode
+                        ? "bg-teal-mystic/15 text-teal-mystic border border-teal-mystic/20"
+                        : "text-zinc-600 hover:text-zinc-400 border border-transparent"
+                    }`}
+                  >
+                    Batch
+                  </button>
+                </div>
+                {batchMode ? (
+                  <BatchInput onBatchComplete={() => setHistoryRefresh((n) => n + 1)} />
+                ) : (
+                  <PromptInput onSubmit={handleSubmit} loading={loading} />
+                )}
               </div>
 
               <ErrorBoundary>
@@ -277,26 +324,11 @@ export default function Home() {
         </ErrorBoundary>
       )}
 
-      {/* History Tab — aggregate trace browsing */}
+      {/* History Tab — pure trace browsing */}
       {activeTab === "history" && (
         <ErrorBoundary key="history">
           <div className="flex flex-1 gap-6">
-            <aside className="w-64 shrink-0 space-y-4">
-              <ErrorBoundary>
-                <IntelligencePanel
-                  telemetry={telemetry}
-                  connected={connected}
-                  trace={activeTrace}
-                  traceActive={activePhase === "replaying" || activePhase === "complete"}
-                  activeStepIndex={activeStep}
-                  phase={activePhase}
-                  noTrace={true}
-                />
-              </ErrorBoundary>
-            </aside>
-
-            <section className="flex-1 flex flex-col gap-6">
-              {/* Grouping, facets, and visualization controls */}
+            <div className="flex-1 flex flex-col gap-4">
               <div className="flex items-center gap-4 px-1 flex-wrap">
                 <div className="flex items-center gap-1.5">
                     <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Group by</span>
@@ -310,7 +342,6 @@ export default function Home() {
                       <option value="multilabel">Multi-Label</option>
                     </select>
                 </div>
-
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">View</span>
                   <select
@@ -332,20 +363,107 @@ export default function Home() {
                     visualization={visualizationType}
                   />
                 </ErrorBoundary>
+              </HoverProvider>
+              <TraceTable refreshTrigger={historyRefresh} />
+            </div>
+          </div>
+        </ErrorBoundary>
+      )}
+
+      {/* Analysis Tab — all analysis types */}
+      {activeTab === "analysis" && (
+        <ErrorBoundary key="analysis">
+          <div className="flex flex-1 gap-6">
+            <aside className="w-56 shrink-0 space-y-2">
+              <div className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase mb-2 px-1">Analysis Type</div>
+              {[
+                ["synesthesia", "Cognitive Synesthesia"],
+                ["drift", "Semantic Drift"],
+                ["cross", "DDC × LCC Cross"],
+                ["intonation", "Prompt Intonation"],
+                ["grammar", "Grammar Schema"],
+                ["mood-intent", "Mood × Intent"],
+                ["distribution", "Runtime Distribution"],
+                ["personality", "Personality Profile"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => handleAnalysisTypeChange(id)}
+                  className={`w-full text-left px-3 py-2 text-[11px] font-mono rounded-lg transition-all ${
+                    analysisType === id
+                      ? "bg-teal-mystic/10 text-teal-mystic border border-teal-mystic/20"
+                      : "text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.03] border border-transparent"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </aside>
+
+            <section className="flex-1 flex flex-col gap-6">
+              {analysisType === "distribution" ? (
+                <>
+                  <div className="flex items-center justify-end gap-2">
+                    <select
+                      value={chartType}
+                      onChange={(e) => setChartType(e.target.value)}
+                      className="bg-white/[0.04] border border-white/[0.08] rounded text-[9px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+                    >
+                      <option value="celestial">Celestial Scatter</option>
+                      <option value="histogram">Duration Histogram</option>
+                      <option value="timeline">Timeline</option>
+                    </select>
+                  </div>
+                  {chartType === "celestial" ? (
+                    <ErrorBoundary>
+                      <CelestialDistribution
+                        onSelect={handleHistorySelect}
+                        refreshTrigger={historyRefresh}
+                      />
+                    </ErrorBoundary>
+                  ) : (
+                    <div className="glass-panel p-6 flex items-center justify-center" style={{ minHeight: "200px" }}>
+                      <span className="text-[10px] font-mono text-zinc-600">Coming soon — switch to Celestial Scatter</span>
+                    </div>
+                  )}
+                </>
+              ) : analysisType === "personality" ? (
+                <>
+                  <div className="flex items-center justify-end gap-2">
+                    <select
+                      value={chartType}
+                      onChange={(e) => setChartType(e.target.value)}
+                      className="bg-white/[0.04] border border-white/[0.08] rounded text-[9px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+                    >
+                      <option value="cards">Profile Cards</option>
+                      <option value="radar">Radar Comparison</option>
+                      <option value="bar">Model Bar Chart</option>
+                    </select>
+                  </div>
+                  {chartType === "cards" ? (
+                    <ErrorBoundary><PersonalityProfile /></ErrorBoundary>
+                  ) : (
+                    <div className="glass-panel p-6 flex items-center justify-center" style={{ minHeight: "200px" }}>
+                      <span className="text-[10px] font-mono text-zinc-600">Coming soon — switch to Profile Cards</span>
+                    </div>
+                  )}
+                </>
+              ) : (
                 <ErrorBoundary>
-                  <RelationshipsPanel refreshTrigger={historyRefresh} />
-                </ErrorBoundary>
-                <ErrorBoundary>
-                  <CelestialDistribution
-                    onSelect={handleHistorySelect}
+                  <RelationshipsPanel
                     refreshTrigger={historyRefresh}
+                    initialRelType={analysisType as any}
+                    chartType={chartType}
+                    onChartTypeChange={setChartType}
                   />
                 </ErrorBoundary>
-              </HoverProvider>
+              )}
             </section>
 
-            <aside className="w-64 shrink-0 space-y-4">
-              <ErrorBoundary><PersonalityProfile /></ErrorBoundary>
+            <aside className="w-48 shrink-0 space-y-4">
+              {analysisType !== "personality" && (
+                <ErrorBoundary><PersonalityProfile /></ErrorBoundary>
+              )}
             </aside>
           </div>
         </ErrorBoundary>

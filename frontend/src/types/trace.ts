@@ -11,6 +11,9 @@ export interface DdcEntry {
   action: string | null;
   domain: string | null;
   lineage: { tier: number; code: string; label: string }[];
+  score?: number;
+  margin?: number;
+  top_scores?: { code: string; label: string; score: number }[];
 }
 
 export interface DdcMetadata {
@@ -26,6 +29,9 @@ export interface LccEntry {
   action: string | null;
   domain: string | null;
   lineage: { tier: number; code: string; label: string }[];
+  score?: number;
+  margin?: number;
+  top_scores?: { code: string; label: string; score: number }[];
 }
 
 export interface LccMetadata {
@@ -60,13 +66,14 @@ export interface TraceStep {
 }
 
 export interface SynesthClassification {
-  input_cat: number;
-  output_cat: number;
+  input_probs: number[];
+  output_probs: number[];
 }
 
 export interface TraceSession {
   id: string;
   prompt: string;
+  batch_id?: string;
   status: "processing" | "complete" | "error";
   steps: TraceStep[];
   output: string | null;
@@ -84,4 +91,14 @@ export interface TraceSession {
   ddc?: DdcMetadata;
   lcc?: LccMetadata;
   synesth?: SynesthClassification;
+}
+
+export interface BatchStatus {
+  batch_id: string;
+  total: number;
+  completed: number;
+  failed: number;
+  status: "running" | "done";
+  trace_ids: string[];
+  created_at: string;
 }

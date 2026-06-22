@@ -68,7 +68,7 @@ def get_backoffice_url() -> str:
 
 def get_backoffice_model() -> str:
     svc = get_service("backoffice_llm")
-    return svc.get("model", "docker.io/ai/qwen3.5:9B-UD-Q4_K_XL") if svc else "docker.io/ai/qwen3.5:9B-UD-Q4_K_XL"
+    return svc.get("model", "") if svc else ""
 
 
 def set_backoffice_model(model: str) -> None:
@@ -92,6 +92,36 @@ def get_analysis_config() -> dict[str, str]:
 def set_analysis_config(model: str, provider: str) -> None:
     cfg = _load()
     cfg["analysis"] = {"model": model, "provider": provider}
+    save(cfg)
+
+
+def get_classifier_config() -> dict[str, Any]:
+    cfg = _load()
+    cc = cfg.get("classifier", {})
+    return {
+        "model": cc.get("model", "qwen2.5:1.5b"),
+        "poll_interval": cc.get("poll_interval", 45),
+    }
+
+def get_embeddings_config() -> dict[str, Any]:
+    cfg = _load()
+    ec = cfg.get("embeddings", {})
+    return {
+        "model": ec.get("model", "all-minilm:22m"),
+        "cache_dir": ec.get("cache_dir", "/tmp"),
+    }
+
+def get_model_provider_config() -> dict[str, str]:
+    cfg = _load()
+    mc = cfg.get("model_provider", {})
+    return {
+        "provider": mc.get("provider", "local"),
+        "model": mc.get("model", ""),
+    }
+
+def set_model_provider_config(provider: str, model: str = "") -> None:
+    cfg = _load()
+    cfg["model_provider"] = {"provider": provider, "model": model}
     save(cfg)
 
 

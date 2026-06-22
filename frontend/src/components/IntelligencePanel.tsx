@@ -18,6 +18,7 @@ import type { TraceSession, TraceStep } from "@/types/trace";
 import StageDebate from "@/components/StageDebate";
 import TraceRadar from "@/components/TraceRadar";
 import ForkInTheRoad from "@/components/ForkInTheRoad";
+import TokenVelocity from "@/components/TokenVelocity";
 
 interface Props {
   telemetry: Telemetry | null;
@@ -500,6 +501,11 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
             {currentStage.label === "Intent Classification" && Array.isArray(currentStage.metadata?.intent_probs) && (
               <ForkInTheRoad intents={currentStage.metadata.intent_probs as IntentProb[]} />
             )}
+            {currentStage.label === "Response Generation" && (
+              <div className="mt-3">
+                <TokenVelocity step={currentStage} isReplay={phase === "replaying"} />
+              </div>
+            )}
             {(currentStage.metadata?.output as string | undefined) && (
               <div className="mt-2 text-[11px] text-zinc-400 font-mono leading-relaxed line-clamp-2">
                 {highlightKeyWords(currentStage.metadata.output as string, trace?.prompt || "")}
@@ -664,14 +670,31 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
             <span className="text-xs font-mono text-zinc-400">{trace.model_used || "qwen3.5:9B"}</span>
           </div>
 
-          {/* Token estimate */}
-          {trace.output && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
-              <Sparkles size={14} className="text-purple-400" />
-              <span className="text-xs text-zinc-400 flex-1">Tokens</span>
-              <span className="text-xs font-mono text-zinc-400">
-                ~{Math.ceil(trace.output.length / 4)}
-              </span>
+          {/* Token velocity — precise from eval_count */}
+          {trace.steps.find((s) => s.label === "Response Generation") && (
+            <TokenVelocity
+              step={trace.steps.find((s) => s.label === "Response Generation")!}
+              isReplay={true}
+            />
+          )}
+
+          {/* Per-stage token breakdown */}
+          {trace.steps.some((s) => s.eval_count != null) && (
+            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
+              <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-500">Per-Stage Tokens</div>
+              {trace.steps.map((s, i) => {
+                if (s.eval_count == null) return null;
+                const tokS = s.eval_duration_ns ? (s.eval_count / (s.eval_duration_ns / 1e9)).toFixed(1) : "—";
+                const dur = s.duration_ms ? (s.duration_ms > 1000 ? `${(s.duration_ms / 1000).toFixed(1)}s` : `${s.duration_ms}ms`) : "—";
+                return (
+                  <div key={i} className="flex items-center gap-2 text-[10px] font-mono">
+                    <span className="text-zinc-500 w-28 truncate">{s.label}</span>
+                    <span className="text-purple-400 w-20">{s.eval_count} tok</span>
+                    <span className="text-zinc-500 w-16">{tokS} t/s</span>
+                    <span className="text-zinc-600 w-16">{dur}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
 

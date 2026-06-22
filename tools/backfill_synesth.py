@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Backfill synesthesia classifications using backoffice GPU.
+"""Backfill synesthesia classifications using embedding similarity.
 
 Reads all existing traces from traces.jsonl, classifies each via the
-backoffice LLM, and writes results to synesth_cache.json.
+embedding-based synesth classifier (all-minilm), and writes results to
+synesth_cache.json.
 
 Usage:
-    python tools/backfill_synesth.py              # backoffice GPU
-    python tools/backfill_synesth.py --local       # local qwen2.5:1.5b
+    python tools/backfill_synesth.py
 """
 
-import argparse
 import asyncio
 import json
 import os
@@ -18,40 +17,16 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
-from services.classifier_agent import classify_trace_to_cache, load_schema
-from services import config_manager
+from services.classifier_agent import classify_trace_to_cache
 
 HISTORY_FILE = os.path.join(
     os.path.dirname(__file__), "..", "backend", "data", "traces.jsonl"
 )
 
-CONCURRENCY = 1
+CONCURRENCY = 5
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Backfill synesthesia classifications")
-    parser.add_argument("--local", action="store_true", help="Use local model instead of backoffice GPU")
-    args = parser.parse_args()
-
-    schema = load_schema()
-    if not schema:
-        print("ERROR: No schema found at backend/services/synesthesia_schema.md")
-        sys.exit(1)
-    print(f"Schema loaded ({len(schema)} chars)")
-
-    if args.local:
-        base_url = config_manager.get_ollama_url()
-        model_name = "qwen2.5:1.5b"
-        print(f"Using LOCAL: {base_url} / {model_name}")
-    else:
-        base_url = config_manager.get_backoffice_url()
-        model_name = config_manager.get_backoffice_model()
-        print(f"Using BACKOFFICE: {base_url} / {model_name}")
-
-    if not base_url:
-        print("ERROR: No URL configured for the selected provider")
-        sys.exit(1)
-
     if not os.path.exists(HISTORY_FILE):
         print("No trace history found")
         return
@@ -84,7 +59,7 @@ async def main() -> None:
 
     async def worker(t: TraceSession) -> None:
         async with sem:
-            ok = await classify_trace_to_cache(t, schema, base_url=base_url, model_name=model_name)
+            ok = await classify_trace_to_cache(t)
             if ok:
                 print(f"  ✓ {t.id[:12]} {t.prompt[:50]}")
             else:

@@ -71,5 +71,9 @@
   "analysis": {
     "model": "docker.io/ai/gpt-oss:20B",
     "provider": "backoffice"
+  },
+  "model_provider": {
+    "provider": "local",
+    "model": "Impulse2000/smollm3:latest"
   }
 }

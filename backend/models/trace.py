@@ -34,6 +34,9 @@ class DdcEntry(BaseModel):
     action: str | None = None  # e.g. "Programming", "Analysis", "Explanation"
     domain: str | None = None  # e.g. "Computer Science", "Economics"
     lineage: list[dict] = Field(default_factory=list)  # tier: {tier, code, label}
+    score: float = 0.0  # cosine similarity of the winning category
+    margin: float = 0.0  # score - runner_up_score (breathing room)
+    top_scores: list[dict] = Field(default_factory=list)  # [{code, label, score}] top-5
 
 
 class DdcMetadata(BaseModel):
@@ -49,6 +52,9 @@ class LccEntry(BaseModel):
     action: str | None = None
     domain: str | None = None
     lineage: list[dict] = Field(default_factory=list)
+    score: float = 0.0  # cosine similarity of the winning category
+    margin: float = 0.0  # score - runner_up_score
+    top_scores: list[dict] = Field(default_factory=list)  # [{code, label, score}] top-5
 
 
 class LccMetadata(BaseModel):
@@ -59,8 +65,8 @@ class LccMetadata(BaseModel):
 
 
 class SynesthClassification(BaseModel):
-    input_cat: int  # 0-4: Direct Command, Factual Question, Creative Request, Simple Query, Complex Inquiry
-    output_cat: int  # 0-4: Concise List/Facts, Prose Explanation, Creative/Verse, Bulleted List, Technical/Code
+    input_probs: list[float]  # 5 scores 0.0-1.0: Direct Command, Factual Question, Creative Request, Simple Query, Complex Inquiry
+    output_probs: list[float]  # 5 scores 0.0-1.0: Concise List/Facts, Prose Explanation, Creative/Verse, Bulleted List, Technical/Code
 
 
 class TelemetryImpact(BaseModel):
@@ -73,6 +79,7 @@ class TelemetryImpact(BaseModel):
 class TraceSession(BaseModel):
     id: str
     prompt: str
+    batch_id: str | None = None
     status: str = "processing"  # processing | complete | error
     steps: list[TraceStep] = Field(default_factory=list)
     output: str | None = None

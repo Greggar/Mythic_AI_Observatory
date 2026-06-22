@@ -3,16 +3,17 @@
 import json
 import logging
 import math
+import os
 from typing import Any
 
 import httpx
 
 from models.trace import DdcMetadata, DdcEntry
+from services import config_manager
 
 logger = logging.getLogger("conductor")
 
-OLLAMA_URL = "http://127.0.0.1:11434"
-EMBED_MODEL = "all-minilm:22m"
+EMBED_MODEL = os.environ.get("EMBEDDING_MODEL") or config_manager.get_embeddings_config().get("model", "all-minilm:22m")
 
 DDC_CATEGORIES: list[dict[str, Any]] = [
     {"code": "000", "label": "Computer Science & General Works", "description": "Computer science, information systems, general encyclopedias, knowledge organization, books, writing systems, reference works, facts, trivia, general questions, how things work"},
@@ -144,9 +145,10 @@ _embeddings_cache: dict[str, list[float]] | None = None
 
 
 async def _compute_embedding(text: str) -> list[float]:
+    base_url = config_manager.get_ollama_url() or "http://127.0.0.1:11434"
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"{OLLAMA_URL}/api/embeddings",
+            f"{base_url}/api/embeddings",
             json={"model": EMBED_MODEL, "prompt": text[:512]},
         )
         resp.raise_for_status()
@@ -159,7 +161,8 @@ async def _get_category_embeddings() -> dict[str, list[float]]:
     if _embeddings_cache is not None:
         return _embeddings_cache
     
-    cache_file = "/tmp/ddc_category_embeddings.json"
+    cache_dir = config_manager.get_embeddings_config().get("cache_dir", "/tmp")
+    cache_file = os.path.join(cache_dir, "ddc_category_embeddings.json")
     try:
         with open(cache_file) as f:
             _embeddings_cache = json.load(f)
@@ -180,21 +183,37 @@ async def _get_category_embeddings() -> dict[str, list[float]]:
     return _embeddings_cache
 
 
-async def classify_multi(text: str, top_n: int = 3, is_empty: bool = False) -> list[DdcEntry]:
-    """Return top-N DDC classifications above threshold."""
-    if is_empty or not text or len(text.strip()) < 10:
-        return []
-
+async def _score_categories(text: str) -> list[tuple[float, str]] | None:
+    """Compute cosine similarity scores for all DDC categories, sorted descending."""
     category_embs = await _get_category_embeddings()
     text_emb = await _compute_embedding(text)
     if not text_emb:
-        return []
-
+        return None
     scores: list[tuple[float, str]] = []
     for code, cat_emb in category_embs.items():
         score = _cosine_similarity(text_emb, cat_emb)
         scores.append((score, code))
     scores.sort(reverse=True, key=lambda x: x[0])
+    return scores
+
+
+def _build_top_scores(scores: list[tuple[float, str]], top_n: int = 5) -> list[dict]:
+    """Build top_scores list from sorted (score, code) pairs."""
+    result: list[dict] = []
+    for score, code in scores[:top_n]:
+        cat = next((c for c in DDC_CATEGORIES if c["code"] == code), None)
+        result.append({"code": code, "label": cat["label"] if cat else "", "score": round(score, 4)})
+    return result
+
+
+async def classify_multi(text: str, top_n: int = 3, is_empty: bool = False) -> list[DdcEntry]:
+    """Return top-N DDC classifications above threshold."""
+    if is_empty or not text or len(text.strip()) < 10:
+        return []
+
+    scores = await _score_categories(text)
+    if scores is None:
+        return []
 
     results: list[DdcEntry] = []
     for score, code in scores:
@@ -209,6 +228,9 @@ async def classify_multi(text: str, top_n: int = 3, is_empty: bool = False) -> l
             action=_infer_action(text),
             domain=_infer_domain(code),
             lineage=_build_lineage(code, cat["label"]),
+            score=round(score, 4),
+            margin=round(score - (scores[0][0] if scores else 0), 4),
+            top_scores=_build_top_scores(scores),
         ))
         if len(results) >= top_n:
             break
@@ -219,18 +241,11 @@ async def classify(text: str, is_empty: bool = False) -> DdcEntry | None:
     if is_empty or not text or len(text.strip()) < 10:
         return None
 
-    category_embs = await _get_category_embeddings()
-    text_emb = await _compute_embedding(text)
-    if not text_emb:
+    scores = await _score_categories(text)
+    if not scores:
         return None
 
-    best_code = "000"
-    best_score = -1.0
-    for code, cat_emb in category_embs.items():
-        score = _cosine_similarity(text_emb, cat_emb)
-        if score > best_score:
-            best_score = score
-            best_code = code
+    best_score, best_code = scores[0]
 
     if best_score < 0.10:
         return None
@@ -238,6 +253,8 @@ async def classify(text: str, is_empty: bool = False) -> DdcEntry | None:
     cat = next((c for c in DDC_CATEGORIES if c["code"] == best_code), None)
     if not cat:
         return None
+
+    margin = best_score - (scores[1][0] if len(scores) > 1 else 0.0)
 
     action = _infer_action(text)
     domain = _infer_domain(best_code)
@@ -249,6 +266,9 @@ async def classify(text: str, is_empty: bool = False) -> DdcEntry | None:
         action=action,
         domain=domain,
         lineage=lineage,
+        score=round(best_score, 4),
+        margin=round(margin, 4),
+        top_scores=_build_top_scores(scores),
     )
 
 

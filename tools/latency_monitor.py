@@ -8,7 +8,7 @@ import time
 import sys
 from typing import List, Dict, Optional
 
-API_BASE = "http://127.0.0.1:8001"
+API_BASE = os.environ.get("LATENCY_API_URL", "http://127.0.0.1:8001")
 DATA_FILE = os.path.expanduser("~/.latency_monitor_cache.json")
 
 STAGE_LABELS = [

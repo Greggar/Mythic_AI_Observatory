@@ -30,6 +30,9 @@ interface ClassDisplay {
   label: string;
   action: string | null;
   domain: string | null;
+  score?: number;
+  margin?: number;
+  top_scores?: { code: string; label: string; score: number }[];
 }
 
 interface HistoryEntry {
@@ -784,16 +787,30 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
                   <span>· {dotAnnotations.length} note{dotAnnotations.length > 1 ? "s" : ""}</span>
                 )}
               </div>
-              {hovered.entry.ddc?.prompt && (
-                <div className="mt-1.5 text-[8px] text-teal-mystic/50 leading-tight">
-                  <span>DDC: {hovered.entry.ddc.prompt.code} {hovered.entry.ddc.prompt.label}</span>
-                </div>
-              )}
-              {hovered.entry.lcc?.prompt && (
-                <div className="text-[8px] text-purple-400/50 leading-tight">
-                  <span>LCC: {hovered.entry.lcc.prompt.code} {hovered.entry.lcc.prompt.label}</span>
-                </div>
-              )}
+              {hovered.entry.ddc?.prompt && (() => {
+                const e = hovered.entry.ddc!.prompt!;
+                const m = e.margin ?? 0;
+                const color = m > 0.05 ? "#34d399" : m > 0.02 ? "#fbbf24" : "#f87171";
+                return (
+                  <div className="mt-1.5 text-[8px] leading-tight flex items-center gap-1.5" title={`score: ${(e.score ?? 0).toFixed(3)} margin: ${m.toFixed(3)}`}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block shrink-0" style={{ backgroundColor: color }} />
+                    <span className="text-teal-mystic/50">DDC: {e.code} {e.label}</span>
+                    <span className="text-zinc-600" style={{ fontSize: "7px" }}>({(e.score ?? 0).toFixed(2)})</span>
+                  </div>
+                );
+              })()}
+              {hovered.entry.lcc?.prompt && (() => {
+                const e = hovered.entry.lcc!.prompt!;
+                const m = e.margin ?? 0;
+                const color = m > 0.05 ? "#34d399" : m > 0.02 ? "#fbbf24" : "#f87171";
+                return (
+                  <div className="text-[8px] leading-tight flex items-center gap-1.5" title={`score: ${(e.score ?? 0).toFixed(3)} margin: ${m.toFixed(3)}`}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block shrink-0" style={{ backgroundColor: color }} />
+                    <span className="text-purple-400/50">LCC: {e.code} {e.label}</span>
+                    <span className="text-zinc-600" style={{ fontSize: "7px" }}>({(e.score ?? 0).toFixed(2)})</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );

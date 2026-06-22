@@ -20,10 +20,19 @@ from services.lcc_embeddings import classify_lcc, classify_multi as classify_mul
 
 # Set to "local" to use Gingerlong's CPU, "backoffice" for GPU worker
 # Use set_model_provider() to change at runtime
-_MODEL_PROVIDER: str = os.environ.get("ORCHESTRATOR_MODEL", "local").lower()
+_model_provider_cfg = config_manager.get_model_provider_config()
+_MODEL_PROVIDER: str = os.environ.get("ORCHESTRATOR_MODEL", _model_provider_cfg.get("provider", "local")).lower()
 
 def get_model_provider() -> str:
     return _MODEL_PROVIDER
+
+def _set_model_provider_internal(value: str) -> None:
+    """Update the in-memory provider global without writing to disk."""
+    global _MODEL_PROVIDER
+    value = value.lower()
+    if value not in ("local", "backoffice"):
+        raise ValueError(f"Invalid model provider: {value!r}. Must be 'local' or 'backoffice'.")
+    _MODEL_PROVIDER = value
 
 def set_model_provider(value: str) -> None:
     global _MODEL_PROVIDER
@@ -31,9 +40,10 @@ def set_model_provider(value: str) -> None:
     if value not in ("local", "backoffice"):
         raise ValueError(f"Invalid model provider: {value!r}. Must be 'local' or 'backoffice'.")
     _MODEL_PROVIDER = value
+    config_manager.set_model_provider_config(value)
     logger.info("Model provider switched to: %s", value)
 
-LLM_TIMEOUT = 180.0  # longer timeout for CPU-bound local inference
+LLM_TIMEOUT = 300.0  # longer timeout for CPU-bound local inference; concurrent traces queue
 
 MAX_HISTORY = 500
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "traces.jsonl")
@@ -48,7 +58,7 @@ STAGES: list[dict[str, Any]] = [
                "Example: {\"classification\": \"User is asking a factual question about history.\", \"intents\": [{\"label\": \"factual_query\", \"confidence\": 0.85, \"reasoning\": \"Directly answers the factual request with evidence.\"}, {\"label\": \"educational_request\", \"confidence\": 0.10, \"reasoning\": \"While related, the user didn't ask for a lesson.\"}, {\"label\": \"casual_curiosity\", \"confidence\": 0.05, \"reasoning\": \"The phrasing is formal, not casual.\"}]}"},
     {"id": "step-3", "label": "Agent Selection", "model": None, "system": None},
     {"id": "step-4", "label": "Memory Retrieval", "model": None, "system": None},
-    {"id": "step-5", "label": "Context Synthesis", "model": "backoffice",
+    {"id": "step-5", "label": "Context Synthesis", "model": None,
      "system": "You are a synthesizer. In one sentence, note the key context for responding to this request."},
     {"id": "step-6", "label": "Response Generation", "model": "backoffice",
      "system": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user."},
@@ -144,6 +154,24 @@ async def warmup_model() -> None:
     except Exception as e:
         logger.warning("Model warm-up failed (non-fatal): %s", e)
 
+    # Warm up analysis model if different from execution model
+    if ANALYSIS_MODEL and ANALYSIS_MODEL != model_name:
+        an_url = config_manager.get_backoffice_url() if ANALYSIS_PROVIDER == "backoffice" else base_url
+        if an_url:
+            an_payload = {
+                "model": ANALYSIS_MODEL,
+                "prompt": "hello",
+                "stream": False,
+                "options": {"num_ctx": 4096},
+            }
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    resp = await client.post(f"{an_url}/api/generate", json=an_payload)
+                    resp.raise_for_status()
+                    logger.info("Analysis model warm-up complete: %s (%s)", ANALYSIS_MODEL, resp.status_code)
+            except Exception as e:
+                logger.warning("Analysis model warm-up failed (non-fatal): %s", e)
+
 
 def _resolve_model_url(model_key: str) -> tuple[str, str]:
     if _MODEL_PROVIDER == "local":
@@ -165,6 +193,10 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
     else:
         base_url, model_name = _resolve_model_url(model)
 
+    # Strip Docker registry prefix — the runner API expects the short name
+    if "/" in model_name:
+        model_name = model_name.split("/")[-1]
+
     payload: dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
@@ -174,6 +206,8 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
     provider_for_ctx = ANALYSIS_PROVIDER if model_name_override else _MODEL_PROVIDER
     if provider_for_ctx == "local":
         payload["options"] = {"num_ctx": 4096}
+    else:
+        payload["options"] = {"num_ctx": 16384}
 
     if system:
         payload["system"] = system
@@ -189,6 +223,13 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
             eval_count = data.get("eval_count")
             eval_duration = data.get("eval_duration")
             return result, eval_count, eval_duration
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                msg = f"Model '{model_name}' not found on {base_url}. Use 'ollama pull {model_name}' to download it."
+            else:
+                msg = f"{model_name} error: {e}"
+            logger.error("Model call failed: %s", msg)
+            return f"[{model_name} error: {msg}]", None, None
         except Exception as e:
             logger.error("Model call failed: %s", e)
             return f"[{model_name} error: {e}]", None, None
@@ -284,7 +325,10 @@ async def _check_machine_reachable(machine: dict, services: dict) -> bool:
     except Exception:
         pass
     return False
-
+def _fmt_ms(ms: int | float) -> str:
+    if ms < 1000:
+        return f"{int(ms)}ms"
+    return f"{ms / 1000:.1f}s"
 
 async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
     if not session.steps:
@@ -293,166 +337,182 @@ async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
     step_map = {s.label: s.duration_ms for s in session.steps if s.label and s.duration_ms}
     total_ms = sum(step_map.values())
 
-    stages_json = json.dumps(step_map, indent=2)
+    insights: list[LlmInsight] = []
+    model_label = session.model_used or LOCAL_MODEL or "unknown"
+
+    # Slowest stage
+    if step_map:
+        slowest_label, slowest_ms = max(step_map.items(), key=lambda x: x[1] or 0)
+        pct = f"{(slowest_ms / total_ms * 100):.0f}" if total_ms > 0 else "?"
+        if slowest_ms and slowest_ms > 5000:
+            insights.append(LlmInsight(
+                type="info",
+                title=f"{slowest_label} dominates",
+                body=f"{slowest_label} took {_fmt_ms(slowest_ms)} ({pct}% of run). "
+                     f"This is the primary bottleneck."
+            ))
+
+    # Error detection
+    for s in session.steps:
+        if s.status == "error":
+            err_out = (s.metadata.get("output") or "")[:120] if s.metadata else ""
+            insights.append(LlmInsight(
+                type="recommendation",
+                title=f"{s.label} failed",
+                body=f"Stage errored: {err_out or 'unknown reason'}. Review pipeline logs."
+            ))
+
+    # Total pipeline time
+    if total_ms > 120000:
+        insights.append(LlmInsight(
+            type="info",
+            title="Slow pipeline",
+            body=f"Total time {_fmt_ms(total_ms)}. Consider using a GPU-backed model or reducing retrieval depth."
+        ))
+    elif total_ms < 5000:
+        insights.append(LlmInsight(
+            type="info",
+            title="Fast pipeline",
+            body=f"Completed in {_fmt_ms(total_ms)} — likely prompt caching or warm model."
+        ))
+
+    # Cold start heuristic: if first stage is much slower than the rest
+    steps_with_time = [s for s in session.steps if s.duration_ms]
+    if len(steps_with_time) >= 3:
+        first_ms = steps_with_time[0].duration_ms or 0
+        median_of_rest = sorted([s.duration_ms or 0 for s in steps_with_time[1:]])
+        rest_med = median_of_rest[len(median_of_rest) // 2] if median_of_rest else 0
+        if first_ms > rest_med * 3 and first_ms > 5000:
+            insights.append(LlmInsight(
+                type="info",
+                title="Cold start detected",
+                body=f"First stage ({steps_with_time[0].label}) took {_fmt_ms(first_ms)} — "
+                     f"{int(first_ms / (rest_med or 1))}x the median of subsequent stages. "
+                     f"Model was likely paged out of RAM."
+            ))
+
+    # Network architecture context
     arch = await _build_architecture_context()
+    unreachable = [line for line in arch.split("\n") if "unreachable" in line.lower()]
+    if unreachable:
+        service_names = [u.split(":")[0].strip() for u in unreachable if ":" in u]
+        if service_names:
+            insights.append(LlmInsight(
+                type="recommendation",
+                title="Unreachable services",
+                body=f"Could not reach: {', '.join(service_names)}. Check network connectivity."
+            ))
 
-    system_prompt = (
-        "You are an AI observability analyst. Given trace data and system architecture, "
-        "generate insights about pipeline performance.\n\n"
-        "SYSTEM ARCHITECTURE (live network topology):\n"
-        f"{arch}\n\n"
-        "Generate exactly 2-4 insights as a JSON array. "
-        'Each object has: "type" ("info" or "recommendation"), "title" (short), "body" (1-2 sentences).\n'
-        "Rules:\n"
-        "- info: factual observation about the trace\n"
-        "- recommendation: specific actionable suggestion based on architecture\n"
-        "- Do NOT mention the model response content, only latency and system behavior\n"
-        "- Focus on bottlenecks, cold starts, and hardware-specific observations\n"
-        "- If a remote GPU worker is unreachable, recommend investigating the connection\n"
-        "- Return ONLY the JSON array, no other text"
-    )
-
-    prompt = (
-        f"TRACE DATA:\n"
-        f'prompt: "{session.prompt[:100]}"\n'
-        f"model: {session.model_used or LOCAL_MODEL or 'unknown'}\n"
-        f"total_ms: {total_ms}\n"
-        f"stages:\n{stages_json}\n\n"
-        f"Generate 2-4 insights as a JSON array."
-    )
-
-    base_url = config_manager.get_ollama_url()
-    model_name = LOCAL_MODEL
-
-    payload = {
-        "model": model_name,
-        "prompt": prompt,
-        "system": system_prompt,
-        "stream": False,
-        "options": {"num_ctx": 4096},
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
-            resp = await client.post(f"{base_url}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            raw = data.get("response", "").strip()
-            if not raw:
-                raw = data.get("thinking", "").strip()
-
-            raw = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-            insights_data = json.loads(raw)
-            if isinstance(insights_data, list):
-                return [LlmInsight(**i) for i in insights_data if "type" in i and "title" in i and "body" in i]
-    except Exception as e:
-        logger.warning("LLM insight generation failed: %s", e)
-
-    return []
+    return insights[:6]
 
 
 async def _generate_response_rationale(session: TraceSession) -> str | None:
     if not session.output or not session.steps:
         return None
 
-    step_summary = []
-    for s in session.steps:
-        out = (s.metadata.get("output") or "")[:300] if s.metadata else ""
-        step_summary.append(f"[{s.label}]: {out}")
+    intent_step = next((s for s in session.steps if s.label == "Intent Classification"), None)
+    intent_info = ""
+    if intent_step and intent_step.metadata:
+        intent_info = intent_step.metadata.get("output", "") or ""
 
-    context_step = next((s for s in session.steps if s.label == "Context Synthesis"), None)
-    assembled = (context_step.context_assembled or "")[:1500] if context_step else ""
+    mem_step = next((s for s in session.steps if s.label == "Memory Retrieval"), None)
+    mem_info = ""
+    if mem_step and mem_step.metadata:
+        chunks = mem_step.metadata.get("retrieved_chunks", [])
+        used = sum(1 for c in chunks if c.get("used"))
+        if chunks:
+            mem_info = f"Based on {len(chunks)} past trace(s), {used} directly relevant. "
 
-    prompt = (
-        f"User prompt: \"{session.prompt}\"\n\n"
-        f"Step-by-step trace:\n" + "\n".join(step_summary) + "\n\n"
-        f"Full context sent to Response Generation:\n{assembled}\n\n"
-        f"Final output: \"{session.output[:500]}\"\n\n"
-        "You are the AI model that generated this response. Given the steps above, "
-        "explain in 2-3 sentences why you chose this specific response. "
-        "Focus on: how earlier step outputs influenced your decision, "
-        "what tone or approach you decided to take, and why it fits the user's request. "
-        "Be specific and honest — mention tradeoffs or alternative approaches you considered."
+    model_name = session.model_used or LOCAL_MODEL or "the AI model"
+    out_len = len(session.output)
+    if out_len < 100:
+        style = "concise"
+    elif out_len < 500:
+        style = "moderate-length"
+    else:
+        style = "detailed"
+
+    prompt_first_line = (session.prompt or "").split("\n")[0][:80]
+
+    parts = [
+        f"The user asked: \"{prompt_first_line}\".",
+    ]
+    if intent_info:
+        parts.append(f"The system classified this request under '{intent_info}'.")
+    if mem_info:
+        parts.append(mem_info)
+    parts.append(
+        f"The model ({model_name}) produced a {style} response ({out_len} characters), "
+        f"tailored to the user's request as interpreted through the orchestration pipeline."
     )
 
-    base_url = config_manager.get_ollama_url()
-    payload = {
-        "model": LOCAL_MODEL,
-        "prompt": prompt,
-        "system": "You are an AI reflecting on your own reasoning. Be introspective and specific.",
-        "stream": False,
-        "options": {"num_ctx": 4096},
-    }
-
-    try:
-        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
-            resp = await client.post(f"{base_url}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            raw = data.get("response", "").strip() or data.get("thinking", "").strip()
-            return raw if len(raw) > 20 else None
-    except Exception as e:
-        logger.warning("Response rationale generation failed: %s", e)
-        return None
+    return " ".join(parts)
 
 
 async def _generate_trace_explanation(session: TraceSession) -> str | None:
     if not session.steps:
         return None
+    parts: list[str] = []
 
-    parts = [f"User prompt: \"{session.prompt}\""]
-    for s in session.steps:
-        out = (s.metadata.get("output") or "")[:400] if s.metadata else ""
-        parts.append(f"[{s.label}] {out}")
-        if s.label == "Memory Retrieval" and s.metadata:
-            chunks = s.metadata.get("retrieved_chunks", [])
-            if chunks:
-                parts.append("  Retrieved chunks:")
-                for c in chunks:
-                    match_info = f"cos={c.get('relevance', 0):.3f}"
-                    status = "USED" if c.get("used") else "discarded"
-                    content = (c.get("content") or "")[:120]
-                    parts.append(f"    - [{status}] ({match_info}) {content}")
-        if s.context_assembled:
-            assembled_short = s.context_assembled[:600]
-            parts.append(f"  Context assembled:\n{assembled_short}")
+    # Step 1: what user asked
+    parts.append(f"The user asked: \"{session.prompt}\"")
 
-    final = session.output or ""
-    parts.append(f"Final output: \"{final[:400]}\"")
+    # Intent classification
+    intent_step = next((s for s in session.steps if s.label == "Intent Classification"), None)
+    if intent_step and intent_step.metadata:
+        intent_out = intent_step.metadata.get("output", "")
+        if intent_out:
+            parts.append(f"The system classified this as: {intent_out}")
 
-    trace_text = "\n".join(parts)
+    # Memory retrieval
+    mem_step = next((s for s in session.steps if s.label == "Memory Retrieval"), None)
+    if mem_step and mem_step.metadata:
+        chunks = mem_step.metadata.get("retrieved_chunks", [])
+        used = sum(1 for c in chunks if c.get("used"))
+        if chunks:
+            top_rel = max((c.get("relevance", 0) for c in chunks), default=0)
+            parts.append(
+                f"Memory Retrieval found {len(chunks)} relevant past trace(s) "
+                f"(top relevance: {top_rel:.2f}), of which {used} were used to inform the response."
+            )
+        else:
+            parts.append("Memory Retrieval found no relevant past traces.")
+    else:
+        parts.append("Memory Retrieval was not invoked.")
 
-    prompt = (
-        f"{trace_text}\n\n"
-        "You are an AI observability analyst. Explain step-by-step what happened in this trace "
-        "and why. Cover:\n"
-        "- What the user asked for and how the system interpreted it\n"
-        "- Which past traces (if any) were retrieved, why they matched, and whether they were used\n"
-        "- How the context was assembled and what the model decided to do with it\n"
-        "- Why the final response is what it is — tone, content, and any tradeoffs\n\n"
-        "Write 3-6 concise paragraphs. Be specific to THIS trace — reference actual scores, "
-        "chunk content, and step outputs. Avoid generic statements."
-    )
+    # Context synthesis
+    ctx_step = next((s for s in session.steps if s.label == "Context Synthesis"), None)
+    if ctx_step and ctx_step.context_assembled:
+        ctx_len = len(ctx_step.context_assembled)
+        parts.append(f"Context Assembly built a {ctx_len}-character context from retrieved data and system instructions.")
+    elif ctx_step:
+        parts.append("Context Assembly passed through the primary intent without additional context.")
 
-    base_url = config_manager.get_ollama_url()
-    payload = {
-        "model": LOCAL_MODEL,
-        "prompt": prompt,
-        "system": "You are a precise observability analyst. Write clear, trace-specific explanations.",
-        "stream": False,
-        "options": {"num_ctx": 4096},
-    }
+    # Response generation
+    gen_step = next((s for s in session.steps if s.label == "Response Generation"), None)
+    model_used = (gen_step.model_used or session.model_used or LOCAL_MODEL) if gen_step else (session.model_used or LOCAL_MODEL)
+    if session.output:
+        out_len = len(session.output)
+        parts.append(f"The model ({model_used}) generated a {out_len}-character response.")
+    elif session.status == "error":
+        parts.append(f"The pipeline errored before producing a final response.")
+    else:
+        parts.append(f"No output was generated.")
 
-    try:
-        async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
-            resp = await client.post(f"{base_url}/api/generate", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            raw = data.get("response", "").strip() or data.get("thinking", "").strip()
-            return raw if len(raw) > 30 else None
-    except Exception as e:
-        logger.warning("Trace explanation generation failed: %s", e)
-        return None
+    # Stage timing summary
+    timed_steps = [(s.label, s.duration_ms) for s in session.steps if s.label and s.duration_ms]
+    if timed_steps:
+        total = sum(ms for _, ms in timed_steps)
+        timing = ", ".join(f"{label}: {_fmt_ms(ms)}" for label, ms in timed_steps)
+        parts.append(f"Pipeline completed in {_fmt_ms(total)}: {timing}.")
+
+    # Error summary
+    errors = [s for s in session.steps if s.status == "error"]
+    if errors:
+        err_detail = "; ".join(f"{s.label}: {(s.metadata.get('output') or '')[:100]}" for s in errors)
+        parts.append(f"Errors occurred: {err_detail}.")
+
+    return "\n\n".join(parts)
 
 
 # ── Activity event bus ────────────────────────────────────────────
@@ -630,7 +690,19 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
         if model:
             combined = "\n".join(context + [prompt])
             step.context_assembled = combined
-            output, eval_count, eval_duration_ns = await _call_model(model, combined, system)
+
+            # Step 2: use embedding-based intent classifier instead of LLM
+            if stage_id == "step-2":
+                from services.intent_classifier import classify_intent
+                intent_result = await classify_intent(prompt)
+                output = json.dumps(intent_result)
+                eval_count = None
+                eval_duration_ns = None
+            else:
+                if stage_id == "step-6":
+                    step.metadata["gen_started_at"] = datetime.now(timezone.utc).isoformat()
+                output, eval_count, eval_duration_ns = await _call_model(model, combined, system)
+
             step.eval_count = eval_count
             step.eval_duration_ns = eval_duration_ns
             # Parse structured output for Intent Classification (step-2)
@@ -735,6 +807,14 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
                 emit_event("memory_retrieval", f"Retrieved {len(top_chunks)} chunks, {used_count} used", trace_id)
             else:
                 await asyncio.sleep(0.05)
+                if stage_id == "step-5":
+                    output = f"[{label}]: Primary intent is {next((c for c in context if c.startswith('[Intent')), 'unknown')}"
+                    step.metadata["output"] = output[:2000]
+                    context.append(output)
+                elif stage_id == "step-7":
+                    step.metadata["output"] = ""
+                else:
+                    step.metadata["output"] = ""
 
         elapsed_ms = int((perf_counter() - start) * 1000)
         cpu_after, mem_after = _snapshot_cpu_mem()

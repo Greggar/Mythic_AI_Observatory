@@ -1042,6 +1042,33 @@ Replaced regex classification with a background agent that uses the local LLM to
 - **Merge at API layer** — `api_list_traces` calls `merge_synesth()` which overlays cache data onto `TraceSession` objects before returning them. Backward-compatible: old traces without cache entries get `synesth: null`.
 - **Two-tier model strategy** — backoffice GPU for initial backfill (fast, parallel), local CPU model for ongoing (cheap, always available).
 
+### Frontend: 6-Ring Concentric Synesthesia Chart
+
+The RelationshipsPanel renders a 6-ring concentric SVG chart that visualizes the full prompt→response pipeline from a trace:
+
+- **Rings 1-3 (inner 35%)**: Depth (Interjection/Minor Sentence/Full Verb Phrase) → Mood (Imperative/Indicative/Interrogative/Conditional/Subjunctive) → Syntax (Simple/Compound/Complex)
+- **Rings 4-6 (outer 65%)**: Action Type (Direct Execution/Conversational Phatic/Refusal/Guardrail) → Pragmatic Tone (Informative/Instructional/Creative/Analytical/Corrective) → Output Form (Structured/Bulleted/Continuous Prose)
+
+#### Architecture
+
+1. **`buildSynesthTree()`** — aggregates each trace into a 6-level tree path. Each node carries a `moodIdx` for color propagation. `ensureChild()` creates parent-child hierarchy with mood-index inheritance for gradient-bleed coloring.
+
+2. **`layoutSunburst()`** — computes proportional angular spans per node. Each ring is divided among its parent node's children based on trace count. The inner 3 rings share the first 35% of radial space; outer 3 get the remaining 65%.
+
+3. **`nodeColor()`** — HSL-based color strategy: mood determines hue (0 red/217 blue/38 amber/258 purple/160 emerald), depth determines lightness/saturation. Special rules: Creative tone pops (+14 sat, +5 lit), Informative mutes (−8 sat), Refusal mutes (−12 sat, −3 lit).
+
+4. **Legend** — unified `"# RING"` legend with number + label per row, plus a separate mood color legend on the right.
+
+5. **Tooltip** — rendered via `createPortal` to `document.body` with `z-[100]` to escape parent stacking contexts (`overflow-hidden` on glass panels).
+
+6. **CSV export** — 6 columns: depth, mood, syntax, action, tone, form.
+
+#### Bugfixes
+- **moodIdx inheritance** — `buildSynesthTree` was inheriting `moodIdx` from the depth parent at Ring 2 instead of using the actual mood category (`d <= 1 ? catIdx : node.moodIdx`). Conditional/Subjunctive traces were colored amber (from parent depth) instead of purple/emerald.
+- **Depth ring invisible** — center circle radius (`r=18`) exactly overlapped the Depth ring arcs (inner=0, outer=18). Fixed: center `r=14`, Depth shifted to `inner=16, outer=32`.
+- **Duplicate React keys** — `r5-Continuous Prose` appeared twice (same label under different parent Tone nodes). Keys now include `startAngle`: `r${ring}-${label}-${sa.toFixed(4)}`.
+- **Off-by-one in collectLevelNodes** — depthLevel=0 returned root instead of Depth children. Rewrote to start at `root.children` at d=0.
+
 ### Problems Encountered & Fixes
 
 | Problem | Fix |
@@ -1067,7 +1094,9 @@ Replaced regex classification with a background agent that uses the local LLM to
 - `frontend/src/components/SettingsModal.tsx` — analysis model save fix (race condition, stale state)
 - `frontend/src/types/trace.ts` — `SynesthClassification` TypeScript interface
 - `tools/backfill_synesth.py` — backfill script using backoffice GPU
+- `frontend/src/components/RelationshipsPanel.tsx` — `buildSynesthTree()`, `layoutSunburst()`, `nodeColor()` for 6-ring concentric chart
+- `frontend/src/components/RelationshipsPanel.tsx` — `classifyDepth()`, `classifyMood5()`, `classifyActionType()`, `classifyPragmaticTone()`, `classifyOutputForm()` client-side classifiers
 
 ---
 
-*Generated 2026-06-18. Update this document when making architectural changes.*
+*Generated 2026-06-19. Update this document when making architectural changes.*

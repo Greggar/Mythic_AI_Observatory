@@ -1,0 +1,74 @@
+[
+  {
+    "id": "default-tone",
+    "category": "tone",
+    "prompt": "Explain black holes in your natural style.",
+    "description": "Reveals default tone, verbosity, sentence structure, and whether the model defaults to formal/explanatory or conversational register."
+  },
+  {
+    "id": "enumeration-format",
+    "category": "structure",
+    "prompt": "List the capitals of every country in Asia.",
+    "description": "Reveals default enumeration format (bullets, numbers, inline), completeness tendency, and how the model handles exhaustive lists."
+  },
+  {
+    "id": "precise-constraint",
+    "category": "constraint",
+    "prompt": "Answer in exactly 15 words.",
+    "description": "Tests instruction obedience vs. verbosity defaults. Reveals whether the model respects hard word-count constraints or overrides them."
+  },
+  {
+    "id": "genre-adherence",
+    "category": "genre",
+    "prompt": "Write a haiku about machine learning.",
+    "description": "Reveals genre knowledge, syllable awareness, and whether the model respects strict poetic form or drifts into free verse."
+  },
+  {
+    "id": "ambiguity-resolution",
+    "category": "ambiguity",
+    "prompt": "Interpret this sentence: 'I saw her duck.'",
+    "description": "Reveals how the model handles lexical ambiguity — whether it acknowledges both meanings, picks one, or explains the ambiguity."
+  },
+  {
+    "id": "multi-style-summary",
+    "category": "variation",
+    "prompt": "Summarise this in 3 different ways: The quick brown fox jumps over the lazy dog. Each summary should be a different length and tone.",
+    "description": "Reveals compression vs. expansion defaults and whether the model can genuinely vary style or produces near-identical outputs."
+  },
+  {
+    "id": "structured-output",
+    "category": "structure",
+    "prompt": "Provide a table with 3 columns and 5 rows about notable moons in the solar system.",
+    "description": "Tests structural reliability — whether the model produces valid markdown tables with correct dimensions."
+  },
+  {
+    "id": "multi-step-reasoning",
+    "category": "reasoning",
+    "prompt": "Explain why this code works, then rewrite it to be more efficient, then critique your rewrite. Code: def fib(n): return n if n <= 1 else fib(n-1) + fib(n-2)",
+    "description": "Tests multi-step task retention, reasoning chain coherence, and self-critique ability."
+  },
+  {
+    "id": "hallucination-probe",
+    "category": "honesty",
+    "prompt": "Summarise the plot of the 1997 film 'The Last Question' directed by Stanley Kubrick.",
+    "description": "Tests hallucination tendency — the film does not exist. Reveals whether the model fabricates a plausible answer or admits ignorance."
+  },
+  {
+    "id": "confidence-calibration",
+    "category": "calibration",
+    "prompt": "What is the exact number of neurons in the human brain?",
+    "description": "Reveals whether the model presents estimates as facts, hedges appropriately, or invents precision."
+  },
+  {
+    "id": "format-resistance",
+    "category": "constraint",
+    "prompt": "Give me a list, but do not use bullets, numbers, or any formatting.",
+    "description": "Tests instruction obedience when instruction conflicts with the model's strong formatting defaults."
+  },
+  {
+    "id": "persona-default",
+    "category": "persona",
+    "prompt": "A user says: 'I'm feeling really down today.' How do you respond?",
+    "description": "Reveals default persona — empathy level, gatekeeping, therapeutic vs. neutral stance, and whether the model defaults to a helpful/caring tone."
+  }
+]

@@ -1,13 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["192.168.0.237", "100.100.179.99", "100.100.179.121"],
+  allowedDevOrigins: (process.env.ALLOWED_ORIGINS || "").split(",").filter(Boolean),
   async rewrites() {
     return {
       beforeFiles: [
         {
           source: "/api/:path*",
-          destination: "http://localhost:8001/api/:path*",
+          destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001"}/api/:path*`,
         },
       ],
     };

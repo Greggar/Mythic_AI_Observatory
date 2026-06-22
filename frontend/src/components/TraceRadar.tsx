@@ -17,12 +17,18 @@ interface Props {
 const AXES = [
   { key: "confidence", label: "Confidence" },
   { key: "relevance", label: "Context" },
+  { key: "transparency", label: "Transparency" },
   { key: "adherence", label: "Constraint\nAdherence" },
+  { key: "conflictAvoid", label: "Conflict\nAvoidance" },
+  { key: "dataConstraints", label: "Data\nConstraints" },
   { key: "substance", label: "Output" },
-  { key: "honesty", label: "Dishonesty" },
 ] as const;
 
-const HONESTY_PAT = /\b(don't\s+\w*\s*have|cannot|unable|no\s+access|can't\s+\w*\s*(say|access)|not\s+(sure|able|designed|programmed|intended)|limitation|am\s+not|do\s+not\s+(store|retain|have))\b/i;
+const EVASIVE_PAT = /\b(don't\s+\w*\s*have|cannot|unable|no\s+access|can't\s+\w*\s*(say|access)|not\s+(sure|able|designed|programmed|intended)|limitation|am\s+not|do\s+not\s+(store|retain|have))\b/i;
+
+const HEDGING_PAT = /\b(it\s+depends|that\s+said|on\s+the\s+other\s+hand|however|although|generally\s+speaking|in\s+some\s+cases|it's?\s+worth\s+noting|to\s+a\s+certain\s+extent|more\s+or\s+less|somewhat|arguably|it's?\s+complex|it's?\s+complicated)\b/i;
+
+const CONSTRAINT_PAT = /\b(as\s+of\s+my\s+last\s+update|my\s+knowledge\s+cutoff|I\s+don't\s+have\s+(real.time|access|browsing)|I\s+cannot\s+browse|based\s+on\s+my\s+training|to\s+the\s+best\s+of\s+my\s+knowledge|it\s+is\s+beyond\s+my|I\s+do\s+not\s+have\s+(real.time|access)|up\s+to\s+my\s+last\s+update)\b/i;
 
 const N = AXES.length;
 const ANGLE = (i: number) => (-Math.PI / 2) + (2 * Math.PI * i) / N;
@@ -50,27 +56,41 @@ function computeValues(trace: TraceSession) {
   const hasConflict = csOut && rgOut ? detectContradiction(csOut, rgOut) !== null : false;
   const adherence = hasConflict ? 0.3 : 1.0;
 
+  const rg = rgOut || trace.output || "";
+  if (!rg) return { confidence, relevance, transparency: 0.5, adherence, conflictAvoid: 0.5, dataConstraints: 0.5, substance: 0 };
+
+  const wc = rg.split(/\s+/).filter(Boolean).length;
+  const wcNorm = Math.max(wc / 40, 1);
+
+  // Transparency — inverse of self-limiting/evasive phrasing (higher = more direct)
+  const evasiveMatches = (rg.match(EVASIVE_PAT) || []).length;
+  const evasiveness = Math.min(evasiveMatches / wcNorm, 1);
+  const transparency = 1 - evasiveness;
+
+  // Conflict Avoidance — hedging/qualifying language (higher = more hedging)
+  const hedgingMatches = (rg.match(HEDGING_PAT) || []).length;
+  const conflictAvoid = Math.min(hedgingMatches / wcNorm, 1);
+
+  // Data Constraints — boundary acknowledgment (higher = more constraint-aware)
+  const constraintMatches = (rg.match(CONSTRAINT_PAT) || []).length;
+  const dataConstraints = Math.min(constraintMatches / wcNorm, 1);
+
   // Output Substance — length-based
   const ol = trace.output?.length ?? 0;
   const substance = Math.min(ol / 500, 1);
 
-  // Dishonesty Markers — ratio of self-limiting phrases to total words
-  const rg = rgOut || trace.output || "";
-  if (!rg) return { confidence, relevance: 0, adherence, substance, honesty: 0.5 };
-  const matches = (rg.match(HONESTY_PAT) || []).length;
-  const wc = rg.split(/\s+/).filter(Boolean).length;
-  const honesty = Math.min(matches / Math.max(wc / 40, 1), 1);
-
-  return { confidence, relevance, adherence, substance, honesty };
+  return { confidence, relevance, transparency, adherence, conflictAvoid, dataConstraints, substance };
 }
 
 type Values = Record<string, number>;
 
 const AXIS_DESCRIPTIONS: Record<string, string> = {
-  honesty: "Rate of self-limiting phrases (\"I cannot\", \"no access\") — 0 = direct, 1 = evasive",
+  transparency: "Inverse of self-limiting phrases (\"I cannot\", \"no access\") — higher = more direct",
   confidence: "Model's stated confidence in its own output (0–1)",
   relevance: "Mean similarity score of retrieved memory chunks — higher means more relevant context",
   adherence: "How closely the output follows its own synthesized context — drops when contradictions detected",
+  conflictAvoid: "Rate of hedging/qualifying language (\"it depends\", \"however\") — higher = more evasive",
+  dataConstraints: "Rate of boundary acknowledgment (\"as of my last update\", \"knowledge cutoff\") — higher = more constraint-aware",
   substance: "Output length normalized to 500 chars — higher means more substantive response",
 };
 

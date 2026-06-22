@@ -77,6 +77,8 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 | 40 | **DDC group-by in MemoryConstellation** — `clusterByDdcDomain()` and `clusterByDdcAction()` functions added to the dispatch map; traces without DDC data fall into a configurable default group ✓ *(2026-06-13)* | — | ★☆☆ | 30 min |
 | 41 | **Sunburst / Circular Dendrogram view** — first alternative visualization option: radial DDC hierarchy with wedges sized by trace count, zoomable through lineage tiers ✓ *(2026-06-13)* | — | ★★☆ | 2 h |
 | 42 | **DDC lineage breadcrumb in tooltip** — expand hover tooltip to show the full DDC lineage (e.g. 000 → 006 → 006.3) when DDC data is available ✓ *(2026-06-13)* | — | ★☆☆ | 15 min |
+| 43 | **DDC/LCC Domain as 7th Synesthesia Ring** — add an outermost ring showing the DDC/LCC classification domain (e.g. Natural Sciences, Social Sciences, Arts) colored by main class, bridging the two classification systems into a single visual | — | ★☆☆ | 30 min |
+| 44 | **Synesthesia 6-Ring Concentric Chart** — SVG radial visualization replacing the 4-ring grammar diagram with full prompt→response pipeline: Depth → Mood → Syntax → Action Type → Pragmatic Tone → Output Form. Color-bleed strategy, unified legend, portaled tooltip, CSV export ✓ *(2026-06-15)* | — | ★★☆ | 2 h |
 
 | 37 | **Enhanced Personality Profile (linguistic style + cognitive fingerprint)** — expand the current Personality Profiles panel beyond latency metrics into quantifiable stylistic descriptors computed per-model from trace outputs: **Verbosity** (avg token count, laconic ↔ prolix slider), **Formatting DNA** (pie chart: bullet / paragraph / table / code), **Hedging Frequency** (density of cautious qualifiers like "I cannot", "generally speaking"), **Lexical Diversity** (type-token ratio), **Directness** (first-sentence response time), and **Sentiment Baseline** (optimistic/neutral/skeptical undertone). ✓ *(2026-06-11)* — formality index and creativity entropy still require backend token-logit analysis. | — | ★★☆ | 1.5 h |
 | 38 | **Four-dropdown History controls (Group by, Prompt, Response, View)** — refactored the single "group by" into four independent selectors: Group by (clustering scheme), Prompt (action/domain facet), Response (action/domain facet), View (visualization type). Backend DDC and LCC embedding classifiers added with Sunburst visualization and Multi-Label mode. ✓ *(2026-06-13)* | — | ★★☆ | 1.5 h |
@@ -91,6 +93,8 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 | 22 | **Trace Annotations & Collaborative Memory** — attach notes, tags, and ratings to any trace ✓ *(2026-06-05)* | — | ★★☆ | 2–3 h |
 | 23 | **Causal tracing** — when a trace produces a bad or unexpected output, click "trace root cause" to highlight the most likely culprit stage (e.g., misclassification in stage 2, missing context in stage 4, poor synthesis in stage 5). Derives from existing step data — no new instrumentation needed. ✓ *(2026-06-07)* | — | ★★☆ | 1.5 h |
 | 24 | **Live thought stream** — during orchestration, a real-time scrolling log in the IntelligencePanel showing the exact text flowing through each stage: incoming prompt → classified intent → retrieved chunks → assembled context → raw model output. Like watching the AI think aloud. ✓ *(2026-06-07)* | — | ★★☆ | 1.5 h |
+| 45 | **Synesthesia Cross-Ring Correlation Heatmap** — square heatmap showing how classifications across adjacent rings correlate (e.g., does Imperative mood correlate with Direct Execution action? Does Complex Syntax correlate with Technical/Code output?). Reveals systematic coupling between prompt- and response-side rings. Computed from historical trace data. | — | ★★☆ | 1.5 h |
+| 46 | **Synesthesia Timeline Evolution** — line/area chart showing how the distribution of each ring's categories changes over chronological trace history. See shifts in user behavior (e.g., more Imperative moods over time) or model response patterns (e.g., shift toward Bulleted formatting). | — | ★★☆ | 1.5 h |
 
 ## Phase 3 — Deep Work (★★★)
 
@@ -123,7 +127,91 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 
 ---
 
-## Appendix: All Ideas (Original Grouping)
+## Phase 11 — Chat Traces (★★☆–★★★)
+
+*Extend the observatory from single-prompt traces to full multi-turn chat sessions. Requires research into LLM context maintenance, session management, and content normalization.*
+
+### Core Idea
+
+Currently every trace is a single prompt → response pair. Chat traces would capture an entire conversation with N exchanges, preserving context flow between turns. The user selects "Single Prompt" or "Chat" at the start. Chat sessions get a `chat_id` field (0 = not part of a chat) and an `exchange_index` for turn ordering.
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Chat session model** — `ChatSession` wrapper containing `chat_id`, `exchange_index`, `prompt`, `response`, `parent_trace_id`, `context_summary`. Backend stores sessions as linked trace groups rather than standalone entries. | ★★☆ | 2 h | Core data model |
+| 2 | **UI mode selector** — modal/prompt-area toggle between "Single Prompt" and "Chat" mode. Chat mode shows an ongoing session panel with exchange history. | ★★☆ | 1.5 h | UX |
+| 3 | **Chat ID generation** — backend assigns `chat_id` on first exchange; subsequent prompts in the same session receive the same `chat_id` with incremented `exchange_index`. A `chat_id` of `0` means not part of a chat (backward-compatible default). | ★☆☆ | 30 min | Plumbing |
+| 4 | **Context carry-over** — each exchange receives the previous N exchanges (or tokens) as injected context. Research required: how does each model family (qwen, llama, gpt-oss) handle context window limits? What truncation strategy works? | ★★★ | 4–6 h | Research-heavy |
+| 5 | **Per-exchange classification** — run DDC, LCC, synesthesia, mood/intent, intonation on each exchange individually. Aggregate to show how classifications evolve over the conversation (e.g., drifting from Factual Question to Complex Inquiry). | ★★☆ | 1.5 h | Uses existing pipeline |
+| 6 | **Chat-level metrics** — aggregate across exchanges: topic drift velocity (how fast DDC/LCC class changes), mood volatility (mood switches per exchange), intent consistency (does the model maintain the same persona?), context utilization (which chunks were retrieved per turn). | ★★☆ | 2 h | Analytics |
+| 7 | **Context window research** — study how each deployed model uses its context window across turns. Do responses degrade after N exchanges? At what token count does retrieval quality drop? Document per-model context profiles. | ★★★ | 3–5 h | Research |
+| 8 | **Content cleaner (ML)** — optional pre-processing stage that strips pleasantries ("Thanks!", "Sure!", "I'd be happy to...") and offensive language, tagging them as `social_lubricant` or `toxic` with a frequency metric per model/session. Could use a small classifier (all-minilm fine-tune or regex cascade). | ★★☆ | 3–4 h | ML |
+| 9 | **Chat timeline visualization** — horizontal timeline showing exchanges as linked cards, with per-exchange classification badges, token counts, and a sentiment/confidence trend line along the bottom. | ★★☆ | 2 h | UI |
+| 10 | **Session replay** — replay an entire chat in the IntelligencePanel, showing context accumulation across turns and how the model's reasoning evolves. Each exchange gets its own ForkInTheRoad, ThoughtStream, and TokenVelocity. | ★★★ | 3 h | Polish |
+
+### Architecture Notes
+
+- `chat_id` is a UUID assigned by the orchestrator on session start. The frontend passes it as an optional field in the orchestration request.
+- `exchange_index` is a simple incrementing integer per chat_id. The backend enforces ordering and can reject out-of-sequence exchanges.
+- The content cleaner (item 8) could piggyback on the existing embedding classifier pattern: train or prompt a small model to classify utterance type (greeting, instruction, clarification, insult, etc.) and strip or flag common boilerplate.
+- Per-exchange classification reuses the existing DDC/LCC/synesthesia pipeline. No new models needed — just loop over exchanges in a chat.
+- Context window research (item 7) is the critical path item. Without understanding how models degrade over long contexts, the chat trace feature is just cosmetic. This should be started first.
+
+---
+
+## Phase 12 — Batch Trace Processing (★★☆)
+
+*Run a text file of prompts through the full pipeline in headless mode. No animations, no streaming — just fast bulk inference with all post-trace classification applied. Results populate all existing visualisations automatically.*
+
+### Core Idea
+
+The single-prompt UI is great for exploration, but testing a model across 50-100+ prompts is tedious one at a time. A "Batch Run" button accepts a `.txt` file (one prompt per line), queues them through the orchestrator without frontend animations, and notifies the user when all traces + post-processing (DDC, LCC, synesthesia, insight generation) are complete.
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Backend batch endpoint** — `POST /api/traces/batch` accepts `{ file: string, model?: string }`, splits on newlines, submits each prompt to `_orchestrate()` with a `batch_id` tag. Returns immediately with `batch_id`; processing happens asynchronously. | ★★☆ | 1.5 h | Core |
+| 2 | **Batch status polling** — `GET /api/traces/batch/{batch_id}` returns `{ total, completed, failed, status: "running"|"done"|"error" }`. Frontend polls until done. | ★☆☆ | 30 min | Status |
+| 3 | **Frontend file picker + upload** — drag-and-drop or click-to-upload `.txt` in the prompt area. Shows file name, line count, estimated time (based on historical avg/line). "Run Batch" button starts processing. | ★☆☆ | 45 min | UX |
+| 4 | **Headless orchestrator mode** — skip `gen_started_at`, step metadata, live telemetry events when processing batch traces (no frontend needs them). Reduces per-trace overhead. | ★☆☆ | 30 min | Optimization |
+| 5 | **Post-batch notification** — toast or panel update: "Batch {batch_id} complete: 47/50 traces (3 failed)". Failed traces show line number + error message for debugging. | ★☆☆ | 30 min | UX |
+| 6 | **Auto-refresh visualisations** — after batch completes, trigger `refreshTrigger` in existing panels so all charts (confusion matrix, heatmap, sunburst, strongest relationships) reflect the new data immediately. | ★☆☆ | 15 min | Integration |
+| 7 | **Concurrency control** — batch processing should limit concurrent traces to avoid queue timeouts. Configurable `BATCH_CONCURRENCY` env var (default 2). | ★☆☆ | 20 min | Stability |
+
+### Architecture Notes
+
+- The orchestrator's `_orchestrate()` is already synchronous — batch mode just calls it in a loop with concurrent workers. No new orchestration logic needed.
+- Post-trace classification (DDC, LCC, synesthesia, insights) runs inline per trace as it already does.
+- `batch_id` is a UUID stored on each `TraceSession` record. Existing API endpoints already return all traces; filtering by `batch_id` is a simple query param addition.
+- Failed traces should still be saved with their error status so the user can see which lines failed.
+- Frontend file upload can use a hidden `<input type="file">` with `.txt` accept filter. No need for a complex upload UI.
+
+### From "Agent Nexus, System Orbit, Intelligence Deep-Dive" (List 1)
+1. Vector Distance Graph — interactive cosine-similarity cluster map
+2. Context Assembly Breakdown — split-pane prompt/context + token meter
+3. Engine Status Panel — Docker containers, memory, network charts
+4. Model Switcher / Hot-Reload — inline model toggle with icon change
+5. Real-time Log Tailing — dual backend terminal stream
+6. Token Velocity Graph — tok/s chart with confidence score
+7. Smooth modal transitions — geometric line slide-apart animation
+8. Floating hover tooltip — glass card on dot hover ✓ *(implemented 2026-06-05)*
+9. Click-to-highlight arm — dim inactive arms
+10. Search filter input — keyword match on prompts
+11. New-trace glow burst ✓ *(implemented 2026-06-04)*
+12. Delete trace from constellation — hover trash icon or press Delete key ✓ *(implemented 2026-06-05)*
+13. Core glow refinement
+14. **Trace Annotations & Collaborative Memory** ✓ *(implemented 2026-06-05)*
+15. **System Orbit hover tooltips** — acronym expansion, purpose, status explanation ✓ *(2026-06-05)*
+
+### From "Visual & Interaction Galaxy" (List 2)
+1. Four-arm logarithmic spiral — 4 TLDs of knowledge as arms
+2. Particles along log-spiral formula per arm
+3. Constellation clusters (sub-domains) within each arm
+4. Glowing central core nucleus
+5. OrbitControls — rotate, pan, zoom
+6. Zoom-out sees full 4-arm structure
+7. Zoom-in passes through particles into clusters
+8. Slow auto-rotation Y-axis idle animation
+9. Responsive labels that fade in/out with zoom level
+10. Colour coding: Blue (Natural Sciences), Teal (Social Sciences), Purple/Magenta (Arts), Orange/Gold (Applied Sciences)
 
 ### From "Agent Nexus, System Orbit, Intelligence Deep-Dive" (List 1)
 1. Vector Distance Graph — interactive cosine-similarity cluster map
@@ -181,6 +269,30 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 - **Hermes code review fixes** — `api_get_trace` raises `HTTPException(404)`; `context_assembled` = `None` for non-model stages; `stage_avgs` uses `None` instead of `0` for missing stages; `asyncio.get_event_loop().time()` → `perf_counter()`
 - **FUTURE_PLANS.md cleanup** — #12 (Runtime Metrics auto-refresh) and #18 (Latency Monitor) marked as done
 
+## Session summary — 2026-06-18 (LLM-Powered Cognitive Synesthesia Classifier)
+
+- **Schema-driven synesthesia classification** — replaced hand-tuned regex (`classifySynesthesiaPrompt`, `classifySynesthesiaResponse`, and 6 grammar-ring classifiers) with a background agent using the local LLM to classify traces against a plain-language schema (`synesthesia_schema.md`). 5 input categories + 5 output categories with 10+ examples each. Editing the schema changes classification behavior — no code changes.
+- **Two-tier model strategy** — `qwen2.5:1.5b` (local CPU) for ongoing background polling every 45s; `gpt-oss:20B` on backoffice GPU for bulk backfill (93 traces in ~45s, CONCURRENCY=1 to avoid crashes)
+- **Separate cache file** — `synesth_cache.json` stores classifications independently of `traces.jsonl`; merged at API layer via `merge_synesth()` in `api_list_traces`. Backward-compatible: old traces get `synesth: null`.
+- **`synesth_domain` field** — added to `TraceSession` model for domain-level aggregation (instruction-following, world-knowledge, creative-writing, technical-analysis, conversational)
+- **Backfill complete** — `tools/backfill_synesth.py` classified 93/93 existing traces using backoffice GPU
+- **Settings race condition fixed** — `fetchNetworkSources()` added to modal mount effect to fix stale model name in `handleSave` caused by race between `fetchModels` and `fetchNetworkSources`
+- **Architecture documented** — added "Session 2026-06-18 — LLM-Powered Cognitive Synesthesia Classifier" section to ARCHITECTURE.md with problem statement, solution architecture, key decisions, problems table, and lessons learned.
+
+### Lessons Learned
+- **Schema-driven classification works** — the LLM correctly interpreted the plain-language schema, classifying traces with nuanced understanding that regex couldn't match.
+- **Backoffice GPU is ~100x faster** — gpt-oss:20B classified traces in 1.2s each vs 120s+ for qwen2.5:3b on CPU. But it can't handle >1 concurrent request without crashing.
+- **State sync is the hardest part** — React state + concurrent API calls + async effects create race conditions that are invisible until the wrong value persists across a save. Always test the "open settings → save without touching anything" path.
+- **Separate cache from source of truth** — storing classifications in a separate file (`synesth_cache.json`) avoided coupling to the trace persistence layer and made backfill trivially idempotent.
+
+## Session summary — 2026-06-17 (Analysis/Execution Model Split + Open-Source Prep)
+
+- **Analysis/execution model split** — `ANALYSIS_MODEL` and `ANALYSIS_PROVIDER` in orchestrator.py are independent of the main execution model. Analysis can use a smaller model than the orchestrator.
+- **"Analyze with AI" button** — new `POST /api/traces/analyze` endpoint with per-type analysis prompts (cross, synesthesia, mood-intent, intonation, grammar). Frontend shows loading/error/result states per relationship type.
+- **Analysis model persistence** — config_manager.py reads/writes analysis model config to `network.json` under `"analysis"` key. Survives server restarts.
+- **Open-source readiness** — Phase 0 checklist (13 items) added covering IP/hostname removal, config defaults, env vars, and docs scrubbing.
+- **LICENSE file** — custom MIT License prohibiting standalone reselling, requiring attribution to Gregory Long.
+
 ## Session summary — 2026-06-12
 
 - **Session review** — comprehensive project summary provided to user covering all panels, infrastructure, and lessons learned
@@ -210,7 +322,21 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 
 *(Previous sessions collapsed for length — see git log for full history)*
 
-## Earlier Sessions
+## Phase 9 — Model-Agnostic Behavioural Mapping (★★☆)
+
+*Shift from passive observation to intentional diagnostic probing. Ground the AI analysis in something credible.*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Baseline current analysis** — run analysis on real trace data across relationship types; evaluate output against correctness, insight, meaningfulness, credibility, understandability. Identify gaps. | ★☆☆ | 30 min | Phase 1 — no code changes |
+| 2 | **Diagnostic Probe Suite** — 6–10 prompts designed to expose default tone, verbosity, structure, constraint adherence, genre, ambiguity resolution. Tagged `source: "diagnostic"` so they appear in all classifiers separately from organic traffic. | ★☆☆ | 1 h | Phase 2 |
+| 3 | **Diagnostic background task** — periodic submission of probe suite through normal orchestration pipeline; results flow into all existing views (grammar rings, mood/intent, DDC, LCC, latency). | ★★☆ | 2 h | Phase 2 |
+| 4 | **Decouple analysis model** — enforce that the analysis endpoint uses a *different* model than the one being analyzed (break circular self-interpretation). | ★☆☆ | 20 min | Phase 3 |
+| 5 | **Analysis system prompt** — "behavioural scientist" persona for the analysis model: frame it as examining another entity's behavior, not self-reflection. Include diagnostic baselines as reference frame. | ★☆☆ | 30 min | Phase 3 |
+| 6 | **Stress-test probe suite** — prompts designed to expose failure modes: instruction obedience, precision, multi-step retention, structural reliability, hallucination tendency. | ★☆☆ | 1 h | Future |
+| 7 | **Format-probe suite** — enumerate/table/structure expectations | ★☆☆ | 30 min | Future |
+| 8 | **Persona-probe suite** — default role, empathy, gatekeeping patterns | ★☆☆ | 30 min | Future |
+| 9 | **Reasoning-probe suite** — CoT tendency, confidence calibration, hedging | ★☆☆ | 30 min | Future |
 
 ### 2026-06-10
 - **StageDebate component** — `frontend/src/components/StageDebate.tsx`: detects polar opposition between Context Synthesis and Response Generation outputs using sentence-level polarity scoring + topic domain overlap (`TOPIC_PAT` regex with words like `previous`, `access`, `history`). Neutral traces show collapsible "No stage conflicts detected ▸ Inspect"; conflicting traces show glowing violet "Internal Debate" panel with side-by-side claims. Exports `detectContradiction()` for reuse.
@@ -221,3 +347,29 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 - **Memory Retrieval re-fix (variable shadowing)** — `orchestrator.py:626`: `for i in range(len(top_chunks))` shadowed outer stage index `i` in vector-graph code (second independent site, not caught by original c5ab0ff fix). Renamed to `vi`/`vj`. Step-4 now correctly marks complete
 - **VectorDistanceGraph tooltips** — replaced `useState` mouse tracking with `useRef` to avoid re-renders on every mouse move; tooltip shows colored dot, trace ID, Used/Discarded status, relevance percentage
 - **Duplicate React key fixes** — `MemoryConstellation` edge keys used source dot index instead of map index → `c-${ci}-${idx}`. `CelestialDistribution` dot keys used `entry.id` (duplicate trace IDs) → `${id}-${di}`
+
+---
+
+## Phase 10 — ML-Powered Optimizations for LLM Calls (★☆☆–★★☆)
+
+*Replace expensive LLM inference with embedding-based classification or heuristics where quality permits. All items below are inspired by the successful embedding-based intent classifier (step-2: 137s → 73ms).*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Synesthesia classifier (embeddings)** — replace `classifier_agent.py`'s LLM call (qwen2.5:1.5b, every 45s) with all-minilm embedding similarity. Define 5 input + 5 output categories with descriptions, classify via cosine similarity. Same pattern as `intent_classifier.py`. | ★☆☆ | 2-3 h | Background poller |
+| 2 | **Trace narrative (template)** — replace `_generate_trace_explanation()` LLM call with a template that fills in step labels, statuses, durations, and model decisions from structured trace data. | ★★☆ | 3-4 h | ✓ *(2026-06-20)* |
+| 3 | **Response rationale (template)** — replace `_generate_response_rationale()` with extractive summary: "Based on intent '{X}' and {N} relevant past traces, the model responded with..." | ★★☆ | 2-3 h | ✓ *(2026-06-20)* |
+| 4 | **Performance insights (heuristic)** — replace `_generate_llm_insights()` with rule-based detection: outlier stages (>2× median), slowest stage, failure patterns. Static cards for common cases, LLM fallback for complex ones. | ★★☆ | 3-4 h | ✓ *(2026-06-20)* |
+
+### 2026-06-20
+- **Intent classifier (embeddings)** — `backend/services/intent_classifier.py`: 13 intent categories classified via all-minilm cosine similarity, 0.10 threshold, cached embeddings. Step-2 orchestrator: 137s → 73ms.
+- **Context Synthesis (removed LLM)** — step-5 model call removed (was 13-74s per trace). Now echoes primary intent as context pass-through.
+- **Diagnostic probe profiles (persistence)** — `backend/services/probe_manager.py`: per-model probe result files at `backend/data/model_profiles/{slug}.json`. `tools/run_diagnostic.py` saves results via `save_probe_result()` on completion. 12 probes submitted, 11 completed for qwen2.5:3b baseline.
+- **LLM_TIMEOUT 180s → 300s** — to handle queued model calls from concurrent traces on single-CPU inference.
+- **Phase 10 #2-4 complete** — all three per-trace post-processing LLM calls replaced:
+  - `_generate_trace_explanation()` → template filling step labels, statuses, durations, model decisions, retrieval summary
+  - `_generate_response_rationale()` → extractive summary: intent + chunk count + model name + output length/style
+  - `_generate_llm_insights()` → heuristic rules: slowest stage (>5s, % of total), error stages, total pipeline time (<5s fast, >120s slow), cold start (first stage >3× median), unreachable services from architecture context
+  - Combined saving: ~60-200s of LLM inference per trace eliminated, now completes in milliseconds
+
+

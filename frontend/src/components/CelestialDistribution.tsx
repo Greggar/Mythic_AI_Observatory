@@ -59,7 +59,7 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   }, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/traces?limit=40`)
+      fetch(`${API_BASE}/api/traces?limit=300`)
       .then((r) => r.json())
       .then((data) => setEntries(data))
       .catch(() => {});
@@ -77,10 +77,10 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   );
 
   const dots = useMemo(() => {
-    if (filteredEntries.length === 0) return [];
+    if (entries.length === 0) return [];
 
-    const maxDur = Math.max(...filteredEntries.map((e) => totalDuration(e.steps)), 1);
-    const sorted = [...filteredEntries].sort(
+    const maxDur = Math.max(...entries.map((e) => totalDuration(e.steps)), 1);
+    const sorted = [...entries].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
 
@@ -96,8 +96,8 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   }, [entries]);
 
   const xTicks = useMemo(() => {
-    if (filteredEntries.length === 0) return [];
-    const maxDur = Math.max(...filteredEntries.map((e) => totalDuration(e.steps)), 1);
+    if (entries.length === 0) return [];
+    const maxDur = Math.max(...entries.map((e) => totalDuration(e.steps)), 1);
     const n = 4;
     return Array.from({ length: n }, (_, i) => {
       const val = (maxDur / (n - 1)) * i;
@@ -139,11 +139,11 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
 
   const toPlotX = useCallback(
     (val: number) => {
-      const maxDur = Math.max(...filteredEntries.map((e) => totalDuration(e.steps)), 1);
+      const maxDur = Math.max(...entries.map((e) => totalDuration(e.steps)), 1);
       const plotW = W - PAD.left - PAD.right;
       return PAD.left + (val / maxDur) * plotW;
     },
-    [filteredEntries]
+    [entries]
   );
 
   return (
@@ -321,6 +321,8 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
           {dots.map((dot, di) => {
             const isCrossHovered = hoveredTraceId !== null && hoveredTraceId === dot.entry.id;
             const isDimmed = hoveredTraceId !== null && !isCrossHovered;
+            const modelDimmed = selectedModel !== "all" && dot.entry.model_used !== selectedModel;
+            const finalOpacity = isDimmed ? 0.15 : modelDimmed ? 0.25 : 1;
 
             return (
               <motion.g
@@ -328,7 +330,7 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
                 onClick={() => onSelect(dot.entry.id)}
                 style={{ cursor: "pointer" }}
                 initial={{ opacity: 0, scale: 0 }}
-                animate={mounted ? { opacity: isDimmed ? 0.15 : 1, scale: 1 } : {}}
+                animate={mounted ? { opacity: finalOpacity, scale: 1 } : {}}
                 transition={{ duration: 0.3 }}
                 whileHover={{ scale: isDimmed ? 1 : 2 }}
                 onMouseEnter={(e) => {

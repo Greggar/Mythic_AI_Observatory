@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check, AlertTriangle } from "lucide-react";
+import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check, AlertTriangle, FileText } from "lucide-react";
 
 interface ServiceConfig {
   label: string;
@@ -24,6 +24,10 @@ interface NetworkConfig {
   services: Record<string, ServiceConfig>;
   machines: Record<string, MachineConfig>;
   mask_ips?: boolean;
+  analysis?: { model?: string; provider?: string };
+  classifier?: { model?: string; poll_interval?: number };
+  embeddings?: { model?: string; cache_dir?: string };
+  model_provider?: { provider?: string; model?: string };
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -45,10 +49,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [tab, setTab] = useState<"services" | "machines" | "models" | "delete">("services");
+  const [tab, setTab] = useState<"services" | "machines" | "models" | "delete" | "schema">("services");
   const [modelProvider, setModelProvider] = useState<string>("local");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
-  const [currentModel, setCurrentModel] = useState<string>("phi4-mini");
+  const [currentModel, setCurrentModel] = useState<string>("");
   const [modelsLoading, setModelsLoading] = useState(false);
   const [analysisModel, setAnalysisModel] = useState<string>("qwen2.5:3b");
   const [analysisProvider, setAnalysisProvider] = useState<string>("local");
@@ -60,6 +64,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [networkSources, setNetworkSources] = useState<{ id: string; label: string; host: string; port: number; configured_model: string; models: string[]; error: string | null }[]>([]);
   const [networkSourceId, setNetworkSourceId] = useState("");
   const [networkModelName, setNetworkModelName] = useState("");
+  const [savedBackofficeModel, setSavedBackofficeModel] = useState("");
   const [networkSourcesLoading, setNetworkSourcesLoading] = useState(false);
   const [netModelSaved, setNetModelSaved] = useState(false);
   const [deleteTabReady, setDeleteTabReady] = useState(false);
@@ -71,6 +76,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState<string | null>(null);
   const [allTraceMeta, setAllTraceMeta] = useState<{ id: string; model_used?: string | null; ddc_prompt?: string | null }[]>([]);
+  const [schemaContent, setSchemaContent] = useState("");
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaSaved, setSchemaSaved] = useState(false);
+  const [schemaError, setSchemaError] = useState<string | null>(null);
   const delModels = useMemo(() => {
     const s = new Set<string>();
     for (const t of allTraceMeta) if (t.model_used) s.add(t.model_used);
@@ -95,6 +104,11 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       const res = await fetch(`${API_BASE}/api/config/model`);
       const data = await res.json();
       setModelProvider(data.provider || "local");
+      if (data.provider === "local" && data.model) {
+        setCurrentModel(data.model);
+      } else if (data.provider === "backoffice" && data.model) {
+        setSavedBackofficeModel(data.model);
+      }
     } catch {
       // silently fail
     }
@@ -145,6 +159,21 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   }, [networkSources.length, networkSourceId]);
 
+  const fetchSchema = useCallback(async () => {
+    setSchemaLoading(true);
+    setSchemaError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/schema`);
+      if (!res.ok) throw new Error("Failed to load schema");
+      const data = await res.json();
+      setSchemaContent(data.content || "");
+    } catch (e) {
+      setSchemaError(e instanceof Error ? e.message : "Unknown error");
+    } finally {
+      setSchemaLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (open) {
       fetchConfig();
@@ -178,6 +207,24 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!open || tab !== "models") return;
     fetchNetworkSources();
   }, [open, tab, fetchNetworkSources]);
+
+  // Restore saved backoffice model selection after network sources load
+  useEffect(() => {
+    if (!savedBackofficeModel || networkSources.length === 0) return;
+    let found = false;
+    for (const src of networkSources) {
+      if (src.models.includes(savedBackofficeModel) || src.configured_model === savedBackofficeModel) {
+        setNetworkSourceId(src.id);
+        setNetworkModelName(savedBackofficeModel);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      setNetworkModelName(savedBackofficeModel);
+    }
+    setSavedBackofficeModel("");
+  }, [savedBackofficeModel, networkSources]);
 
   useEffect(() => {
     if (networkSources.length === 0 || analysisNetworkSourceId) return;
@@ -223,6 +270,25 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     });
   };
 
+  const addService = () => {
+    if (!config) return;
+    const id = `svc-${Date.now()}`;
+    setConfig({
+      ...config,
+      services: {
+        ...config.services,
+        [id]: { label: "", host: "", port: 0, model: "", enabled: true },
+      },
+    });
+  };
+
+  const removeService = (id: string) => {
+    if (!config) return;
+    const next = { ...config.services };
+    delete next[id];
+    setConfig({ ...config, services: next });
+  };
+
   const updateMachine = (id: string, field: string, value: string) => {
     if (!config) return;
     setConfig({
@@ -262,6 +328,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         : analysisModel;
       const mergedConfig = {
         ...config,
+        model_provider: {
+          provider: modelProvider,
+          model: modelProvider === "backoffice" ? networkModelName : currentModel,
+        },
         analysis: { model: resolvedModel, provider: analysisProvider },
       };
       const res = await fetch(`${API_BASE}/api/network-config`, {
@@ -345,7 +415,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                 Models
               </button>
               <button
-                onClick={() => setTab("delete")}
+                onClick={() => {
+                  setTab("delete");
+                }}
                 className={`px-4 py-1.5 text-sm rounded-full transition-colors ${
                   tab === "delete"
                     ? "bg-red-500/20 text-red-400 border border-red-500/30"
@@ -354,6 +426,20 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               >
                 <Trash2 className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
                 Delete
+              </button>
+              <button
+                onClick={() => {
+                  setTab("schema");
+                  fetchSchema();
+                }}
+                className={`px-4 py-1.5 text-sm rounded-full transition-colors ${
+                  tab === "schema"
+                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                    : "text-zinc-500 hover:text-zinc-300 border border-transparent"
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
+                Schema
               </button>
             </div>
 
@@ -369,10 +455,20 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
               {!loading && tab === "services" && config && (
                 <div className="space-y-3">
                   {Object.entries(config.services).map(([id, svc]) => (
-                    <div key={id} className="glass-panel !rounded-xl p-4 space-y-2">
-                      <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-2">
-                        {svc.label}
-                      </div>
+                    <div key={id} className="glass-panel !rounded-xl p-4 space-y-2 relative">
+                      <button
+                        onClick={() => removeService(id)}
+                        className="absolute top-3 right-3 text-zinc-600 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                      <input
+                        type="text"
+                        value={svc.label}
+                        onChange={(e) => updateService(id, "label", e.target.value)}
+                        className="w-full bg-transparent text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-2 focus:outline-none border-b border-transparent focus:border-teal-mystic/30 transition-colors"
+                        placeholder="Service Name"
+                      />
                       <div className="grid grid-cols-[1fr_auto] gap-3">
                         <div>
                           <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Host</label>
@@ -408,6 +504,13 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       )}
                     </div>
                   ))}
+                  <button
+                    onClick={addService}
+                    className="w-full py-2.5 border border-dashed border-white/[0.08] rounded-xl text-sm text-zinc-500 hover:text-teal-mystic hover:border-teal-mystic/30 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Service
+                  </button>
                 </div>
               )}
 
@@ -654,6 +757,16 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                           });
                           if (res.ok) {
                             await fetchModelProvider();
+                            setConfig((prev) => {
+                              if (!prev) return prev;
+                              return {
+                                ...prev,
+                                model_provider: {
+                                  provider: modelProvider,
+                                  model: modelProvider === "backoffice" ? networkModelName : currentModel,
+                                },
+                              };
+                            });
                             setSaved(true);
                             setTimeout(() => setSaved(false), 2000);
                           }
@@ -842,8 +955,54 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                           )}
                         </div>
                       </label>
-                    </div>
                   </div>
+
+                  {/* Embedding Model */}
+                  <div className="glass-panel !rounded-xl p-4">
+                    <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-3">
+                      Embedding Model
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mb-4">
+                      Model used for DDC/LCC embedding similarity. Must support /api/embeddings.
+                    </p>
+                    <input
+                      type="text"
+                      value={config?.embeddings?.model || "all-minilm:22m"}
+                      onChange={(e) => {
+                        if (!config) return;
+                        setConfig({
+                          ...config,
+                          embeddings: { ...config.embeddings, model: e.target.value },
+                        });
+                      }}
+                      placeholder="all-minilm:22m"
+                      className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors font-mono"
+                    />
+                  </div>
+
+                  {/* Classifier Model */}
+                  <div className="glass-panel !rounded-xl p-4">
+                    <div className="text-xs font-semibold text-teal-mystic uppercase tracking-wider mb-3">
+                      Classifier Model
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mb-4">
+                      Small model used by the background synesthesia classifier agent.
+                    </p>
+                    <input
+                      type="text"
+                      value={config?.classifier?.model || "qwen2.5:1.5b"}
+                      onChange={(e) => {
+                        if (!config) return;
+                        setConfig({
+                          ...config,
+                          classifier: { ...config.classifier, model: e.target.value },
+                        });
+                      }}
+                      placeholder="qwen2.5:1.5b"
+                      className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors font-mono"
+                    />
+                  </div>
+                </div>
                 </div>
               )}
 
@@ -1025,6 +1184,80 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {!loading && tab === "schema" && (
+                <div className="space-y-3">
+                  <div className="glass-panel !rounded-xl p-4">
+                    <div className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                      Synesthesia Classification Schema
+                    </div>
+                    <p className="text-[11px] text-zinc-500 mb-3">
+                      Edit the classification rules and examples below. Changes take effect on the next classification cycle — no restart required.
+                    </p>
+                    {schemaLoading ? (
+                      <div className="flex items-center justify-center py-12 text-zinc-500">
+                        <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+                        Loading schema...
+                      </div>
+                    ) : schemaError ? (
+                      <div className="text-sm text-red-400 py-4">{schemaError}</div>
+                    ) : (
+                      <>
+                        <textarea
+                          value={schemaContent}
+                          onChange={(e) => {
+                            setSchemaContent(e.target.value);
+                            setSchemaSaved(false);
+                          }}
+                          className="w-full h-[50vh] bg-black/40 border border-white/[0.08] rounded-lg px-3 py-2 text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-500/50 transition-colors resize-none scrollbar-thin"
+                          spellCheck={false}
+                        />
+                        <div className="flex items-center gap-2 mt-3">
+                          <button
+                            onClick={async () => {
+                              setSaving(true);
+                              setSchemaSaved(false);
+                              setSchemaError(null);
+                              try {
+                                const res = await fetch(`${API_BASE}/api/schema`, {
+                                  method: "PUT",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ content: schemaContent }),
+                                });
+                                if (!res.ok) throw new Error("Save failed");
+                                setSchemaSaved(true);
+                                setTimeout(() => setSchemaSaved(false), 2000);
+                              } catch (e) {
+                                setSchemaError(e instanceof Error ? e.message : "Save failed");
+                              } finally {
+                                setSaving(false);
+                              }
+                            }}
+                            disabled={saving}
+                            className="px-4 py-1.5 text-sm bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg hover:bg-amber-500/30 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                          >
+                            {saving ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Save className="w-4 h-4" />
+                            )}
+                            {saving ? "Saving..." : "Save Schema"}
+                          </button>
+                          {schemaSaved && (
+                            <span className="text-[11px] text-jade-glow flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" />
+                              Saved
+                            </span>
+                          )}
+                          {schemaError && (
+                            <span className="text-[11px] text-red-400">{schemaError}</span>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

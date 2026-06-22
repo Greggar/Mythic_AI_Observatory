@@ -3,6 +3,14 @@
 import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { arc as d3Arc, chord as d3Chord, Chord } from "d3";
 import { createPortal } from "react-dom";
+import ConfusionMatrix from "./charts/ConfusionMatrix";
+import StackedBarChart from "./charts/StackedBarChart";
+import SynesthesiaHeatmap from "./charts/SynesthesiaHeatmap";
+import DriftHeatmap from "./charts/DriftHeatmap";
+import DriftScatter from "./charts/DriftScatter";
+import EmbeddingConfusionProfile from "./charts/EmbeddingConfusionProfile";
+import SankeyChart, { SankeyData } from "./charts/SankeyChart";
+import { CHART_OPTIONS, DEFAULT_CHART } from "@/data/chartOptions";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const W = 420;
@@ -29,8 +37,8 @@ interface TraceStep {
 }
 
 interface SynesthClassification {
-  input_cat: number;
-  output_cat: number;
+  input_probs: number[];
+  output_probs: number[];
 }
 
 interface TraceData {
@@ -39,8 +47,8 @@ interface TraceData {
   output: string | null;
   steps?: TraceStep[];
   model_used?: string | null;
-  ddc?: { prompt?: { code?: string; action?: string } | null; response?: { code?: string } | null } | null;
-  lcc?: { prompt?: { code?: string } | null } | null;
+  ddc?: { prompt?: { code?: string; action?: string; label?: string; score?: number; margin?: number; top_scores?: { code: string; label: string; score: number }[] } | null; response?: { code?: string; action?: string; label?: string; score?: number; margin?: number; top_scores?: { code: string; label: string; score: number }[] } | null } | null;
+  lcc?: { prompt?: { code?: string; action?: string; label?: string; score?: number; margin?: number; top_scores?: { code: string; label: string; score: number }[] } | null } | null;
   synesth?: SynesthClassification;
 }
 
@@ -137,22 +145,37 @@ function classifySynesthesiaResponse(text: string): number {
   return 1;
 }
 
-function synInputCat(t: TraceData): number {
-  return t.synesth?.input_cat ?? classifySynesthesiaPrompt(t.prompt);
+function synInputProbs(t: TraceData): number[] {
+  if (t.synesth?.input_probs) return t.synesth.input_probs;
+  const cat = classifySynesthesiaPrompt(t.prompt);
+  const arr = [0, 0, 0, 0, 0];
+  arr[cat] = 1;
+  return arr;
 }
 
-function synOutputCat(t: TraceData): number {
-  return t.synesth?.output_cat ?? classifySynesthesiaResponse(t.output || "");
+function synOutputProbs(t: TraceData): number[] {
+  if (t.synesth?.output_probs) return t.synesth.output_probs;
+  const cat = classifySynesthesiaResponse(t.output || "");
+  const arr = [0, 0, 0, 0, 0];
+  arr[cat] = 1;
+  return arr;
 }
 
 function buildSynesthesiaMatrix(traces: TraceData[]): number[][] {
   const N = 10;
   const M = Array.from({ length: N }, () => Array(N).fill(0));
   for (const t of traces) {
-    const inputCat = synInputCat(t);
-    const outputCat = synOutputCat(t);
-    M[inputCat][5 + outputCat] += 1;
-    M[5 + outputCat][inputCat] += 1;
+    const ip = synInputProbs(t);
+    const op = synOutputProbs(t);
+    for (let i = 0; i < 5; i++) {
+      for (let j = 0; j < 5; j++) {
+        const w = ip[i] * op[j];
+        if (w > 0) {
+          M[i][5 + j] += w;
+          M[5 + j][i] += w;
+        }
+      }
+    }
   }
   return M;
 }
@@ -216,7 +239,7 @@ function buildCrossMatrix(traces: TraceData[]): number[][] {
 // ── Prompt Intonation ────────────────────────────────────
 const INTON_INPUT_LABELS = ["Imperative", "Socratic", "Skeptical", "Ambiguous"];
 const INTON_INPUT_COLORS = ["#34d399", "#60a5fa", "#f87171", "#a78bfa"];
-const INTON_OUTPUT_LABELS = ["Very Low", "Low", "Medium", "High", "Very High"];
+const INTON_OUTPUT_LABELS = ["Very Short", "Short", "Medium", "Long", "Very Long"];
 const INTON_OUTPUT_COLORS = ["#34d399", "#60a5fa", "#fbbf24", "#f472b6", "#f87171"];
 
 function classifyIntonation(prompt: string): number {
@@ -280,7 +303,7 @@ function buildMoodIntentSuperMatrix(traces: TraceData[]): number[][] {
   return M;
 }
 
-// ── 6-Ring Synesthesia Schema (Prompt→Response) ────────────
+// ── 7-Ring Synesthesia Schema (Prompt→Response+DDC) ────────────
 const DEPTH_LABELS = ["Interjection", "Minor Sentence", "Full Verb Phrase"];
 const DEPTH_COLORS = ["#f472b6", "#fbbf24", "#a78bfa"];
 const MOOD5_LABELS = ["Imperative", "Indicative", "Interrogative", "Conditional", "Subjunctive"];
@@ -293,6 +316,8 @@ const TONE_LABELS = ["Informative", "Instructional", "Entertainment", "Creative"
 const TONE_COLORS = ["#6366f1", "#22c55e", "#fcd34d", "#ec4899", "#f97316", "#8b5cf6"];
 const FORM_LABELS = ["Structured (Code/Tables)", "Bulleted/Fragmented", "Continuous Prose", "Verse"];
 const FORM_COLORS = ["#a855f7", "#eab308", "#34d399", "#f472b6"];
+const DDC7_LABELS = ["0 Gen", "1 Phil", "2 Rel", "3 Soc", "4 Lang", "5 Sci", "6 Tech", "7 Art", "8 Lit", "9 Hist", "?"];
+const DDC7_COLORS = ["#6b7280", "#a78bfa", "#f87171", "#60a5fa", "#34d399", "#fbbf24", "#f472b6", "#fb923c", "#818cf8", "#2dd4bf", "#374151"];
 
 function hasInterjection(text: string): boolean {
   return /^(Oh|Wow|Please|Ah|Hey|Alas|Ooh|Aha|Oops|Ugh|Yay|Hmm|Well)\b/i.test(text.trim());
@@ -373,7 +398,13 @@ function cleanResponse(text: string): string {
   return text.replace(/^\[.*?\]:\s*/, "");
 }
 
-// ── 6-Ring Tree Building ─────────────────────────────────
+function ddcMainClassIndex(t: TraceData): number {
+  const c = t.ddc?.prompt?.code?.[0];
+  if (c && /[0-9]/.test(c)) return parseInt(c);
+  return 10;
+}
+
+// ── 7-Ring Tree Building ─────────────────────────────────
 interface SynesthNode {
   label: string;
   count: number;
@@ -383,18 +414,19 @@ interface SynesthNode {
   endAngle?: number;
 }
 
-const RING_COLORS = [DEPTH_COLORS, MOOD5_COLORS, SYNTAX3_COLORS, ACTION_COLORS, TONE_COLORS, FORM_COLORS];
+const RING_COLORS = [DEPTH_COLORS, MOOD5_COLORS, SYNTAX3_COLORS, ACTION_COLORS, TONE_COLORS, FORM_COLORS, DDC7_COLORS];
 
-const RING_SPECS_6 = [
+const RING_SPECS = [
   { inner: 16, outer: 32, label: "Depth" },
   { inner: 38, outer: 58, label: "Mood" },
   { inner: 64, outer: 76, label: "Syntax" },
   { inner: 84, outer: 114, label: "Action" },
   { inner: 120, outer: 150, label: "Tone" },
   { inner: 156, outer: 196, label: "Form" },
+  { inner: 200, outer: 207, label: "DDC" },
 ];
 
-const LEVEL_LABELS = [DEPTH_LABELS, MOOD5_LABELS, SYNTAX3_LABELS, ACTION_LABELS, TONE_LABELS, FORM_LABELS];
+const LEVEL_LABELS = [DEPTH_LABELS, MOOD5_LABELS, SYNTAX3_LABELS, ACTION_LABELS, TONE_LABELS, FORM_LABELS, DDC7_LABELS];
 const CLASSIFIERS = [classifyDepth, classifyMood5, classifySyntax, classifyActionType, classifyPragmaticTone, classifyOutputForm];
 
 function nodeColor(depth: number, catIdx: number): string {
@@ -418,7 +450,8 @@ function buildSynesthTree(traces: TraceData[]): SynesthNode {
   for (const t of traces) {
     const cats = CLASSIFIERS.map(fn => fn(t.prompt));
     const responseCats = CLASSIFIERS.slice(3).map(fn => fn(cleanResponse(t.output || "")));
-    const key = [...cats, ...responseCats].join(",");
+    const ddcCat = ddcMainClassIndex(t);
+    const key = [...cats, ...responseCats, ddcCat].join(",");
     pathMap.set(key, (pathMap.get(key) || 0) + 1);
   }
 
@@ -426,11 +459,12 @@ function buildSynesthTree(traces: TraceData[]): SynesthNode {
   for (const [key, count] of pathMap) {
     const parts = key.split(",").map(Number);
     let node = root;
-    for (let d = 0; d < 6; d++) {
+    for (let d = 0; d < 7; d++) {
       // Rings 0-2 (Depth, Mood, Syntax) use prompt classifiers (parts[0..2])
       // Rings 3-5 (Action, Tone, Form) use response classifiers (parts[6..8])
-      const catIdx = d < 3 ? parts[d] : parts[d + 3];
-      const label = LEVEL_LABELS[d][catIdx];
+      // Ring 6 (DDC) uses parts[9]
+      const catIdx = d < 3 ? parts[d] : d < 6 ? parts[d + 3] : parts[9];
+      const label = LEVEL_LABELS[d]?.[catIdx] ?? "?";
       const parent = node;
       node = ensureChild(parent, label, count, d, catIdx);
     }
@@ -460,7 +494,8 @@ function getGrammarPaths(traces: TraceData[]): { paths: string; labels_in: strin
     const action = classifyActionType(t.output || "");
     const tone = classifyPragmaticTone(t.output || "");
     const form = classifyOutputForm(t.output || "");
-    const path = `${DEPTH_LABELS[depth]} → ${MOOD5_LABELS[mood]} → ${SYNTAX3_LABELS[syntax]} → ${ACTION_LABELS[action]} → ${TONE_LABELS[tone]} → ${FORM_LABELS[form]}`;
+    const ddc = ddcMainClassIndex(t);
+    const path = `${DEPTH_LABELS[depth]} → ${MOOD5_LABELS[mood]} → ${SYNTAX3_LABELS[syntax]} → ${ACTION_LABELS[action]} → ${TONE_LABELS[tone]} → ${FORM_LABELS[form]} → ${DDC7_LABELS[ddc]}`;
     pathCounts.set(path, (pathCounts.get(path) || 0) + 1);
   }
   const sorted = [...pathCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
@@ -468,7 +503,7 @@ function getGrammarPaths(traces: TraceData[]): { paths: string; labels_in: strin
   return {
     paths,
     labels_in: DEPTH_LABELS.join(", ") + "; " + MOOD5_LABELS.join(", ") + "; " + SYNTAX3_LABELS.join(", "),
-    labels_out: ACTION_LABELS.join(", ") + "; " + TONE_LABELS.join(", ") + "; " + FORM_LABELS.join(", "),
+    labels_out: ACTION_LABELS.join(", ") + "; " + TONE_LABELS.join(", ") + "; " + FORM_LABELS.join(", ") + "; " + DDC7_LABELS.join(", "),
   };
 }
 
@@ -484,7 +519,7 @@ const REL_CONFIGS: Record<RelType, {
 }> = {
   synesthesia: {
     title: "Cognitive Synesthesia",
-    description: "Maps the relationship between the nature of the user's prompt and the resulting model persona. How does what we say warp how the model behaves?",
+    description: "How does the nature of our prompt intent determine the output structure? To see how each prompt intent distributes across output types, click row%. To see which prompt intents feed each output type, click col%.",
     inputLabels: SYN_INPUT_LABELS,
     outputLabels: SYN_OUTPUT_LABELS,
     inputColors: SYN_INPUT_COLORS,
@@ -511,7 +546,7 @@ const REL_CONFIGS: Record<RelType, {
   },
   intonation: {
     title: "Prompt Intonation",
-    description: "Groups prompts by linguistic tone — imperative commands, Socratic questions, skeptical challenges, or ambiguous fragments — and maps them to output length (Very Low <100, Low 100-300, Medium 300-700, High 700-1500, Very High >1500 chars). Does the model over-defend when challenged?",
+    description: "Groups prompts by linguistic tone — imperative commands, Socratic questions, skeptical challenges, or ambiguous fragments — and maps them to output length (Very Short <100, Short 100-300, Medium 300-700, Long 700-1500, Very Long >1500 chars). Does the model over-defend when challenged?",
     inputLabels: INTON_INPUT_LABELS,
     outputLabels: INTON_OUTPUT_LABELS,
     inputColors: INTON_INPUT_COLORS,
@@ -519,8 +554,8 @@ const REL_CONFIGS: Record<RelType, {
     buildMatrix: buildIntonationMatrix,
   },
   grammar: {
-    title: "6-Ring Synesthesia Schema",
-    description: "Maps the full stimulus→sensation pipeline: prompt Depth → Mood → Syntax (inner rings) → response Action → Tone → Form (outer rings). Color-bled by mood family.",
+    title: "7-Ring Synesthesia Schema",
+    description: "Maps the full stimulus→sensation pipeline: prompt Depth → Mood → Syntax (inner rings) → response Action → Tone → Form (outer rings) → DDC main class (outermost ring). Color-bled by mood family.",
     inputLabels: [],
     outputLabels: [],
     inputColors: [],
@@ -540,16 +575,34 @@ const REL_CONFIGS: Record<RelType, {
 
 interface Props {
   refreshTrigger?: number;
+  initialRelType?: RelType;
+  chartType?: string;
+  onChartTypeChange?: (t: string) => void;
 }
 
-export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
+export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType, chartType: externalChartType, onChartTypeChange }: Props) {
   const [traces, setTraces] = useState<TraceData[]>([]);
-  const [relType, setRelType] = useState<RelType>("synesthesia");
+  const [relType, setRelType] = useState<RelType>(initialRelType || "synesthesia");
+  const [chartType, setChartType] = useState<string>(externalChartType || DEFAULT_CHART[relType] || "confusion");
+
+  useEffect(() => {
+    if (initialRelType) setRelType(initialRelType);
+  }, [initialRelType]);
+
+  useEffect(() => {
+    if (externalChartType) setChartType(externalChartType);
+  }, [externalChartType]);
+
+  const handleChartTypeChange = (t: string) => {
+    setChartType(t);
+    onChartTypeChange?.(t);
+  };
   const [hoveredChord, setHoveredChord] = useState<{ source: number; target: number; count: number; sx: number; sy: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState("all");
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [analysisModel, setAnalysisModel] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [normMode, setNormMode] = useState<"total" | "row" | "col">("total");
 
   useEffect(() => {
     setAnalysis(null);
@@ -669,6 +722,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
           rel_type: relType,
           title: cfg.title,
           description: cfg.description,
+          norm_mode: normMode,
           input_labels: legendInputLabels,
           output_labels: legendOutputLabels,
           top_relationships: pairs,
@@ -691,22 +745,80 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
     } finally {
       setAnalyzing(false);
     }
-  }, [analyzing, matrix, topRelationships, allLabels, cfg, relType, legendInputLabels, legendOutputLabels, filteredTraces]);
+  }, [analyzing, matrix, topRelationships, allLabels, cfg, relType, legendInputLabels, legendOutputLabels, filteredTraces, normMode]);
 
   const grammarData = useMemo(() => {
     if (relType !== "grammar") return null;
     return buildSynesthTree(filteredTraces);
   }, [filteredTraces, relType]);
 
+  const sankeyData = useMemo((): SankeyData | null => {
+    if (relType !== "grammar") return null;
+    const columnLabels = [DEPTH_LABELS, MOOD5_LABELS, SYNTAX3_LABELS, ACTION_LABELS, TONE_LABELS, FORM_LABELS, DDC7_LABELS];
+    const columnColors = [DEPTH_COLORS, MOOD5_COLORS, SYNTAX3_COLORS, ACTION_COLORS, TONE_COLORS, FORM_COLORS, DDC7_COLORS];
+    const columnClassifiers = [classifyDepth, classifyMood5, classifySyntax, classifyActionType, classifyPragmaticTone, classifyOutputForm];
+
+    const pathCounts = new Map<string, number>();
+    for (const t of filteredTraces) {
+      const cats: number[] = [];
+      for (let c = 0; c < 6; c++) {
+        cats.push(columnClassifiers[c](c < 3 ? t.prompt : (t.output || "")));
+      }
+      cats.push(ddcMainClassIndex(t));
+      const key = cats.join(",");
+      pathCounts.set(key, (pathCounts.get(key) || 0) + 1);
+    }
+
+    const nodeMap = new Map<string, SankeyData["nodes"][0]>();
+    const linkCounts = new Map<string, number>();
+
+    for (const [key, count] of pathCounts) {
+      const cats = key.split(",").map(Number);
+      for (let col = 0; col < 7; col++) {
+        const catIdx = cats[col];
+        const nodeId = `c${col}-${catIdx}`;
+        const existing = nodeMap.get(nodeId);
+        if (existing) {
+          existing.value += count;
+        } else {
+          nodeMap.set(nodeId, {
+            id: nodeId,
+            label: columnLabels[col][catIdx] ?? "?",
+            column: col,
+            value: count,
+            color: columnColors[col][catIdx] ?? "#374151",
+            x: 0, y0: 0, y1: 0,
+          });
+        }
+        if (col < 6) {
+          const linkKey = `c${col}-${cats[col]}|c${col + 1}-${cats[col + 1]}`;
+          linkCounts.set(linkKey, (linkCounts.get(linkKey) || 0) + count);
+        }
+      }
+    }
+
+    const nodes = Array.from(nodeMap.values());
+    const links: SankeyData["links"] = [];
+    for (const [lk, count] of linkCounts) {
+      const [src, tgt] = lk.split("|");
+      links.push({ source: src, target: tgt, value: count });
+    }
+
+    return { nodes, links };
+  }, [filteredTraces, relType]);
+
   const handleGrammarExport = useCallback((ring: number, label: string) => {
     const catIdx = LEVEL_LABELS[ring].indexOf(label);
     if (catIdx === -1) return;
     const matching = filteredTraces.filter(t => {
-      const c = CLASSIFIERS[ring](ring < 3 ? t.prompt : (t.output || ""));
-      return c === catIdx;
+      if (ring < 6) {
+        const c = CLASSIFIERS[ring](ring < 3 ? t.prompt : (t.output || ""));
+        return c === catIdx;
+      }
+      return ddcMainClassIndex(t) === catIdx;
     });
     const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const lines = ['"prompt","depth","mood","syntax","action","tone","form"'];
+    const lines = ['"prompt","depth","mood","syntax","action","tone","form","ddc"'];
     for (const t of matching) {
       const d = DEPTH_LABELS[classifyDepth(t.prompt)];
       const m = MOOD5_LABELS[classifyMood5(t.prompt)];
@@ -714,7 +826,8 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
       const a = ACTION_LABELS[classifyActionType(t.output || "")];
       const to = TONE_LABELS[classifyPragmaticTone(t.output || "")];
       const f = FORM_LABELS[classifyOutputForm(t.output || "")];
-      lines.push(`${esc(t.prompt)},${esc(d)},${esc(m)},${esc(s)},${esc(a)},${esc(to)},${esc(f)}`);
+      const dd = DDC7_LABELS[ddcMainClassIndex(t)];
+      lines.push(`${esc(t.prompt)},${esc(d)},${esc(m)},${esc(s)},${esc(a)},${esc(to)},${esc(f)},${esc(dd)}`);
     }
     const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -743,25 +856,23 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
               <path d="M19 6l-7 12" opacity="0.4" />
             </svg>
             <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-              {cfg.title}
+              {(CHART_OPTIONS[relType] || []).find(o => o.id === chartType)?.label || cfg.title}
             </span>
           </div>
-          <p className="text-[8px] font-mono text-zinc-600 leading-relaxed max-w-[280px]">
+            <p className="text-[9px] font-mono text-zinc-400 leading-relaxed max-w-[320px]">
             {cfg.description}
           </p>
         </div>
         <div className="flex items-center gap-1.5 shrink-0 mt-0.5">
           <select
-            value={relType}
-            onChange={(e) => setRelType(e.target.value as RelType)}
+            value={chartType}
+            onChange={(e) => handleChartTypeChange(e.target.value)}
             className="bg-white/[0.04] border border-white/[0.08] rounded text-[9px] px-2 py-1 text-zinc-400 focus:outline-none focus:border-teal-mystic/30 cursor-pointer"
+            title="Chart type"
           >
-            <option value="synesthesia">Synesthesia</option>
-            <option value="drift">Semantic Drift</option>
-            <option value="cross">DDC × LCC</option>
-            <option value="intonation">Intonation</option>
-            <option value="mood-intent">Mood × Intent</option>
-            <option value="grammar">Grammar Schema</option>
+            {(CHART_OPTIONS[relType] || []).map((opt) => (
+              <option key={opt.id} value={opt.id} title={opt.description}>{opt.label}</option>
+            ))}
           </select>
           <select
             value={selectedModel}
@@ -792,8 +903,10 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
               if (relType === "synesthesia") {
                 rows.push("id,prompt,output,model_used,prompt_type,response_profile");
                 for (const t of filteredTraces) {
-                  const pc = synInputCat(t);
-                  const rc = synOutputCat(t);
+                  const ip = synInputProbs(t);
+                  const op = synOutputProbs(t);
+                  const pc = ip.indexOf(Math.max(...ip));
+                  const rc = op.indexOf(Math.max(...op));
                   rows.push([
                     esc(t.id), esc(t.prompt), esc(t.output || ""), esc(t.model_used || "unknown"),
                     SYN_INPUT_LABELS[pc], SYN_OUTPUT_LABELS[rc],
@@ -825,7 +938,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
               } else if (relType === "intonation") {
                 rows.push("id,prompt,output,model_used,intonation,output_length,output_bucket");
                 const INTON_LABELS = ["Imperative", "Socratic", "Skeptical", "Ambiguous"];
-                const BUCKET_LABELS = ["Very Low", "Low", "Medium", "High", "Very High"];
+                const BUCKET_LABELS = ["Very Short", "Short", "Medium", "Long", "Very Long"];
                 for (const t of filteredTraces) {
                   const cat = classifyIntonation(t.prompt);
                   const len = (t.output || "").length;
@@ -847,7 +960,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
                   ].join(","));
                 }
               } else if (relType === "grammar") {
-                rows.push("id,prompt,output,model_used,depth,mood,syntax,action,tone,form");
+                rows.push("id,prompt,output,model_used,depth,mood,syntax,action,tone,form,ddc");
                 for (const t of filteredTraces) {
                   rows.push([
                     esc(t.id), esc(t.prompt), esc(t.output || ""), esc(t.model_used || "unknown"),
@@ -857,6 +970,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
                     ACTION_LABELS[classifyActionType(cleanResponse(t.output || ""))],
                     TONE_LABELS[classifyPragmaticTone(cleanResponse(t.output || ""))],
                     FORM_LABELS[classifyOutputForm(cleanResponse(t.output || ""))],
+                    DDC7_LABELS[ddcMainClassIndex(t)],
                   ].join(","));
                 }
               }
@@ -883,41 +997,252 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
 
       {/* Chart */}
       <div ref={containerRef} className="relative rounded-lg overflow-hidden" style={{ background: "linear-gradient(180deg, #041824 0%, #0a2d38 50%, #06303d 100%)" }}>
-        {filteredTraces.length < 3 && relType !== "grammar" ? (
-          <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
-            <span className="text-[10px] font-mono text-zinc-600">Need at least 3 traces — try a different model or mode</span>
-          </div>
-        ) : relType === "mood-intent" && isMoodIntent && filteredTraces.length > 0 && !filteredTraces.some(t => t.steps?.some(s => s.label === "Intent Classification" && Array.isArray(s.metadata?.intent_probs))) ? (
-          <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
-            <span className="text-[10px] font-mono text-zinc-600">No intent classification data found for these traces</span>
-          </div>
-        ) : relType === "grammar" && grammarData ? (
-          <SynesthSchemaSVG data={grammarData as SynesthNode} onArcClick={handleGrammarExport} />
-        ) : (
-              <>
-                <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
-                  <defs>
-                    <radialGradient id="chord-glow" cx="50%" cy="50%" r="50%">
-                      <stop offset="0%" stopColor="rgba(45,212,191,0.05)" />
-                      <stop offset="100%" stopColor="rgba(45,212,191,0)" />
-                    </radialGradient>
-                  </defs>
-                  <rect x={0} y={0} width={W} height={H} rx={8} fill="url(#chord-glow)" />
+        {(() => {
+          if (filteredTraces.length < 3 && relType !== "grammar") {
+            return (
+              <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+                <span className="text-[10px] font-mono text-zinc-600">Need at least 3 traces — try a different model or mode</span>
+              </div>
+            );
+          }
 
-                  <g transform={`translate(${CX}, ${CY})`}>
-                    {(groups as any[]).map((g: any, i: number) => {
-                      if (g.value === 0) return null;
-                      const color = nodeColors[i] || "#374151";
-                      const p = arcGen({
-                        innerRadius: INNER,
-                        outerRadius: RIM,
-                        startAngle: safe(g.startAngle),
-                        endAngle: safe(g.endAngle),
-                      });
-                      return (
-                        <path key={`group-${i}`} d={p || ""} fill={color} opacity={0.6} stroke="rgba(0,0,0,0.3)" strokeWidth={0.5} />
-                      );
-                    })}
+          // Grammar analysis — radial rings or alternative chart
+          if (relType === "grammar" && grammarData) {
+            if (chartType === "rings") {
+              return <SynesthSchemaSVG data={grammarData as SynesthNode} onArcClick={handleGrammarExport} />;
+            }
+            if (chartType === "stacked-bar") {
+              const ringLabels = ["Depth", "Mood", "Syntax", "Action", "Tone", "Form", "DDC"];
+              return (
+                <div className="p-4 grid grid-cols-2 gap-4">
+                  {LEVEL_LABELS.map((cats, ring) => {
+                    const row: number[] = cats.map((_, catIdx) =>
+                      filteredTraces.filter(t => {
+                        if (ring < 6) {
+                          const c = CLASSIFIERS[ring](ring < 3 ? t.prompt : (t.output || ""));
+                          return c === catIdx;
+                        }
+                        return ddcMainClassIndex(t) === catIdx;
+                      }).length
+                    );
+                    const ringColors = [
+                      "#5eead4", "#2dd4bf", "#14b8a6", "#0d9488", "#0f766e", "#115e59", "#374151",
+                    ];
+                    return (
+                      <div key={ring} className="space-y-1">
+                        <span className="text-[9px] font-mono text-zinc-500">{ringLabels[ring]}</span>
+                        <StackedBarChart
+                          matrix={[row]}
+                          inputLabels={[ringLabels[ring]]}
+                          outputLabels={cats}
+                          inputColors={[ringColors[ring]]}
+                          outputColors={cats.map((_, ci) => ringColors[(ring + ci) % ringColors.length])}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            }
+            if (chartType === "sankey" && sankeyData) {
+              return <SankeyChart data={sankeyData} />;
+            }
+            // grammar + other chart types
+            return (
+              <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+                <span className="text-[10px] font-mono text-zinc-600">This chart type is coming soon for Grammar Schema</span>
+              </div>
+            );
+          }
+
+          // Non-grammar: check for mood-intent data requirement
+          if (relType === "mood-intent" && isMoodIntent && filteredTraces.length > 0 && !filteredTraces.some(t => t.steps?.some(s => s.label === "Intent Classification" && Array.isArray(s.metadata?.intent_probs)))) {
+            return (
+              <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+                <span className="text-[10px] font-mono text-zinc-600">No intent classification data found for these traces</span>
+              </div>
+            );
+          }
+
+          if (matrix.length === 0) {
+            return (
+              <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+                <span className="text-[10px] font-mono text-zinc-600">Insufficient data for this analysis</span>
+              </div>
+            );
+          }
+
+          const nInput = moodIntentLabels?.inputLabels.length ?? cfg.inputLabels.length;
+          const nOutput = moodIntentLabels?.outputLabels.length ?? cfg.outputLabels.length;
+          const iLabels = moodIntentLabels?.inputLabels ?? cfg.inputLabels;
+          const oLabels = moodIntentLabels?.outputLabels ?? cfg.outputLabels;
+          const iColors = moodIntentLabels?.inputColors ?? cfg.inputColors;
+          const oColors = moodIntentLabels?.outputColors ?? cfg.outputColors;
+
+          // Extract the input→output quadrant from the full chord matrix
+          const ioMatrix: number[][] = [];
+          for (let i = 0; i < nInput; i++) {
+            const row: number[] = [];
+            for (let j = 0; j < nOutput; j++) {
+              row.push((matrix as number[][])[i]?.[nInput + j] ?? 0);
+            }
+            ioMatrix.push(row);
+          }
+
+          if (chartType === "confusion") {
+            const handleExport = (row: number, col: number) => {
+              const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
+              const iLabel = iLabels[row];
+              const oLabel = oLabels[col];
+              let matching: TraceData[] = [];
+              if (relType === "synesthesia") {
+                matching = filteredTraces.filter(t => {
+                  const ip = synInputProbs(t);
+                  const op = synOutputProbs(t);
+                  return ip.indexOf(Math.max(...ip)) === row && op.indexOf(Math.max(...op)) === col;
+                });
+              } else if (relType === "drift") {
+                matching = filteredTraces.filter(t => {
+                  const pc = t.ddc?.prompt?.code?.[0];
+                  const rc = t.ddc?.response?.code?.[0];
+                  return pc && rc && parseInt(pc) === row && parseInt(rc) === col;
+                });
+              } else if (relType === "cross") {
+                const nLcc = CROSS_LCC_ORDER.length;
+                matching = filteredTraces.filter(t => {
+                  const dc = t.ddc?.prompt?.code?.[0];
+                  const lc = t.lcc?.prompt?.code?.[0];
+                  if (!dc || !lc) return false;
+                  const di = parseInt(dc);
+                  const li = CROSS_LCC_ORDER.indexOf(lc.toUpperCase());
+                  return !isNaN(di) && li === col && di === row;
+                });
+              } else if (relType === "intonation") {
+                matching = filteredTraces.filter(t => {
+                  const cat = classifyIntonation(t.prompt);
+                  const len = (t.output || "").length;
+                  const bucket = len < 100 ? 0 : len < 300 ? 1 : len < 700 ? 2 : len < 1500 ? 3 : 4;
+                  return cat === row && bucket === col;
+                });
+              } else if (relType === "mood-intent") {
+                matching = filteredTraces.filter(t => {
+                  const moodIdx = classifyMood5(t.prompt);
+                  const step = t.steps?.find(s => s.label === "Intent Classification");
+                  const intentProbs = step?.metadata?.intent_probs;
+                  if (!Array.isArray(intentProbs) || moodIdx !== row) return false;
+                  const labels = intentProbs.map((ip: any) => ip.label).filter(Boolean);
+                  return labels.some((l: string) => {
+                    const si = INTENT_SUPER_LABELS.indexOf(intentToSuper(l));
+                    return si === col;
+                  });
+                });
+              }
+              const header = ["trace_id", "prompt", "response", "input", "output"];
+              const rows = matching.map(t => [t.id, esc(t.prompt), esc(t.output || ""), esc(iLabel), esc(oLabel)].join(","));
+              const csv = [header.join(","), ...rows].join("\n");
+              const blob = new Blob([csv], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${relType}-${iLabel.replace(/[^a-z0-9]/gi, "_")}-${oLabel.replace(/[^a-z0-9]/gi, "_")}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            };
+            const matrixTotal = ioMatrix.reduce((s, row) => row.reduce((a, v) => a + v, s), 0);
+            return (
+              <div className="p-4">
+                <ConfusionMatrix
+                  matrix={ioMatrix}
+                  inputLabels={iLabels}
+                  outputLabels={oLabels}
+                  inputColors={iColors}
+                  outputColors={oColors}
+                  title={cfg.title}
+                  total={matrixTotal}
+                  normMode={normMode}
+                  onNormModeChange={setNormMode}
+                  onExportCell={handleExport}
+                />
+              </div>
+            );
+          }
+
+          if (chartType === "stacked-bar" || chartType === "grouped-bar") {
+            return (
+              <div className="p-4">
+                <StackedBarChart
+                  matrix={ioMatrix}
+                  inputLabels={iLabels}
+                  outputLabels={oLabels}
+                  inputColors={iColors}
+                  outputColors={oColors}
+                  title={cfg.title}
+                />
+              </div>
+            );
+          }
+
+          // Temporal heatmaps: synesthesia (category probs over time) and drift (DDC digit density over time)
+          if (chartType === "heatmap" && relType === "synesthesia") {
+            return (
+              <SynesthesiaHeatmap
+                traces={filteredTraces}
+                synInputProbs={synInputProbs}
+                synOutputProbs={synOutputProbs}
+                inputLabels={iLabels}
+                outputLabels={oLabels}
+              />
+            );
+          }
+          if (chartType === "heatmap" && relType === "drift") {
+            return <DriftHeatmap traces={filteredTraces} />;
+          }
+          if (chartType === "scatter" && relType === "drift") {
+            return <DriftScatter traces={filteredTraces} />;
+          }
+
+          // New chart types that aren't implemented yet
+          if (chartType !== "chord") {
+            return (
+              <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+                <span className="text-[10px] font-mono text-zinc-600">This chart type is coming soon for {cfg.title}</span>
+              </div>
+            );
+          }
+
+          // Default: chord diagram
+          return (
+            <>
+              {filteredTraces.length < 3 ? (
+                <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+                  <span className="text-[10px] font-mono text-zinc-600">Need at least 3 traces — try a different model or mode</span>
+                </div>
+              ) : (
+                <>
+                  <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
+                    <defs>
+                      <radialGradient id="chord-glow" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stopColor="rgba(45,212,191,0.08)" />
+                        <stop offset="100%" stopColor="rgba(13,148,136,0.15)" />
+                      </radialGradient>
+                    </defs>
+                    <rect x={0} y={0} width={W} height={H} rx={8} fill="#0d3840" />
+                    <rect x={0} y={0} width={W} height={H} rx={8} fill="url(#chord-glow)" />
+
+                    <g transform={`translate(${CX}, ${CY})`}>
+                      {(groups as any[]).map((g: any, i: number) => {
+                        if (g.value === 0) return null;
+                        const color = nodeColors[i] || "#374151";
+                        const p = arcGen({
+                          innerRadius: INNER,
+                          outerRadius: RIM,
+                          startAngle: safe(g.startAngle),
+                          endAngle: safe(g.endAngle),
+                        });
+                        return (
+                          <path key={`group-${i}`} d={p || ""} fill={color} opacity={0.6} stroke="rgba(0,0,0,0.3)" strokeWidth={0.5} />
+                        );
+                      })}
 
                     {(groups as any[]).map((g: any, i: number) => {
                       if (g.value === 0) return null;
@@ -1026,29 +1351,50 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
                 </div>
               </>
             )}
+          </>
+          );
+          })()}
           </div>
+
+      {/* Embedding classifier profile */}
+      {filteredTraces.some(t => t.ddc?.prompt?.top_scores && t.ddc.prompt.top_scores.length >= 2) && (
+        <details className="group mt-3 rounded-lg border border-white/[0.06] overflow-hidden">
+          <summary className="text-[10px] font-mono text-zinc-500 hover:text-zinc-300 cursor-pointer px-3 py-2 select-none flex items-center gap-2 bg-white/[0.02]">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              className="transition-transform group-open:rotate-90">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            Classifier Profile — how the embedding model sees your data
+          </summary>
+          <EmbeddingConfusionProfile traces={filteredTraces} />
+        </details>
+      )}
 
       {/* Top relationships */}
       {filteredTraces.length >= 3 && topRelationships.length > 0 && (
         <div className="flex flex-col gap-1.5 pt-2 border-t border-white/[0.04]">
           <span className="text-[9px] font-mono tracking-wider text-zinc-600">Strongest Relationships</span>
           <div className="flex flex-col gap-1">
-            {topRelationships.map((r, i) => {
-              const max = topRelationships[0].count;
-              const pct = max > 0 ? (r.count / max) * 100 : 0;
-              return (
-                <div key={`tr-${i}`} className="flex items-center gap-2">
-                  <span className="text-[8px] font-mono text-zinc-500 w-3 text-right">{i + 1}.</span>
-                  <span className="text-[8px] font-mono text-zinc-400 truncate flex-1">
-                    {allLabels[r.src]} → {allLabels[r.tgt]}
-                  </span>
-                  <div className="w-14 h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: nodeColors[r.src] }} />
+            {(() => {
+              const relTotal = topRelationships.reduce((s, r) => s + r.count, 0);
+              return topRelationships.map((r, i) => {
+                const max = topRelationships[0].count;
+                const pct = max > 0 ? (r.count / max) * 100 : 0;
+                const pctOfTotal = relTotal > 0 ? (r.count / relTotal) * 100 : 0;
+                return (
+                  <div key={`tr-${i}`} className="flex items-center gap-1">
+                    <span className="text-[8px] font-mono text-zinc-500 w-3 text-right shrink-0">{i + 1}.</span>
+                    <span className="text-[8px] font-mono text-zinc-400 truncate shrink-0 max-w-[130px] min-w-0">
+                      {allLabels[r.src]}→{allLabels[r.tgt]}
+                    </span>
+                    <div className="flex-1 h-1.5 rounded-full bg-white/[0.04] overflow-hidden min-w-[32px]">
+                      <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: nodeColors[r.src] }} />
+                    </div>
+                    <span className="text-[8px] font-mono text-zinc-600 w-10 text-right shrink-0">{pctOfTotal.toFixed(1)}%</span>
                   </div>
-                  <span className="text-[8px] font-mono text-zinc-600 w-5 text-right">{r.count}</span>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         </div>
       )}
@@ -1118,7 +1464,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0 }: Props) {
   );
 }
 
-// ── 6-Ring Synesthesia Schema SVG Component ──────────────
+// ── 7-Ring Synesthesia Schema SVG Component ──────────────
 const SW = 420;
 const SH = 420;
 const SCX = SW / 2;
@@ -1144,8 +1490,8 @@ function SynesthSchemaSVG({ data, onArcClick }: { data: SynesthNode; onArcClick?
   const total = data.count;
 
   const allArcs: { path: string; color: string; opacity: number; hover: typeof hovered; key: string }[] = [];
-  for (let ring = 0; ring < 6; ring++) {
-    const spec = RING_SPECS_6[ring];
+  for (let ring = 0; ring < 7; ring++) {
+    const spec = RING_SPECS[ring];
     const nodes = collectLevelNodes(data, ring);
     for (const node of nodes) {
       const sa = node.startAngle!;
@@ -1174,7 +1520,7 @@ function SynesthSchemaSVG({ data, onArcClick }: { data: SynesthNode; onArcClick?
       <rect x={0} y={0} width={SW} height={SH} rx={8} fill="url(#syn-glow)" />
       <g transform={`translate(${SCX}, ${SCY})`}>
         {/* Background rings for empty segments */}
-        {RING_SPECS_6.map((r, i) => (
+        {RING_SPECS.map((r, i) => (
           <circle key={`bg-${i}`} cx={0} cy={0} r={r.outer} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={0.3} />
         ))}
 
@@ -1200,14 +1546,25 @@ function SynesthSchemaSVG({ data, onArcClick }: { data: SynesthNode; onArcClick?
 
       {/* Legend – ring number + label */}
       <g transform={`translate(8, ${SH - 90})`}>
-        <text x={0} y={0} fill="rgba(161,161,170,0.45)" fontSize="5" fontFamily="monospace"># RING</text>
-        <line x1={0} y1={4} x2={52} y2={4} stroke="rgba(255,255,255,0.06)" strokeWidth={0.5} />
-        {RING_SPECS_6.map((r, i) => {
+        <text x={0} y={0} fill="rgba(161,161,170,0.7)" fontSize="5" fontFamily="monospace"># RING</text>
+        <line x1={0} y1={4} x2={52} y2={4} stroke="rgba(255,255,255,0.08)" strokeWidth={0.5} />
+        {RING_SPECS.map((r, i) => {
           const label = i === 2 ? `${r.label} →` : r.label;
+          const descs = [
+            "Grammatical completeness: interjection → minor sentence → full verb phrase",
+            "Grammatical mood: imperative, indicative, interrogative, conditional, subjunctive",
+            "Clause structure: simple (1 clause) → compound (coordinated) → complex (subordinated)",
+            "Response action type: direct execution, conversational phatic, refusal/guardrail",
+            "Pragmatic register: informative, instructional, entertainment, creative, analytical, corrective",
+            "Output format: structured (code/tables), bulleted, continuous prose, verse",
+            "Dewey Decimal Classification main class — topical domain (0–9)",
+          ];
           return (
             <g key={i} transform={`translate(0, ${10 + i * 11})`}>
-              <text x={0} y={0} fill="rgba(161,161,170,0.3)" fontSize="5" fontFamily="monospace">{i + 1}</text>
-              <text x={10} y={0} fill={i >= 3 ? "rgba(161,161,170,0.5)" : "rgba(161,161,170,0.4)"} fontSize="5" fontFamily="monospace">{label}</text>
+              <text x={0} y={0} fill="rgba(161,161,170,0.55)" fontSize="5" fontFamily="monospace">{i + 1}</text>
+              <text x={10} y={0} fill="rgba(161,161,170,0.7)" fontSize="5" fontFamily="monospace">{label}
+                <title>{descs[i]}</title>
+              </text>
             </g>
           );
         })}
@@ -1215,11 +1572,11 @@ function SynesthSchemaSVG({ data, onArcClick }: { data: SynesthNode; onArcClick?
 
       {/* Mood color legend */}
       <g transform={`translate(${SW - 88}, ${SH - 95})`}>
-        <text x={0} y={0} fill="rgba(161,161,170,0.45)" fontSize="5" fontFamily="monospace">MOOD</text>
+        <text x={0} y={0} fill="rgba(161,161,170,0.7)" fontSize="5" fontFamily="monospace">MOOD</text>
         {MOOD5_LABELS.map((l, i) => (
           <g key={i} transform={`translate(0, ${10 + i * 10})`}>
-            <rect x={0} y={-3} width={5} height={5} rx={1} fill={MOOD5_COLORS[i]} opacity={0.6} />
-            <text x={8} y={1} fill="rgba(161,161,170,0.35)" fontSize="4.5" fontFamily="monospace">{l}</text>
+            <rect x={0} y={-3} width={5} height={5} rx={1} fill={MOOD5_COLORS[i]} opacity={0.75} />
+            <text x={8} y={1} fill="rgba(161,161,170,0.6)" fontSize="4.5" fontFamily="monospace">{l}</text>
           </g>
         ))}
       </g>
