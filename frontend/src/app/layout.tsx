@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import ClientInit from "@/components/ClientInit";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { ToastProvider } from "@/lib/ToastContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,7 +33,9 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-deep-abyss" suppressHydrationWarning>
         <ClientInit />
         <ErrorBoundary>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </ErrorBoundary>
       </body>
     </html>

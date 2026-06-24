@@ -168,13 +168,13 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 
 | # | Item | Effort | Est. Time | Notes |
 |---|------|--------|-----------|-------|
-| 1 | **Backend batch endpoint** — `POST /api/traces/batch` accepts `{ file: string, model?: string }`, splits on newlines, submits each prompt to `_orchestrate()` with a `batch_id` tag. Returns immediately with `batch_id`; processing happens asynchronously. | ★★☆ | 1.5 h | Core |
-| 2 | **Batch status polling** — `GET /api/traces/batch/{batch_id}` returns `{ total, completed, failed, status: "running"|"done"|"error" }`. Frontend polls until done. | ★☆☆ | 30 min | Status |
-| 3 | **Frontend file picker + upload** — drag-and-drop or click-to-upload `.txt` in the prompt area. Shows file name, line count, estimated time (based on historical avg/line). "Run Batch" button starts processing. | ★☆☆ | 45 min | UX |
-| 4 | **Headless orchestrator mode** — skip `gen_started_at`, step metadata, live telemetry events when processing batch traces (no frontend needs them). Reduces per-trace overhead. | ★☆☆ | 30 min | Optimization |
-| 5 | **Post-batch notification** — toast or panel update: "Batch {batch_id} complete: 47/50 traces (3 failed)". Failed traces show line number + error message for debugging. | ★☆☆ | 30 min | UX |
-| 6 | **Auto-refresh visualisations** — after batch completes, trigger `refreshTrigger` in existing panels so all charts (confusion matrix, heatmap, sunburst, strongest relationships) reflect the new data immediately. | ★☆☆ | 15 min | Integration |
-| 7 | **Concurrency control** — batch processing should limit concurrent traces to avoid queue timeouts. Configurable `BATCH_CONCURRENCY` env var (default 2). | ★☆☆ | 20 min | Stability |
+| 1 | **Backend batch endpoint** — `POST /api/traces/batch` accepts `{ file: string, model?: string }`, splits on newlines, submits each prompt to `_orchestrate()` with a `batch_id` tag. Returns immediately with `batch_id`; processing happens asynchronously. | ★★☆ | 1.5 h | ✓ *(2026-06-21)* |
+| 2 | **Batch status polling** — `GET /api/traces/batch/{batch_id}` returns `{ total, completed, failed, status: "running"|"done"|"error" }`. Frontend polls until done. | ★☆☆ | 30 min | ✓ *(2026-06-21)* |
+| 3 | **Frontend file picker + upload** — drag-and-drop or click-to-upload `.txt` in the prompt area. Shows file name, line count, estimated time (based on historical avg/line). "Run Batch" button starts processing. | ★☆☆ | 45 min | ✓ *(2026-06-21)* |
+| 4 | **Headless orchestrator mode** — skip `gen_started_at`, step metadata, live telemetry events when processing batch traces (no frontend needs them). Reduces per-trace overhead. | ★☆☆ | 30 min | ✓ *(2026-06-23)* |
+| 5 | **Post-batch notification** — toast or panel update: "Batch {batch_id} complete: 47/50 traces (3 failed)". Failed traces show line number + error message for debugging. | ★☆☆ | 30 min | ✓ *(2026-06-23)* |
+| 6 | **Auto-refresh visualisations** — after batch completes, trigger `refreshTrigger` in existing panels so all charts (confusion matrix, heatmap, sunburst, strongest relationships) reflect the new data immediately. | ★☆☆ | 15 min | ✓ *(2026-06-23)* |
+| 7 | **Concurrency control** — batch processing should limit concurrent traces to avoid queue timeouts. Configurable `BATCH_CONCURRENCY` env var (default 2). | ★☆☆ | 20 min | ✓ *(2026-06-21)* |
 
 ### Architecture Notes
 
@@ -371,5 +371,65 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
   - `_generate_response_rationale()` → extractive summary: intent + chunk count + model name + output length/style
   - `_generate_llm_insights()` → heuristic rules: slowest stage (>5s, % of total), error stages, total pipeline time (<5s fast, >120s slow), cold start (first stage >3× median), unreachable services from architecture context
   - Combined saving: ~60-200s of LLM inference per trace eliminated, now completes in milliseconds
+
+---
+
+## Phase 13 — Knowledge Graph Integration (★★★)
+
+*Add a graph database layer (Neo4j or similar) to model relationships between traces, classifications, models, and concepts as a connected knowledge graph.*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Graph database setup** — deploy Neo4j (or ArangoDB/JanusGraph) as a sidecar service alongside the backend. Define schema: nodes (Trace, Prompt, Model, DDC_Category, LCC_Category, Intent, Synesth_Class) and edges (CLASSIFIED_AS, USED_MODEL, PRECEDES, SIMILAR_TO, CONFUSED_WITH). | ★★★ | 3-4 h | Infrastructure |
+| 2 | **Trace ingestion into graph** — after each trace completes, insert/update nodes and edges into the graph. Prompt nodes link to DDC/LCC/Intent nodes via typed edges. Traces link to preceding traces via PRECEDES edges (temporal order). | ★★☆ | 2-3 h | Pipeline |
+| 3 | **Classification confusion edges** — when margin < 0.05 between top-2 DDC categories, add a CONFUSED_WITH edge between those category nodes weighted by trace count. Query to find which categories the embedding model systematically conflates. | ★★☆ | 1 h | Graph analysis |
+| 4 | **Model behaviour subgraphs** — query the graph for patterns like: "which DDC categories does model X produce shorter responses for?" or "which intents does model Y route to Refusal action?" Expose as graph queries from the API. | ★★☆ | 2 h | Analytics |
+| 5 | **Graph visualization UI** — new "Knowledge Graph" tab or view displaying an interactive force-directed graph of the trace ecosystem. Nodes sized by degree, colored by type, edges labeled by relationship. Click to drill into trace details. | ★★☆ | 3-4 h | UI |
+| 6 | **Temporal path queries** — "show me how DDC classifications evolved over the last 50 traces" as a path through the graph, not just a list. Visualize topic drift as a walk through the category graph. | ★★☆ | 2 h | Graph + UI |
+| 7 | **Recommendation from graph** — given a new prompt, query the graph for similar prompts (via shared DDC/LCC/Intent nodes) and surface their traces as pre-emptive context. Like Memory Retrieval but using graph traversal instead of embedding similarity. | ★★★ | 3-4 h | Research |
+
+## Phase 14 — Model Testing & Benchmarking (★★☆–★★★)
+
+*A dedicated Tests tab for running comparative experiments across models: submit the same task to multiple models and measure how their outputs differ.*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Tests tab** — new tab alongside Systems / Trace / History / Analysis. Shows a test runner UI: select a prompt, select target models, choose what to measure. | ★★☆ | 2 h | ✓ *(2026-06-23)* |
+| 2 | **Multi-model submission** — submit the same prompt to N models in parallel (or sequentially). Each run is a separate trace tagged with `source: "test"` and a shared `test_batch_id`. Store results in the usual trace pipeline so all existing classifiers (DDC, LCC, synesthesia, mood/intent) apply automatically. | ★★☆ | 2 h | ✓ *(2026-06-23)* |
+| 3 | **Comparison view** — side-by-side diff of outputs from different models for the same prompt. Highlight divergences: different DDC classifications, different mood/intent, different output structure. Show a mini TraceRadar per model in a grid. | ★★☆ | 2-3 h | ✓ *(2026-06-23)* |
+| 4 | **Classification benchmarking** — e.g., "how would different models classify a set of responses?" Submit a fixed set of prompts to models A, B, C. Compare their DDC/LCC classification distributions as a grouped bar chart or confusion matrix (model × category). See which models agree and where they diverge. | ★★☆ | 1.5 h | UI |
+| 5 | **Metric aggregation** — per-model aggregates across all test runs: average latency, token efficiency, output length, classification entropy (how spread out DDC scores are). Render as a comparative table with sparklines. | ★★☆ | 1.5 h | UI |
+| 6 | **Test suites** — save reusable test prompt sets. Run a suite on demand (e.g., "run the 10 diagnostic probes across all available models"). Results logged per-suite, per-run, with trend lines over repeated runs. | ★★☆ | 2 h | Persistence + UI |
+| 7 | **Automated regression detection** — when a model's behaviour changes across test runs (DDC distribution shift, latency spike, output structure change), flag it. Useful for catching model updates or prompt drift. | ★★★ | 3-4 h | Analytics |
+| 8 | **Model-as-classifier benchmarking** — test how well models themselves can classify inputs against a fixed schema (DDC, LCC, Intent, etc.) when prompted. Unlike the existing probes (which classify *the model's output*), this tests the model as the classification engine: submit a labeled corpus, prompt each model to classify, measure accuracy vs. ground truth. Useful for orgs evaluating whether an LLM can replace a dedicated metadata classifier. | ★★☆ | 2-3 h | Separate from probe-based tests |
+
+---
+
+## Phase 15 — OpenClaw Integration (★★☆)
+
+*Explore deeper integration between the Observatory and the OpenClaw gateway running on the same machine.*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Investigate OpenClaw capabilities** — OpenClaw has cron jobs, system events, TaskFlow, webhook plugins, and the `session-logs` skill. Discover which of these can be productively wired to Observatory data (trace events, anomaly detection, model health changes, classification drift alerts). | ★★☆ | 2-3 h | Research |
+| 2 | **OpenClaw → Observatory data channel** — pull Observatory trace data into OpenClaw's graph-memory (Neo4j) or session logs for cross-agent reasoning. | ★★☆ | 2-3 h | Integration |
+| 3 | **Observatory → OpenClaw alerting** — replace direct Telegram bot calls with OpenClaw's native channel delivery pipeline for log alerts, anomaly notifications, and scheduled digests. | ★☆☆ | 1 h | After investigation |
+| 4 | **OpenClaw agent as a supervisor** — use OpenClaw's agent capabilities to run periodic health checks, trigger reclassification backfills, or auto-generate summary reports from Observatory data. | ★★☆ | 2 h | Requires successful investigation |
+
+---
+
+## Phase 16 — Provider-Agnostic Agent API (★★★)
+
+*Define and implement a generic Agent API so the Observatory can work with any agentic AI system, not just OpenClaw.*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Abstract agent interface** — define a protocol/interface for agent operations: send message, receive response, query status, stream logs, subscribe to events. Model it after a minimal subset of OpenClaw's gateway contract plus Hermes's REST API. | ★★☆ | 2 h | Foundation |
+| 2 | **Adapter for OpenClaw** — implement the interface against OpenClaw's WebSocket gateway + admin HTTP RPC. The adapter wraps OpenClaw-specific auth, message formatting, and event subscription into the generic contract. | ★★☆ | 2 h | After phase 15 |
+| 3 | **Adapter for Hermes** — implement the interface against Hermes's REST API (BackOffice). Covers the existing hermes-bridge use case. | ★★☆ | 1.5 h | Parallel with above |
+| 4 | **Adapter for generic LLM backends** — implement the interface for bare Ollama, OpenAI-compatible, or custom backends without an agent layer. This is the fallback — the Observatory can at minimum submit prompts and collect traces from any LLM endpoint. | ★★☆ | 1.5 h | Useful standalone |
+| 5 | **Plugin system** — external adapter packages (npm/Python) that self-register with the Observatory. Third parties can write an adapter for their agent system without modifying core code. | ★★★ | 4-5 h | Advanced |
+| 6 | **Unified trace view** — trace sessions from any agent source appear in the same History tab, MemoryConstellation, and IntelligencePanel. The source/agent is a property on the trace, not a different UI. | ★★☆ | 2 h | Once adapters exist |
+| 7 | **Cross-agent comparison** — compare behavior across agents (OpenClaw vs Hermes vs bare Ollama) on the same prompt. Show latency, classification divergence, output structure differences. | ★★★ | 2-3 h | Requires phases 14 + 16 |
 
 

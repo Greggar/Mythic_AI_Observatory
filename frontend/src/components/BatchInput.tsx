@@ -3,6 +3,7 @@
 import { Upload, FileText, Play, Check, X, AlertCircle } from "lucide-react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { BatchStatus } from "@/types/trace";
+import { useToast } from "@/lib/ToastContext";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const POLL_MS = 2000;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export default function BatchInput({ onBatchComplete }: Props) {
+  const { addToast } = useToast();
   const [dragOver, setDragOver] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [lines, setLines] = useState<string[]>([]);
@@ -96,6 +98,19 @@ export default function BatchInput({ onBatchComplete }: Props) {
               stopPolling();
               setRunning(false);
               onBatchComplete?.();
+              if (ps.failed === 0) {
+                addToast(`Batch complete: ${ps.completed} / ${ps.total} traces`, "success");
+              } else {
+                const details = ps.error_details?.length
+                  ? ps.error_details.map((e) => `Line ${e.line}: ${e.error}`).join("; ")
+                  : "";
+                addToast(
+                  `Batch complete: ${ps.completed} done, ${ps.failed} failed` +
+                    (details ? ` — ${details}` : ""),
+                  "error",
+                  6000
+                );
+              }
             }
           }
         } catch {
@@ -108,7 +123,7 @@ export default function BatchInput({ onBatchComplete }: Props) {
       setError(err instanceof Error ? err.message : "Batch request failed");
       setRunning(false);
     }
-  }, [lines, stopPolling, onBatchComplete]);
+  }, [lines, stopPolling, onBatchComplete, addToast]);
 
   const pct = status ? Math.round(((status.completed + status.failed) / status.total) * 100) : 0;
 

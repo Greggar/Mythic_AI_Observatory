@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Activity } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -117,10 +118,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
 
   const handleMouseEnter = useCallback((e: React.MouseEvent, label: string, target?: string) => {
     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (rect) {
-      setHovered({ label, x: e.clientX - rect.left, y: e.clientY - rect.top, target });
-    }
+    setHovered({ label, x: e.clientX, y: e.clientY, target });
   }, []);
 
   // Fetch vitals (polling)
@@ -167,9 +165,25 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
     setPlanetAngles(planets.map((_, i) => (360 / Math.max(planets.length, 1)) * i));
   }, [planets.length]);
 
-  // Animation loop — drifts each planet at its orbital speed
-  const ORBIT_SPEEDS = [55, -40, 65]; // seconds per orbit (+ = CW, - = CCW)
-  const ORBIT_RADII = [255, 390, 525];
+  // Dynamically compute orbit radii spaced evenly across the available band
+  // Avoids clipping labels when extra machines (e.g. Trace Logs) are added.
+  const ORBIT_R_MIN = 180;
+  const ORBIT_R_MAX = 440;
+  const orbitRadii = useMemo(() => {
+    const n = planets.length;
+    if (n === 0) return [] as number[];
+    if (n === 1) return [ORBIT_R_MIN + (ORBIT_R_MAX - ORBIT_R_MIN) / 2] as number[];
+    return Array.from({ length: n }, (_, i) =>
+      ORBIT_R_MIN + ((ORBIT_R_MAX - ORBIT_R_MIN) / (n - 1)) * i
+    );
+  }, [planets.length]);
+
+  // Alternate direction per orbit so planets don't clump
+  const orbitSpeeds = useMemo(
+    () => planets.map((_, i) => [55, -40, 65, -50, 45, -60][i % 6]),
+    [planets.length]
+  );
+
   const animRef = useRef<number>(0);
   useEffect(() => {
     if (!mounted || planets.length === 0) return;
@@ -179,8 +193,9 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
       lastTick = now;
       setPlanetAngles((prev) =>
         prev.map((a, i) => {
-          const period = Math.abs(ORBIT_SPEEDS[i] ?? 50);
-          const dir = ORBIT_SPEEDS[i] > 0 ? 1 : -1;
+          const speed = orbitSpeeds[i] ?? 50;
+          const period = Math.abs(speed);
+          const dir = speed > 0 ? 1 : -1;
           return a + (360 / period) * dir * dt;
         })
       );
@@ -219,7 +234,7 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
             key={`orbit-${i}`}
             cx={CX}
             cy={CY}
-            r={ORBIT_RADII[i] ?? 70}
+            r={orbitRadii[i] ?? 70}
             fill="none"
             stroke="oklch(58% 0.15 75 / 0.25)"
             strokeWidth="1.5"
@@ -282,16 +297,16 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
           </g>
         )}
 
-        {/* Orbiting planets */}
+        {/* Orbiting planets + satellite */}
         {planets.map((machine, i) => {
+          const isSentinel = machine.id === "_logs";
           const cpu = parsePct(getVital(machine, "cpu")?.value ?? "0");
           const mem = parsePct(getVital(machine, "mem")?.value ?? "0");
-          const planetSize = 20 + (mem / 100) * 46;
-          const brightness = 0.6 + (cpu / 100) * 0.35;
-          const isActive = cpu > 20;
-          const color = STATUS_GLOW[machine.status];
+          const planetSize = isSentinel ? 14 : 20 + (mem / 100) * 46;
+          const brightness = isSentinel ? 1 : 0.6 + (cpu / 100) * 0.35;
+          const color = isSentinel ? "oklch(62% 0.22 195)" : STATUS_GLOW[machine.status];
 
-          const orbitR = ORBIT_RADII[i] ?? 70;
+          const orbitR = orbitRadii[i] ?? (120 + i * 60);
           const angleRad = ((planetAngles[i] ?? 0) * Math.PI) / 180;
           const px = CX + orbitR * Math.cos(angleRad);
           const py = CY + orbitR * Math.sin(angleRad);
@@ -299,46 +314,107 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
           return (
             <g key={machine.id}>
               <g
-                onMouseEnter={(e) => handleMouseEnter(e, machine.name)}
+                onMouseEnter={(e) => handleMouseEnter(e, isSentinel ? "OpenClaw Sentinel" : machine.name)}
                 onMouseLeave={clearHover}
                 style={{ cursor: "pointer" }}
               >
-                {/* Active workload halo */}
-                {isActive && (
-                  <motion.circle
-                    cx={px} cy={py}
-                    r={planetSize + 20}
-                    fill={color}
-                    opacity="0.08"
-                    animate={{ opacity: [0.05, 0.15, 0.05] }}
-                    transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                  />
+                {isSentinel ? (
+                  <>
+                    {/* Scan ring pulse */}
+                    <motion.circle
+                      cx={px} cy={py}
+                      r={36}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth="1.5"
+                      opacity="0.4"
+                      animate={{ r: [28, 48, 28], opacity: [0.5, 0.1, 0.5] }}
+                      transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    {/* Antenna dish */}
+                    <line x1={px} y1={py - 12} x2={px} y2={py - 28}
+                      stroke={color} strokeWidth="2" opacity="0.7" />
+                    <line x1={px - 6} y1={py - 22} x2={px + 6} y2={py - 22}
+                      stroke={color} strokeWidth="1.5" opacity="0.6" />
+                    {/* Signal arcs */}
+                    <motion.path
+                      d={`M ${px - 8} ${py - 30} Q ${px} ${py - 44} ${px + 8} ${py - 30}`}
+                      fill="none" stroke={color} strokeWidth="1.5" opacity="0.5"
+                      animate={{ opacity: [0.3, 0.8, 0.3] }}
+                      transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    {/* Satellite body — hexagon */}
+                    <polygon
+                      points={
+                        [0, -planetSize, planetSize * 0.87, -planetSize * 0.5,
+                         planetSize * 0.87, planetSize * 0.5, 0, planetSize,
+                         -planetSize * 0.87, planetSize * 0.5, -planetSize * 0.87, -planetSize * 0.5]
+                          .map((v, j) => `${j % 2 === 0 ? px + v : py + v}`).join(" ")
+                      }
+                      fill="#0c1124" stroke={color} strokeWidth="2" opacity={brightness}
+                    />
+                    {/* Core glow */}
+                    <motion.circle
+                      cx={px} cy={py}
+                      r={4}
+                      fill={color}
+                      opacity={0.9}
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    {/* Satellite label */}
+                    <text x={px} y={py + 36}
+                      textAnchor="middle" fill={color}
+                      fontSize="20" fontFamily="monospace" fontWeight="bold">
+                      OPENCLAW SENTINEL
+                    </text>
+                    {/* Monitoring badge */}
+                    <text x={px} y={py + 52}
+                      textAnchor="middle" fill="oklch(62% 0.22 195 / 0.5)"
+                      fontSize="15" fontFamily="monospace">
+                      ● MONITORING
+                    </text>
+                  </>
+                ) : (
+                  <>
+                    {/* Active workload halo */}
+                    {cpu > 20 && (
+                      <motion.circle
+                        cx={px} cy={py}
+                        r={planetSize + 20}
+                        fill={color}
+                        opacity="0.08"
+                        animate={{ opacity: [0.05, 0.15, 0.05] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                    )}
+                    {/* Planet body */}
+                    <circle cx={px} cy={py} r={planetSize} fill="#0c1124" stroke={color} strokeWidth="3" opacity={brightness} />
+                    {/* Planet core glow */}
+                    <motion.circle
+                      cx={px} cy={py}
+                      r={planetSize * 0.4}
+                      fill={color}
+                      opacity={1}
+                      animate={mounted ? { opacity: [0.5, brightness + 0.2, 0.5] } : {}}
+                      transition={{ duration: 2 + i, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                    {/* Planet label */}
+                    <text x={px} y={py + planetSize + 46}
+                      textAnchor="middle" fill="oklch(72% 0.11 75 / 0.7)"
+                      fontSize="26" fontFamily="monospace" fontWeight="bold">
+                      {machine.name.toUpperCase()}
+                    </text>
+                    {/* CPU/RAM stats under label */}
+                    <text x={px} y={py + planetSize + 70}
+                      textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
+                      fontSize="18" fontFamily="monospace">
+                      CPU {cpu.toFixed(0)}% · RAM {mem.toFixed(0)}%
+                    </text>
+                  </>
                 )}
-                {/* Planet body */}
-                <circle cx={px} cy={py} r={planetSize} fill="#0c1124" stroke={color} strokeWidth="3" opacity={brightness} />
-                {/* Planet core glow */}
-                <motion.circle
-                  cx={px} cy={py}
-                  r={planetSize * 0.4}
-                  fill={color}
-                  opacity={1}
-                  animate={mounted ? { opacity: [0.5, brightness + 0.2, 0.5] } : {}}
-                  transition={{ duration: 2 + i, repeat: Infinity, ease: "easeInOut" }}
-                />
-                {/* Planet label */}
-                <text x={px} y={py + planetSize + 46}
-                  textAnchor="middle" fill="oklch(72% 0.11 75 / 0.7)"
-                  fontSize="26" fontFamily="monospace" fontWeight="bold">
-                  {machine.name.toUpperCase()}
-                </text>
-                {/* CPU/RAM stats under label */}
-                <text x={px} y={py + planetSize + 70}
-                  textAnchor="middle" fill="oklch(52% 0.03 265 / 0.5)"
-                  fontSize="18" fontFamily="monospace">
-                  CPU {cpu.toFixed(0)}% · RAM {mem.toFixed(0)}%
-                </text>
-                {/* Service glyphs around planet */}
-                {services[machine.name]?.map((s, j) => (
+                {/* Service glyphs around planet (not for sentinel) */}
+                {!isSentinel && services[machine.name]?.map((s, j) => (
                   <g key={j}
                     onMouseEnter={(e) => handleMouseEnter(e, s.label, machine.name)}
                     onMouseLeave={clearHover}
@@ -376,23 +452,13 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
         </defs>
       </svg>
 
-      {/* Tooltip */}
+      {/* Tooltip — portaled to document.body so it never clips */}
       {hovered && (() => {
         const info = Object.values(services).flat().find((s) => s.label === hovered.label);
-        const gap = 10;
-        const cw = containerRef.current?.clientWidth ?? 500;
-        const midX = cw / 2;
-        const onRight = hovered.x > midX;
-        const left = onRight ? hovered.x - 220 - gap : hovered.x + gap;
-        const ch = containerRef.current?.clientHeight ?? 400;
-        const onBottom = hovered.y > ch / 2;
-        const top = onBottom ? hovered.y - 10 : hovered.y + 10;
-        return (
+        return createPortal(
           <div
-            className="absolute z-10"
-            style={{ left, top, transform: onBottom ? "translateY(-100%)" : "none" }}
-            onMouseEnter={keepHover}
-            onMouseLeave={clearHover}
+            className="fixed z-[100] pointer-events-none"
+            style={{ left: hovered.x + 14, top: hovered.y - 10 }}
           >
             <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-3 py-2 shadow-lg max-w-[220px]">
               <p className="text-[11px] font-semibold text-teal-mystic/90">
@@ -405,7 +471,8 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
                 <p className="text-[8px] text-zinc-600 mt-1">on {hovered.target}</p>
               )}
             </div>
-          </div>
+          </div>,
+          document.body
         );
       })()}
 

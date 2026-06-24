@@ -183,9 +183,10 @@ def _resolve_model_url(model_key: str) -> tuple[str, str]:
     return base_url, model_name
 
 
-async def _call_model(model: str, prompt: str, system: str | None = None, *, model_name_override: str | None = None) -> tuple[str, int | None, int | None]:
+async def _call_model(model: str, prompt: str, system: str | None = None, *, model_name_override: str | None = None, provider_override: str | None = None) -> tuple[str, int | None, int | None]:
     if model_name_override:
-        if ANALYSIS_PROVIDER == "local":
+        provider = provider_override or ANALYSIS_PROVIDER
+        if provider == "local":
             base_url = config_manager.get_ollama_url()
         else:
             base_url = config_manager.get_backoffice_url()
@@ -203,7 +204,7 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
         "stream": False,
     }
 
-    provider_for_ctx = ANALYSIS_PROVIDER if model_name_override else _MODEL_PROVIDER
+    provider_for_ctx = provider_override or (ANALYSIS_PROVIDER if model_name_override else _MODEL_PROVIDER)
     if provider_for_ctx == "local":
         payload["options"] = {"num_ctx": 4096}
     else:
@@ -647,7 +648,8 @@ async def _embed(text: str) -> list[float]:
         return emb
 
 
-async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
+async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool = False,
+                       model_override: str | None = None, provider_override: str | None = None) -> TraceSession:
     trace_id = trace_id or uuid.uuid4().hex[:12]
     session = _store.get(trace_id) or TraceSession(id=trace_id, prompt=prompt)
     _store[trace_id] = session
@@ -656,10 +658,14 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
     cpu_samples: list[float] = []
     mem_samples: list[float] = []
 
-    emit_event("session_start", "Orchestration started", trace_id, prompt[:80])
-    _, resolved_model = _resolve_model_url("backoffice")
-    if _MODEL_PROVIDER == "local":
-        resolved_model = LOCAL_MODEL
+    if not headless:
+        emit_event("session_start", "Orchestration started", trace_id, prompt[:80])
+    if model_override:
+        resolved_model = model_override
+    else:
+        _, resolved_model = _resolve_model_url("backoffice")
+        if _MODEL_PROVIDER == "local":
+            resolved_model = LOCAL_MODEL
     session.model_used = resolved_model
 
     for i, stage in enumerate(STAGES):
@@ -683,7 +689,8 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
         )
         session.steps.append(step)
 
-        emit_event("stage_start", f"{label} started", trace_id, agent_name)
+        if not headless:
+            emit_event("stage_start", f"{label} started", trace_id, agent_name)
 
         start = perf_counter()
 
@@ -699,9 +706,13 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
                 eval_count = None
                 eval_duration_ns = None
             else:
-                if stage_id == "step-6":
+                if stage_id == "step-6" and not headless:
                     step.metadata["gen_started_at"] = datetime.now(timezone.utc).isoformat()
-                output, eval_count, eval_duration_ns = await _call_model(model, combined, system)
+                output, eval_count, eval_duration_ns = await _call_model(
+                    model, combined, system,
+                    model_name_override=model_override if model_override else None,
+                    provider_override=provider_override if provider_override else None,
+                )
 
             step.eval_count = eval_count
             step.eval_duration_ns = eval_duration_ns
@@ -724,7 +735,8 @@ async def orchestrate(prompt: str, trace_id: str | None = None) -> TraceSession:
             else:
                 context.append(f"[{label}]: {output}")
                 step.metadata["output"] = output[:2000]
-            emit_event("inference", f"Inference: {label}", trace_id, resolved_model)
+            if not headless:
+                emit_event("inference", f"Inference: {label}", trace_id, resolved_model)
         else:
             step.context_assembled = None
             if stage_id == "step-4":

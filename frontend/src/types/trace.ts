@@ -74,6 +74,7 @@ export interface TraceSession {
   id: string;
   prompt: string;
   batch_id?: string;
+  test_batch_id?: string;
   status: "processing" | "complete" | "error";
   steps: TraceStep[];
   output: string | null;
@@ -93,6 +94,70 @@ export interface TraceSession {
   synesth?: SynesthClassification;
 }
 
+export interface BatchError {
+  trace_id: string;
+  line: number;
+  error: string;
+}
+
+export type ProbeAction = "classify";
+export type ProbeAttribute = "ddc" | "lcc" | "intent" | "synesth_input" | "synesth_output";
+export type ProbeArtefact = "prompt" | "response";
+
+export interface Probe {
+  action: ProbeAction;
+  attribute: ProbeAttribute;
+  artefact: ProbeArtefact;
+}
+
+export interface ProbeResult {
+  label: string;
+  value: string;
+  confidence: number | null;
+}
+
+export const PROBE_ATTRIBUTE_LABELS: Record<ProbeAttribute, string> = {
+  ddc: "DDC",
+  lcc: "LCC",
+  intent: "Intent",
+  synesth_input: "Synesthesia Input",
+  synesth_output: "Synesthesia Output",
+};
+
+export const PROBE_ARTEFACT_OPTIONS: Record<ProbeAttribute, ProbeArtefact[]> = {
+  ddc: ["prompt", "response"],
+  lcc: ["prompt", "response"],
+  intent: ["prompt"],
+  synesth_input: ["prompt"],
+  synesth_output: ["response"],
+};
+
+export interface ModelOption {
+  name: string;
+  provider: "local" | "backoffice";
+}
+
+export interface TestModelConfig {
+  provider: "local" | "backoffice";
+  model: string;
+}
+
+export interface TestRunResult {
+  config: TestModelConfig;
+  trace_id: string;
+  status: "running" | "complete" | "error";
+  error: string | null;
+}
+
+export interface TestRunStatus {
+  test_batch_id: string;
+  total: number;
+  completed: number;
+  failed: number;
+  status: "running" | "done";
+  results: TestRunResult[];
+}
+
 export interface BatchStatus {
   batch_id: string;
   total: number;
@@ -100,5 +165,6 @@ export interface BatchStatus {
   failed: number;
   status: "running" | "done";
   trace_ids: string[];
+  error_details: BatchError[];
   created_at: string;
 }

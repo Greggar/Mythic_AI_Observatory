@@ -14,6 +14,7 @@ import psutil
 logger = logging.getLogger("conductor")
 
 from services import config_manager
+from services.log_broadcaster import get_broadcaster
 
 LOCAL_HOSTNAME = socket.gethostname().split(".")[0].lower()
 
@@ -277,5 +278,46 @@ async def collect_vitals() -> list[dict[str, Any]]:
             "status": _machine_status(vitals),
             "vitals": vitals,
         })
+
+    # Virtual "Logs" machine — backend log health
+    try:
+        broadcaster = get_broadcaster()
+        summary = broadcaster.get_summary()
+        recent_errors = broadcaster.get_recent(limit=3, level="ERROR")
+        err_count = summary["errors_last_5m"]
+        warn_count = summary["warnings_last_5m"]
+
+        log_vitals = [
+            {"id": "errors", "label": "Errors (5m)", "value": str(err_count),
+             "status": "red" if err_count > 0 else ("yellow" if warn_count > 5 else "green")},
+            {"id": "warnings", "label": "Warnings (5m)", "value": str(warn_count),
+             "status": "yellow" if warn_count > 5 else "green"},
+            {"id": "logRate", "label": "Log rate", "value": f'{summary["entries_per_min"]}/min',
+             "status": "green"},
+            {"id": "totalEntries", "label": "Ring buffer", "value": str(summary["total_entries"]),
+             "status": "green"},
+        ]
+
+        insight_lines = []
+        if err_count > 0:
+            for e in recent_errors:
+                insight_lines.append(f"ERROR: {e['msg'][:80]}")
+        if warn_count > 0:
+            insight_lines.append(f"{warn_count} warnings in last 5 min")
+        if not insight_lines:
+            insight_lines.append("No recent errors or warnings")
+        if summary["errors_24h"] > 0:
+            insight_lines.append(f"{summary['errors_24h']} total errors in last 24h")
+
+        machines.append({
+            "id": "_logs",
+            "name": "Trace Logs",
+            "desc": "Backend application log stream — SSE ring buffer + rotating file",
+            "insight": "; ".join(insight_lines),
+            "status": "critical" if err_count > 0 else ("warning" if warn_count > 5 else "healthy"),
+            "vitals": log_vitals,
+        })
+    except Exception as exc:
+        logger.debug("Could not build Logs virtual machine: %s", exc)
 
     return {"machines": machines}

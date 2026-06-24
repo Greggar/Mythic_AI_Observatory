@@ -28,6 +28,8 @@ from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
 from services.classifier_agent import classifier_loop, merge_synesth
+from services.classify_task import start_classify_task, cancel_classify_task, get_classify_status, ClassifyTaskStatus, ClassifyCellResult
+from services.log_broadcaster import get_broadcaster, install_handler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("conductor")
@@ -193,6 +195,7 @@ _latest_telemetry: dict[str, Any] | None = None
 # ── Background broadcast loop ────────────────────────────────────
 @app.on_event("startup")
 async def start_background_tasks() -> None:
+    install_handler()
     asyncio.create_task(_telemetry_loop())
     asyncio.create_task(warmup_model())
     asyncio.create_task(classifier_loop())
@@ -400,6 +403,11 @@ class BatchRequest(BaseModel):
     prompts: list[str]
     model: str | None = None
 
+class BatchError(BaseModel):
+    trace_id: str
+    line: int
+    error: str
+
 class BatchStatus(BaseModel):
     batch_id: str
     total: int
@@ -407,6 +415,7 @@ class BatchStatus(BaseModel):
     failed: int = 0
     status: str = "running"  # running | done
     trace_ids: list[str] = Field(default_factory=list)
+    error_details: list[BatchError] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 _BATCH_CONCURRENCY = int(os.environ.get("BATCH_CONCURRENCY", "2"))
@@ -430,15 +439,18 @@ async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
 
 async def _process_batch(batch_id: str, prompts: list[str], trace_ids: list[str]) -> None:
     from services.orchestrator import orchestrate
-    async def _run_one(prompt: str, tid: str) -> None:
+    async def _run_one(prompt: str, tid: str, idx: int) -> None:
         async with _batch_semaphore:
             try:
-                await orchestrate(prompt, tid)
+                await orchestrate(prompt, tid, headless=True)
                 _batch_store[batch_id].completed += 1
             except Exception as e:
                 _batch_store[batch_id].failed += 1
-                logger.error("Batch trace %s failed: %s", tid, e)
-    tasks = [_run_one(p, tid) for p, tid in zip(prompts, trace_ids)]
+                _batch_store[batch_id].error_details.append(
+                    BatchError(trace_id=tid, line=idx + 1, error=str(e))
+                )
+                logger.error("Batch trace %s (line %d) failed: %s", tid, idx + 1, e)
+    tasks = [_run_one(p, tid, i) for i, (p, tid) in enumerate(zip(prompts, trace_ids))]
     await asyncio.gather(*tasks, return_exceptions=True)
     _batch_store[batch_id].status = "done"
 
@@ -471,6 +483,157 @@ async def api_batch_status(batch_id: str) -> BatchStatus:
     if not status:
         raise HTTPException(status_code=404, detail="Batch not found")
     return status
+
+
+# ── Test run endpoints ──────────────────────────────────────────
+class TestModelConfig(BaseModel):
+    provider: str  # "local" or "backoffice"
+    model: str
+
+class TestRunRequest(BaseModel):
+    prompt: str
+    configs: list[TestModelConfig]
+
+class TestRunResult(BaseModel):
+    config: TestModelConfig
+    trace_id: str
+    status: str = "running"  # running | complete | error
+    error: str | None = None
+
+class TestRunStatus(BaseModel):
+    test_batch_id: str
+    total: int
+    completed: int = 0
+    failed: int = 0
+    status: str = "running"  # running | done
+    results: list[TestRunResult] = Field(default_factory=list)
+
+_test_run_store: dict[str, TestRunStatus] = {}
+_test_run_semaphore = asyncio.Semaphore(2)
+
+
+async def _process_test_run(test_batch_id: str, prompt: str, configs: list[TestModelConfig]) -> None:
+    from services.orchestrator import orchestrate
+    async def _run_one(cfg: TestModelConfig, idx: int) -> None:
+        tid = uuid.uuid4().hex[:12]
+        _test_run_store[test_batch_id].results[idx].trace_id = tid
+        session = TraceSession(id=tid, prompt=prompt, test_batch_id=test_batch_id)
+        from services.orchestrator import _store
+        _store[session.id] = session
+        async with _test_run_semaphore:
+            try:
+                await orchestrate(prompt, tid, headless=True,
+                                  model_override=cfg.model, provider_override=cfg.provider)
+                _test_run_store[test_batch_id].results[idx].status = "complete"
+                _test_run_store[test_batch_id].completed += 1
+            except Exception as e:
+                _test_run_store[test_batch_id].results[idx].status = "error"
+                _test_run_store[test_batch_id].results[idx].error = str(e)
+                _test_run_store[test_batch_id].failed += 1
+                logger.error("Test run %s config %s failed: %s", test_batch_id, cfg.model, e)
+    tasks = [_run_one(cfg, i) for i, cfg in enumerate(configs)]
+    await asyncio.gather(*tasks, return_exceptions=True)
+    _test_run_store[test_batch_id].status = "done"
+
+
+@app.post("/api/tests/run")
+async def api_test_run(req: TestRunRequest) -> dict:
+    if not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt is required")
+    if not req.configs:
+        raise HTTPException(status_code=400, detail="At least one model config is required")
+    logger.info("Test run: %d configs for prompt %s", len(req.configs), req.prompt[:60])
+    test_batch_id = uuid.uuid4().hex[:12]
+    _test_run_store[test_batch_id] = TestRunStatus(
+        test_batch_id=test_batch_id,
+        total=len(req.configs),
+        results=[TestRunResult(config=c, trace_id="") for c in req.configs],
+    )
+    task = asyncio.create_task(_process_test_run(test_batch_id, req.prompt, req.configs))
+    _async_tasks[f"test-{test_batch_id}"] = task
+    task.add_done_callback(lambda _: _async_tasks.pop(f"test-{test_batch_id}", None))
+    return {"test_batch_id": test_batch_id, "total": len(req.configs), "status": "started"}
+
+
+@app.get("/api/tests/run/{test_batch_id}")
+async def api_test_status(test_batch_id: str) -> TestRunStatus:
+    status = _test_run_store.get(test_batch_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Test run not found")
+    return status
+
+
+# ── Classify (what-if analysis) endpoints ────────────────────
+
+class ClassifyRequest(BaseModel):
+    probes: list[dict[str, str]]
+    models: list[TestModelConfig]
+    max_traces: int = 20
+
+@app.post("/api/tests/classify")
+async def api_classify_start(req: ClassifyRequest) -> dict:
+    if not req.probes:
+        raise HTTPException(status_code=400, detail="At least one probe required")
+    if not req.models:
+        raise HTTPException(status_code=400, detail="At least one model required")
+    traces = list_traces(req.max_traces)
+    traces = [t for t in traces if t.model_used]
+    if not traces:
+        raise HTTPException(status_code=400, detail="No traces available for classification")
+    task_id = await start_classify_task(
+        req.probes,
+        [{"model": m.model, "provider": m.provider} for m in req.models],
+        traces,
+    )
+    return {"task_id": task_id, "total_cells": len(req.probes) * len(req.models) * len(traces), "traces_used": len(traces), "status": "started"}
+
+@app.get("/api/tests/classify/{task_id}")
+async def api_classify_status(task_id: str) -> ClassifyTaskStatus:
+    status = get_classify_status(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return status
+
+@app.post("/api/tests/classify/{task_id}/cancel")
+async def api_classify_cancel(task_id: str) -> dict:
+    if not cancel_classify_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"status": "cancelled"}
+
+
+# ── Log streaming (SSE) ─────────────────────────────────────────
+
+from fastapi.responses import StreamingResponse
+
+@app.get("/api/logs/stream")
+async def api_log_stream() -> StreamingResponse:
+    broadcaster = get_broadcaster()
+    queue = broadcaster.subscribe()
+
+    async def event_gen():
+        try:
+            while True:
+                entry = await queue.get()
+                yield f"data: {json.dumps(entry)}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            broadcaster.unsubscribe(queue)
+
+    return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+@app.get("/api/logs/recent")
+async def api_logs_recent(
+    limit: int = 100,
+    level: str | None = None,
+    since: float | None = None,
+) -> dict[str, Any]:
+    broadcaster = get_broadcaster()
+    return {
+        "entries": broadcaster.get_recent(limit=limit, level=level, since=since),
+        "summary": broadcaster.get_summary(),
+    }
 
 
 @app.get("/api/traces/profile", response_model=list[ModelProfile])

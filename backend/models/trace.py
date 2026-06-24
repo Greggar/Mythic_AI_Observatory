@@ -80,6 +80,7 @@ class TraceSession(BaseModel):
     id: str
     prompt: str
     batch_id: str | None = None
+    test_batch_id: str | None = None
     status: str = "processing"  # processing | complete | error
     steps: list[TraceStep] = Field(default_factory=list)
     output: str | None = None

@@ -28,6 +28,10 @@ import PerformanceInsights from "@/components/PerformanceInsights";
 import PersonalityProfile from "@/components/PersonalityProfile";
 import TraceSummaryModal from "@/components/TraceSummaryModal";
 import RelationshipsPanel from "@/components/RelationshipsPanel";
+import TestRunner from "@/components/TestRunner";
+import TestComparison from "@/components/TestComparison";
+import LogTerminal from "@/components/LogTerminal";
+import type { Probe, ModelOption } from "@/types/trace";
 import { DEFAULT_CHART } from "@/data/chartOptions";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -45,6 +49,9 @@ export default function Home() {
   const [groupingMethod, setGroupingMethod] = useState<string>("ddc");
   const [visualizationType, setVisualizationType] = useState<string>("constellation");
   const [batchMode, setBatchMode] = useState(false);
+  const [testProbes, setTestProbes] = useState<Probe[]>([]);
+  const [testModels, setTestModels] = useState<ModelOption[]>([]);
+  const [showTerminal, setShowTerminal] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to timeline when a history trace is selected
@@ -125,7 +132,7 @@ export default function Home() {
   const activeTrace = replayTrace || trace;
 
   const isIdle = !activeTrace && !loading;
-  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "history" | "analysis">("systems");
+  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "history" | "analysis" | "tests">("systems");
   const [analysisType, setAnalysisType] = useState<string>("synesthesia");
   const [chartType, setChartType] = useState<string>(DEFAULT_CHART[analysisType] || "confusion");
 
@@ -184,6 +191,16 @@ export default function Home() {
             >
               Analysis
             </button>
+            <button
+              onClick={() => setActiveTab("tests")}
+              className={`px-3 py-1.5 text-[11px] font-mono tracking-wider rounded-md transition-all ${
+                activeTab === "tests"
+                  ? "bg-teal-mystic/15 text-teal-mystic shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Tests
+            </button>
           </nav>
         </div>
 
@@ -223,6 +240,15 @@ export default function Home() {
             title="Network settings"
           >
             <Settings className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setShowTerminal(!showTerminal)}
+            className={`transition-colors p-2 rounded-full hover:bg-white/[0.04] ${
+              showTerminal ? "text-teal-mystic" : "text-zinc-600 hover:text-teal-mystic"
+            }`}
+            title="Toggle log terminal"
+          >
+            <span className="text-[9px] font-mono font-bold tracking-wider">$_</span>
           </button>
         </div>
       </header>
@@ -370,6 +396,21 @@ export default function Home() {
         </ErrorBoundary>
       )}
 
+      {/* Tests Tab — what-if classification analysis */}
+      {activeTab === "tests" && (
+        <ErrorBoundary key="tests">
+          <div className="flex-1 max-w-4xl mx-auto w-full space-y-4">
+            <TestRunner
+              onRun={(probes, models) => { setTestProbes(probes); setTestModels(models); }}
+              hasResults={testProbes.length > 0}
+            />
+            {testProbes.length > 0 && testModels.length > 0 && (
+              <TestComparison probes={testProbes} models={testModels} />
+            )}
+          </div>
+        </ErrorBoundary>
+      )}
+
       {/* Analysis Tab — all analysis types */}
       {activeTab === "analysis" && (
         <ErrorBoundary key="analysis">
@@ -474,6 +515,13 @@ export default function Home() {
       )}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      {/* Log terminal */}
+      {showTerminal && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 p-4 bg-[#050508]/80 backdrop-blur-sm border-t border-white/[0.06]">
+          <LogTerminal onClose={() => setShowTerminal(false)} />
+        </div>
+      )}
 
       {/* Discovery Events overlay */}
       <DiscoveryEvents
