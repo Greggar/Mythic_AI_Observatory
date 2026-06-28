@@ -1,12 +1,28 @@
 #!/usr/bin/env bash
 # Periodic log health check for Mythic AI Observatory.
 # Polls /api/logs/recent and sends Telegram alert if error count
-# exceeds thresholds, using the Openclaw Telegram bot token directly.
+# exceeds thresholds.
+#
+# Required env vars (or ~/.config/mythic/log_alerter.env):
+#   BOT_TOKEN        — Telegram bot token
+#   TELEGRAM_TARGET  — Telegram chat ID to send alerts to
+# Optional:
+#   API_BASE         — Observatory backend URL (default: http://127.0.0.1:8001)
 set -euo pipefail
 
+CONFIG_FILE="${HOME}/.config/mythic/log_alerter.env"
+if [ -f "$CONFIG_FILE" ]; then
+  set -a; source "$CONFIG_FILE"; set +a
+fi
+
 API_BASE="${API_BASE:-http://127.0.0.1:8001}"
-TELEGRAM_TARGET="${TELEGRAM_TARGET:-8691064410}"
-BOT_TOKEN="${BOT_TOKEN:-TELEGRAM_BOT_TOKEN_REDACTED}"
+
+if [ -z "${BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_TARGET:-}" ]; then
+  echo "log_alerter: BOT_TOKEN and TELEGRAM_TARGET must be set"
+  echo "  either as env vars or in ${CONFIG_FILE}"
+  echo "  See tools/log_alerter.env.example"
+  exit 1
+fi
 
 data=$(curl -s --max-time 10 "${API_BASE}/api/logs/recent?since=300" 2>/dev/null)
 err5=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin)['summary']['errors_last_5m'])" 2>/dev/null || echo "0")
