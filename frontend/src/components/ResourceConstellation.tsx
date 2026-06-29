@@ -17,6 +17,7 @@ interface Vital {
 interface Machine {
   id: string;
   name: string;
+  host?: string;
   desc: string;
   insight: string;
   status: "healthy" | "warning" | "critical" | "unavailable";
@@ -48,40 +49,6 @@ function parsePct(value: string): number {
 function getVital(machine: Machine, id: string): Vital | undefined {
   return machine.vitals.find((v) => v.id === id);
 }
-
-const SERVICE_GLYPHS: Record<string, { x: number; y: number; label: string; color: string }[]> = {
-  Gingerlong: [
-    { x: 0, y: -14, label: "API", color: "#2dd4bf" },
-    { x: 12, y: -7, label: "Ollama", color: "#34d399" },
-    { x: 12, y: 7, label: "OC", color: "#fbbf24" },
-    { x: 0, y: 14, label: "UI", color: "#2dd4bf" },
-    { x: -12, y: 7, label: "FastAPI", color: "#34d399" },
-    { x: -12, y: -7, label: "Conductor", color: "#fbbf24" },
-  ],
-  BackOffice: [
-    { x: 0, y: -11, label: "Hermes", color: "#2dd4bf" },
-    { x: 10, y: 0, label: "ComfyUI", color: "#a78bfa" },
-    { x: 0, y: 11, label: "qwen3.5", color: "#34d399" },
-  ],
-  LoungeRoom: [
-    { x: 0, y: -9, label: "Batch", color: "#2dd4bf" },
-    { x: 0, y: 9, label: "Train", color: "#f59e0b" },
-  ],
-};
-
-const SERVICE_INFO: Record<string, { name: string; desc: string }> = {
-  Conductor: { name: "Conductor", desc: "FastAPI backend — orchestrates 7-stage AI pipeline, manages telemetry, serves REST API" },
-  API: { name: "API", desc: "REST API endpoints for frontend communication, trace management, and config" },
-  Ollama: { name: "Ollama", desc: "Local LLM inference server — runs qwen2.5:3b for CPU-bound orchestration calls" },
-  OC: { name: "OpenClaw Gateway", desc: "Agent gateway — connects to Telegram, manages multi-model routing; amber = degraded or disconnected channel" },
-  UI: { name: "Solar Interface", desc: "Next.js frontend — glassmorphic dashboard served on port 3001" },
-  FastAPI: { name: "FastAPI", desc: "ASGI web framework powering the Conductor backend" },
-  Hermes: { name: "Hermes Agent", desc: "AI agent on BackOffice — handles prompt processing and tool calls" },
-  ComfyUI: { name: "ComfyUI", desc: "Image generation interface running on BackOffice" },
-  "qwen3.5": { name: "Qwen 3.5", desc: "Local LLM model (3B params) running on BackOffice for inference offload" },
-  Batch: { name: "Batch Processor", desc: "Background batch job runner on LoungeRoom" },
-  Train: { name: "Train Worker", desc: "Model fine-tuning / training worker on LoungeRoom" },
-};
 
 interface ServiceDef {
   x: number;
@@ -154,9 +121,10 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
       .catch(() => {});
   }, [servicesKey]);
 
-  const sun = useMemo(() => data?.machines.find((m) => m.name === "Gingerlong") ?? null, [data]);
+  // The local machine (127.0.0.1) is the solar core; all others orbit (including the _logs sentinel)
+  const sun = useMemo(() => data?.machines.find((m) => m.host === "127.0.0.1") ?? data?.machines[0] ?? null, [data]);
   const planets = useMemo(
-    () => data?.machines.filter((m) => m.name !== "Gingerlong") ?? [],
+    () => data?.machines.filter((m) => m.host !== "127.0.0.1") ?? [],
     [data]
   );
 

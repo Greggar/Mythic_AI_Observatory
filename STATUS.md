@@ -1,12 +1,12 @@
 # Mythic AI Observatory — Development Status
 
 ## What It Is
-A distributed agentic AI monitoring and orchestration platform. Users submit prompts that flow through a 7-stage LLM orchestration pipeline (real inference via `qwen3.5:9B` on a backoffice GPU). The system telemetry and trace data are visualised in a calm, sacred, luxurious single-page interface.
+A distributed agentic AI monitoring and orchestration platform. Users submit prompts that flow through a 7-stage pipeline (intent classification via all-minilm embedding, context assembly, and LLM response generation via `qwen2.5:3b`). The system telemetry and trace data are visualised in a calm, sacred, luxurious single-page interface.
 
 ## Architecture
 
 ```
-User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ Backoffice qwen3.5:9B (:12434)
+User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ qwen2.5:3b (Ollama :11434)
                           ↑
                     Prometheus (:9090) + Node Exporter (:9100)
 ```
@@ -27,7 +27,7 @@ User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ Backoffice qwen3.5:9B 
   - **EnergyPath** — curved bezier arcs with dasharray flow animation between nodes during trace
 - **TraceTimeline** — step-by-step resolution with expandable output block per stage
 - **DecisionPathways** — shows current/next stage name
-- **Real orchestration** — 7 stages: reception, classification, context assembly, synthesis planning, draft generation, refinement, final output. Each calls the backoffice model with accumulated context.
+- **Real orchestration** — 7 stages: Request Received, Intent Classification (embedding-based), Model Routing, Memory Retrieval, Context Assembly (pass-through), Response Generation (only LLM stage), Output Packaging.
 - **Prometheus** — configured and running (though dashboards not yet built)
 
 ## Visual Identity (Applied)

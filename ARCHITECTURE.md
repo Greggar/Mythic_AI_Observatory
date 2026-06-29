@@ -8,6 +8,14 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 
 **Core philosophy:** calm, intelligent, observability-first. The UI avoids game/cyberpunk/cluttered aesthetics in favour of sacred geometry, subtle glow effects, and negative space.
 
+### Design Values
+
+**Truth over polish** — A beautiful lie is worse than an honest blemish. Stage names, descriptions, and visual metaphors must match what the code actually does. When the implementation changes, the representation changes with it.
+
+**Beauty is not a lie** — Dramatic emphasis, visual hierarchy, and aesthetic craft are not the enemies of accuracy. They serve it by directing attention to what matters. The model gets the sun position not because it's a god, but because it's the operational centre of gravity.
+
+**Flares, not falsehoods** — Animation, glow, and ornament are welcome as long as they don't imply behaviour that doesn't exist. A pulsing node says "this is active," not "this is an autonomous intelligence."
+
 ---
 
 ## 2. System Topology
@@ -15,7 +23,7 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Ubuntu Server                             │
-│                    192.168.0.237 (primary-server)              │
+│                    192.168.1.1 (primary-server)              │
 │                                                                  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐ │
 │  │  Ollama   │  │ OpenClaw │  │ FastAPI  │  │   Next.js 16    │ │
@@ -30,13 +38,13 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 │                           │
 │                           ▼ LAN
 │              ┌──────────────────────────┐
-│              │   Backoffice PC           │
-│              │   198.51.100.100           │
+│              │   Worker Node 1           │
+│              │   192.168.1.100           │
 │              │                           │
 │              │  Docker Model Runner      │
 │              │  :12434                   │
-│              │  ┌─ gpt-oss:20B (11GB)   │
-│              │  └─ qwen3.5:9B (5.5GB)   │
+│              │  ┌─ qwen2.5:7b (11GB)   │
+│              │  └─ qwen2.5:7b (5.5GB)   │
 │              │                           │
 │              │  Hermes Bridge :9119      │
 │              │  ComfyUI :8188            │
@@ -84,30 +92,29 @@ TraceStep     — id, label, status, timestamp, duration_ms, metadata, context_a
 TraceSession  — id, prompt, status, steps[], output, created_at, completed_at, model_used
 ```
 
-**`context_assembled`** — a new field added for transparency. At each model-calling stage (steps 2, 5, 6), the concatenated context (`"\n".join(context + [prompt])`) is stored on the step so the frontend can display exactly what was sent to the model. Non-model stages store `"[non-model stage — no context assembly]"`.
+**`context_assembled`** — a new field added for transparency. At each stage with a model configured (steps 2, 6), the concatenated context (`"\n".join(context + [prompt])`) is stored on the step so the frontend can display exactly what was sent to the model. Non-model stages store `"[non-model stage — no context assembly]"`.
 
-**`model_used`** on the session records which model name wound up being called (e.g. `qwen2.5:3b` or `qwen3.5:9B`).
+**`model_used`** on the session records which model name wound up being called (e.g. `qwen2.5:3b`).
 
 Using Pydantic `BaseModel` with sensible defaults (auto-timestamps, empty metadata).
 
 ### Orchestrator Service: `backend/services/orchestrator.py`
 
-- **7 stages** (steps 2, 5, 6 call the backoffice LLM; 1, 3, 4, 7 are lightweight):
+- **7 stages** (only step 6 calls an LLM; steps 2 and 5 are lightweight):
   1. Request Received — 50ms, no model
-  2. Intent Classification — calls `qwen3.5:9B` via Ollama-compatible API
-  3. Agent Selection — 50ms, no model
+  2. Intent Classification — embedding-based (all-minilm:22m cosine similarity), ~73ms, no LLM call
+  3. Model Routing — 50ms, no model
   4. Memory Retrieval — 50ms, no model
-  5. Context Synthesis — calls `qwen3.5:9B`
-  6. Response Generation — calls `qwen3.5:9B` (final answer)
-  7. Final Response — 50ms, no model
+  5. Context Assembly — echoes primary intent as pass-through, no LLM call
+  6. Response Generation — calls `qwen2.5:3b` (final answer)
+  7. Output Packaging — 50ms, no model
 - Steps execute sequentially via `asyncio`
 - Each model call sends the accumulated context + the original prompt, using `httpx.AsyncClient`
-- Backoffice URL: `http://198.51.100.100:12434` (Ollama-compatible API)
-- The model is a reasoning model that produces `thinking` + `response`; if `response` is empty, `thinking` is used as fallback
-- `num_predict` is unset (let the model generate naturally) — with limits the thinking consumed all tokens before reaching the response
+- Worker Node 1 URL: `http://192.168.1.100:12434` (Ollama-compatible API)
+- The model (`qwen2.5:3b`) generates a standard response
 - In-memory dict store (`_store`) keyed by trace ID (UUID hex, 12 chars)
 
-**Design reasoning:** Real LLM calls make the trace timeline authentic — each step's duration reflects actual model inference time, and the final output is a genuine model response rather than a canned string. The `gpt-oss:20B` model on the backoffice was too large to respond reliably (timed out), so all model stages use `qwen3.5:9B`.
+**Design reasoning:** Real LLM calls make the trace timeline authentic — each step's duration reflects actual model inference time, and the final output is a genuine model response rather than a canned string.
 
 ### 3.4 Living Orchestration — Async Background Tasks
 
@@ -136,8 +143,8 @@ Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and also **hot-sw
 
 | Value | Base URL | Model | Suitable for |
 |---|---|---|---|
-| `local` | `http://127.0.0.1:11434` (Ollama) | `qwen2.5:3b` | CPU inference on primary (moderate quality, slow) |
-| `backoffice` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen3.5:9B` | GPU inference on BackOffice (high quality, fast) |
+| `local` | `http://127.0.0.1:11434` (Ollama) | `qwen2.5:3b` | CPU inference on primary server (moderate quality, slow) |
+| `backoffice` | `http://192.168.1.100:12434` (Docker Model Runner) | `qwen2.5:7b` | GPU inference on Worker Node 1 (high quality, fast) |
 
 When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the 3B model's context window. When `backoffice`, the context limit is handled by the remote server.
 
@@ -257,12 +264,12 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 cd ~/mythic-ai-observatory/frontend
 
 # Development mode (hot-reload, avoids HTML caching issue — preferred for active dev):
-NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm dev
+NEXT_PUBLIC_API_URL=http://192.168.1.1:8001 pnpm dev
 
 # Production mode (LAN access, stable — use for demos):
 npx next build   # one-time build
 npx next start -p 3001 -H 0.0.0.0
-# → http://localhost:3001 or http://192.168.0.237:3001
+# → http://localhost:3001 or http://192.168.1.1:3001
 ```
 
 **Dev vs prod:** Dev mode (`pnpm dev`) hot-reloads on file changes and avoids the stale-HTML caching problem. Prod mode (`next start`) serves pre-built files in memory — rebuilding `.next` while the server runs has no effect. Use dev for active development, prod for demos. See restart.sh for a combined start script.
@@ -296,7 +303,7 @@ The hook tracks three states:
 - `loading: true, trace: TraceSession` — actively polling (stages appearing incrementally)
 - `loading: false, trace: TraceSession` — completed, final trace displayed
 
-### Agent Nexus — Visual States
+### Stage Orbit — Visual States
 
 The SVG ring visualization has three distinct visual modes:
 
@@ -312,7 +319,7 @@ Each machine in `ResourceConstellation.tsx` has orbiting service glyphs defined 
 
 ```typescript
 const SERVICE_GLYPHS = {
-  Gingerlong: [
+  Primary Server: [
     { label: "API", color: "#2dd4bf" },
     { label: "Ollama", color: "#34d399" },
     { label: "OC", color: "#fbbf24" },
@@ -320,7 +327,7 @@ const SERVICE_GLYPHS = {
     { label: "FastAPI", color: "#34d399" },
     { label: "Conductor", color: "#fbbf24" },
   ],
-  BackOffice: [
+  Worker Node 1: [
     { label: "Hermes", color: "#2dd4bf" },
     { label: "ComfyUI", color: "#a78bfa" },
     { label: "qwen3.5", color: "#34d399" },
@@ -368,7 +375,7 @@ scrape_configs:
 
 **Root cause:** OpenClaw was configured with `qwen2.5:1.5b`, a 1.5B parameter model that is too small for coherent conversation. It hallucinated system prompt instructions.
 
-**Resolution:** Upgraded to `qwen2.5:3b` (still CPU-bound on this machine), then ultimately switched to using a backoffice PC with 16GB VRAM running Docker Model Runner with `gpt-oss:20B` and `qwen3.5:9B`.
+**Resolution:** Upgraded to `qwen2.5:3b` (still CPU-bound on this machine), then ultimately switched to using Worker Node 1 with 16GB VRAM running Docker Model Runner with `qwen2.5:7b` and `qwen2.5:7b`.
 
 **Lesson:** Models below 3B parameters are not suitable for conversational AI. For a Telegram bot, use at minimum a 7B parameter model or delegate to a GPU-equipped machine.
 
@@ -384,7 +391,7 @@ scrape_configs:
 
 **Symptom:** `Context overflow: prompt too large for the model (22917 tokens exceeds 4096)`
 
-**Root cause:** The `qwen3.5:9B` model on the backoffice has only 4096 context tokens. The Telegram conversation history accumulated beyond this limit.
+**Root cause:** The `qwen2.5:7b` model on Worker Node 1 has only 4096 context tokens. The Telegram conversation history accumulated beyond this limit.
 
 **Fix:** Add `reasoning: false` to model config (already set), and use `/reset` or `/new` to clear sessions. The auto-compaction feature attempted recovery.
 
@@ -392,7 +399,7 @@ scrape_configs:
 
 ### 6.5 Next.js Dev Server Not Reachable on LAN
 
-**Symptom:** Site worked at `http://localhost:3000` on the server but not at `http://192.168.0.237:3000` from another PC.
+**Symptom:** Site worked at `http://localhost:3000` on the server but not at `http://192.168.1.1:3000` from another PC.
 
 **Root cause:** Next.js dev server defaults to binding on `127.0.0.1` only. The `-H 0.0.0.0` flag is required to accept connections from the network.
 
@@ -408,25 +415,25 @@ scrape_configs:
 
 ### 6.7 WebSocket Connections Fail from Remote LAN Machines
 
-**Symptom:** The frontend works perfectly at `http://localhost:3001` on the server but shows "no connection" at `http://192.168.0.237:3001` from another LAN machine (the backoffice PC). The Next.js dev server page loads fine, but the telemetry WebSocket won't connect.
+**Symptom:** The frontend works perfectly at `http://localhost:3001` on the server but shows "no connection" at `http://192.168.1.1:3001` from another LAN machine (Worker Node 1). The Next.js dev server page loads fine, but the telemetry WebSocket won't connect.
 
 **Browser console errors:**
 ```
 web-socket.ts:50 WebSocket connection to
-'ws://192.168.0.237:3001/_next/webpack-hmr?id=...' failed
+'ws://192.168.1.1:3001/_next/webpack-hmr?id=...' failed
 ```
 
 **Diagnosis process:**
 1. Verified the backend FastAPI server listens on `0.0.0.0:8001` (all interfaces) — correct.
 2. Tested WebSocket connectivity via Python `websockets` library FROM the server itself — connected fine, received telemetry messages.
 3. Tested with explicit `Origin` headers to simulate browser cross-origin requests — still worked.
-4. Checked the backend access log and found WebSocket connections FROM the backoffice (`198.51.100.100`) were being *accepted* but then *closed* shortly after (`connection closed` appears within 1–2 log lines of `connection open`).
+4. Checked the backend access log and found WebSocket connections FROM Worker Node 1 (`192.168.1.100`) were being *accepted* but then *closed* shortly after (`connection closed` appears within 1–2 log lines of `connection open`).
 5. Tested with regular HTTP `fetch()` to port 8001 — this worked reliably, confirming the backend is reachable.
 6. Checked browser DevTools → Network tab — saw only Next.js HMR WebSocket failures; our app's WebSocket never appeared, meaning the JavaScript runtime was crashing before our hook even executed.
 
 **Root cause:**
 
-The **network path between the server and backoffice** kills WebSocket connections after the HTTP upgrade handshake. This is likely due to a router or firewall feature (e.g., deep packet inspection, connection tracking timeout, or a proxy that handles HTTP but not WebSocket upgrades). Two separate WebSocket channels were affected:
+The **network path between the server and Worker Node 1** kills WebSocket connections after the HTTP upgrade handshake. This is likely due to a router or firewall feature (e.g., deep packet inspection, connection tracking timeout, or a proxy that handles HTTP but not WebSocket upgrades). Two separate WebSocket channels were affected:
 
 - **Next.js HMR WebSocket** (port 3001, `/_next/webpack-hmr`): Next.js dev mode uses this for hot module replacement. When this WebSocket repeatedly fails, the Next.js dev runtime can crash or fail to hydrate the React component tree, preventing our code from mounting at all.
 - **Our app WebSocket** (port 8001, `/ws/telemetry`): Even when the React app did mount, the telemetry WebSocket would connect briefly then drop.
@@ -451,11 +458,11 @@ The `useWebSocket` hook was rewritten to poll `GET /api/telemetry` via `fetch()`
 
 ```typescript
 // Before (useWebSocket):
-const ws = new WebSocket("ws://192.168.0.237:8001/ws/telemetry");
+const ws = new WebSocket("ws://192.168.1.1:8001/ws/telemetry");
 ws.onmessage = (event) => setData(JSON.parse(event.data));
 
 // After (useWebSocket — HTTP polling):
-const res = await fetch("http://192.168.0.237:8001/api/telemetry");
+const res = await fetch("http://192.168.1.1:8001/api/telemetry");
 const json = await res.json();
 setData(json);
 ```
@@ -664,7 +671,7 @@ for i in range(len(top_chunks)):    # BUG: shadows outer stage index i
         ...
 ```
 
-After the inner `range(len(top_chunks))` loop, `i` held `len(top_chunks)-1` (typically 4 or 5) instead of the Memory Retrieval stage index (3). The subsequent `session.steps[i].status = "complete"` hit an `IndexError` because `session.steps[4]` didn't exist yet (Context Synthesis is index 4 and hasn't been created).
+After the inner `range(len(top_chunks))` loop, `i` held `len(top_chunks)-1` (typically 4 or 5) instead of the Memory Retrieval stage index (3). The subsequent `session.steps[i].status = "complete"` hit an `IndexError` because `session.steps[4]` didn't exist yet (Context Assembly is index 4 and hasn't been created).
 
 **Fix:** Renamed inner loop index to `vi`:
 ```python
@@ -776,7 +783,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
 
 17. **Expose assembled context on each trace step for transparency.** Storing `context_assembled` on model-calling steps lets the UI show exactly what the model received — system prompt + accumulated context + user prompt — in a split-pane view. This turns the black-box LLM call into an inspectable artifact, which helps debugging prompt construction and context-window overflow. The token budget meter (`Math.round(text.length / 4)` vs context window) gives a visual indicator of headroom at a glance.
 
-18. **Runtime-mutable globals enable hot-swapping without restart.** Using a module-level `_MODEL_PROVIDER` with accessor functions (`get/set_model_provider`) lets the operator switch between local and backoffice models via the SettingsModal without restarting uvicorn. The pattern works because the model resolution happens at call time (`_resolve_model_url()`) rather than at import time. The trade-off is thread safety — the global is not behind a lock, but for a single-async-thread FastAPI app this is not a concern.
+18. **Runtime-mutable globals enable hot-swapping without restart.** Using a module-level `_MODEL_PROVIDER` with accessor functions (`get/set_model_provider`) lets the operator switch between local and Worker Node 1 models via the SettingsModal without restarting uvicorn. The pattern works because the model resolution happens at call time (`_resolve_model_url()`) rather than at import time. The trade-off is thread safety — the global is not behind a lock, but for a single-async-thread FastAPI app this is not a concern.
 
 19. **Background `asyncio.create_task` failures are silent by default.** A `NameError` inside a background task produces no log output or HTTP error — just a `Task exception was never retrieved` warning that's easy to miss. Always either: (a) attach a done callback that logs `task.exception()`, (b) wrap the entire task body in try/except with explicit logging, or (c) add a smoke test that runs the orchestration end-to-end before merging.
 
@@ -792,7 +799,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
 
 ### 6.17 Silent Background Task Crash Due to Variable Shadowing in `orchestrate()` Loop
 
-**Symptom:** Submitting a prompt returned a `trace_id` immediately, but the trace progressed through Intent Classification and Agent Selection, then **stuck at Memory Retrieval indefinitely** ("processing" with no duration). The frontend polled `/api/traces/{id}` every 1.5s but the Memory Retrieval step never resolved. No error appeared in backend logs.
+**Symptom:** Submitting a prompt returned a `trace_id` immediately, but the trace progressed through Intent Classification and Model Routing, then **stuck at Memory Retrieval indefinitely** ("processing" with no duration). The frontend polled `/api/traces/{id}` every 1.5s but the Memory Retrieval step never resolved. No error appeared in backend logs.
 
 The Memory Retrieval step's `metadata` showed `retrieved_chunks` (meaning the similarity search completed) but the step status remained "processing."
 
@@ -813,7 +820,7 @@ The inner loop `for i, chunk in enumerate(top_chunks)` **reuses the same variabl
 session.steps[i].status = "complete"  # i=4, but steps only has 4 elements (0-3)
 ```
 
-This raises `IndexError: list index out of range` because `session.steps[4]` doesn't exist yet — it would be created by the next iteration of the outer loop (Context Synthesis, stage index 4). The `IndexError` crashes the `asyncio.create_task` background task silently (see Lesson #19), leaving Memory Retrieval frozen in "processing" forever.
+This raises `IndexError: list index out of range` because `session.steps[4]` doesn't exist yet — it would be created by the next iteration of the outer loop (Context Assembly, stage index 4). The `IndexError` crashes the `asyncio.create_task` background task silently (see Lesson #19), leaving Memory Retrieval frozen in "processing" forever.
 
 **Why it was silent:** Same mechanism as §6.13 — `asyncio.create_task` wraps the coroutine in a Task; unhandled exceptions are logged as `Task exception was never retrieved` but do not propagate to any caller. No middleware caught it.
 
@@ -835,7 +842,7 @@ except Exception as e:
 
 **Lesson:**
 - **Never reuse loop variable names in nested `for` loops in Python.** The outer variable is silently overwritten. Use distinct names (`i`, `j`, `k` or descriptive names like `stage_idx`, `chunk_idx`).
-- **Any `await` call in a background task that is not wrapped in try/except is a crash risk.** If the call fails, the entire task dies and the session is left in an inconsistent state. Always protect fallible calls — especially HTTP/IO calls to external services (Ollama, backoffice) — with `try/except` that logs the error and continues.
+- **Any `await` call in a background task that is not wrapped in try/except is a crash risk.** If the call fails, the entire task dies and the session is left in an inconsistent state. Always protect fallible calls — especially HTTP/IO calls to external services (Ollama, Worker Node 1) — with `try/except` that logs the error and continues.
 - **A step's `metadata` being populated but its `status` still "processing" is a diagnostic signal** that the code between the metadata write and the status update crashed. Inspect the exact line range for unguarded operations. (2026-06-09)
 
 ---
@@ -844,8 +851,8 @@ except Exception as e:
 
 ### High Priority
 
-- **[Backend] Add proper error handling** for when the backoffice PC is unreachable. Currently, failed HTTP polls silently return `"status": "error"` — the frontend should surface this more clearly.
-- **[Frontend] Move telemetry and API URLs to environment variables.** Currently, `http://192.168.0.237:8001` is hardcoded in the build. Use `NEXT_PUBLIC_API_URL` for deploy-time configuration.
+- **[Backend] Add proper error handling** for when Worker Node 1 is unreachable. Currently, failed HTTP polls silently return `"status": "error"` — the frontend should surface this more clearly.
+- **[Frontend] Move telemetry and API URLs to environment variables.** Currently, `http://192.168.1.1:8001` is hardcoded in the build. Use `NEXT_PUBLIC_API_URL` for deploy-time configuration.
 
 ### Done ✓
 
@@ -868,7 +875,7 @@ except Exception as e:
 - **[Frontend] CelestialDistribution legend tooltips.** Hover on mean/median/mode shows statistical definition and right-skew implication for trace speed. (2026-06-06)
 - **[Frontend] Frontend crash resilience.** `ClientInit.tsx` catches `unhandledrejection` + `error` at the window level; start command uses `NODE_OPTIONS='--max_old_space_size=4096'` and `setsid` for stable background detachment. (2026-06-06)
 - **[Backend] Fix variable shadowing in orchestrator loop.** Inner loop `for i, chunk in enumerate(top_chunks)` shadowed outer `i`, causing IndexError that froze Memory Retrieval. (2026-06-09)
-- **[Frontend] StageDebate component.** `StageDebate.tsx` — detects polar opposition between Context Synthesis and Response Generation outputs using sentence-level polarity scoring + topic domain overlap. Non-conflicting shows collapsible "No stage conflicts"; conflicting shows glowing violet "Internal Debate" panel. Exports `detectContradiction()`. (2026-06-10)
+- **[Frontend] StageDebate component.** `StageDebate.tsx` — detects polar opposition between Context Assembly and Response Generation outputs using sentence-level polarity scoring + topic domain overlap. Non-conflicting shows collapsible "No stage conflicts"; conflicting shows glowing violet "Internal Debate" panel. Exports `detectContradiction()`. (2026-06-10)
 - **[Frontend] TraceRadar component.** `TraceRadar.tsx` — SVG pentagon radar chart with 5 axes (Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty). Computed from trace step metadata. Always renders in IntelligencePanel completed state. (2026-06-10)
 - **[Frontend] ForkInTheRoad decision tree.** `ForkInTheRoad.tsx` — decision tree visualization for intent classification. Chosen path highlighted in teal with branch line + confidence bar + reasoning; rejected paths dimmed at 50% opacity with strikethrough labels. Shows during processing state. (2026-06-10)
 - **[Backend + Frontend] History tab blank crash fix.** Three bugs: (1) FastAPI route ordering — `/api/traces/profile` registered AFTER `/{trace_id}`, wildcard caught "profile" as trace ID; (2) `PersonalityProfile` called `.length` on `null` API response with no error boundary, unmounting entire React tree; (3) `next start` cached stale HTML from old build. (2026-06-10)
@@ -885,7 +892,7 @@ except Exception as e:
 - **[Backend] JSONL deduplication.** `_persist()` appends the full session on every call, so a single trace can generate 3-5 identical lines in `traces.jsonl`. This inflates `load_history(limit=20)` with duplicate entries, skewing Memory Retrieval similarity search. Consider overwriting the last entry for a given trace ID instead of always appending, or deduplicate on load.
 - **[Backend] Post-complete section is slow.** The section makes 3 sequential LLM inference calls (insights, rationale, explanation) using qwen2.5:3b on CPU, each taking 30-60s. Embeddings and final persistance are blocked until all three finish. Consider parallelizing with `asyncio.gather()` or running them as separate fire-and-forget tasks.
 
-- **[Frontend + Backend] Investigate WebSocket-killing network issue.** The router/firewall between the server and backoffice drops WebSocket connections after HTTP upgrade. Identifying the exact device and rule would allow re-enabling WebSocket for lower-latency telemetry.
+- **[Frontend + Backend] Investigate WebSocket-killing network issue.** The router/firewall between the server and Worker Node 1 drops WebSocket connections after HTTP upgrade. Identifying the exact device and rule would allow re-enabling WebSocket for lower-latency telemetry.
 - **[Frontend] Use shared telemetry/API base URL.** Currently `useWebSocket` and `useOrchestrate` have independent URL configuration. Unify behind a single config object.
 
 ### Low Priority
@@ -982,7 +989,7 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/components/TimelineStep.tsx` | Single step row with status icon, duration |
 | `frontend/src/components/ObservatoryPanel.tsx` | Animated container for trace output |
 | `frontend/src/components/SystemVitals.tsx` | CPU/Memory/GPU gauge bars |
-| `frontend/src/components/SolarNexus.tsx` | Agent Nexus — animated SVG ring with 7 pipeline stages, energy particles, live step tracking; clickable nodes show ContextPane (split-pane prompt/context) + TokenMeter |
+| `frontend/src/components/SolarNexus.tsx` | Stage Orbit — animated SVG ring with 7 pipeline stages, energy particles, live step tracking; clickable nodes show ContextPane (split-pane prompt/context) + TokenMeter |
 | `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs + Models tab for runtime provider hot-swap |
 | `frontend/src/components/ResourceConstellation.tsx` | System Orbit — solar system viz with machines as planets, orbiting service glyphs that pulse on activity |
 | `frontend/src/components/IntelligencePanel.tsx` | Confidence ring, duration, model, token estimate, resource impact attribution; stage descriptions for each of the 7 orchestration stages; collapsible `context_assembled` viewer with toggle; wires ForkInTheRoad, StageDebate, TraceRadar, ThoughtStream, ChunkDisplay, CausalTracing |
@@ -992,14 +999,17 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `frontend/src/components/DiscoveryEvents.tsx` | Toast overlay for discovery events on orchestration completion |
 | `frontend/src/components/SettingsModal.tsx` | Network config editor for backend/remote endpoint URLs |
 | `frontend/src/components/ForkInTheRoad.tsx` | Decision tree visualization for intent classification — chosen path highlighted in teal, rejected paths dimmed with strikethrough, reasoning shown per branch |
-| `frontend/src/components/StageDebate.tsx` | Contradiction detection between Context Synthesis and Response Generation — sentence-level polarity scoring + topic domain overlap; violet "Internal Debate" UI |
-| `frontend/src/components/TraceRadar.tsx` | SVG pentagon radar chart with 5 axes (Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty) |
+| `frontend/src/components/StageDebate.tsx` | Contradiction detection between Context Assembly and Response Generation — sentence-level polarity scoring + topic domain overlap; violet "Internal Debate" UI |
+| `frontend/src/components/TraceRadar.tsx` | SVG heptagon radar chart with 7 axes (Confidence, Context, Transparency, Constraint Adherence, Conflict Avoidance, Data Constraints, Output Substance). Supports multi-trace comparative overlay with per-trace color palette and fingerprint summary bar. |
+| `frontend/src/components/ComparativeRadarPanel.tsx` | History-tab panel showing full comparative radar with trace list, fingerprint summary, expandable prompt/output details. Opened via multi-select in MemoryConstellation "Compare N" button. |
 | `frontend/src/components/VectorDistanceGraph.tsx` | MDS-2D cosine-similarity cluster map for Memory Retrieval chunks with SVG scatter plot + hover tooltips |
 | `frontend/src/components/PersonalityProfile.tsx` | Per-model profiling — count, latency avg/p50/p95/p99, tokens, failure rate, confidence, per-stage averages in collapsible cards |
 | `frontend/src/components/LatencyBreakdown.tsx` | Per-stage colored progress bars with historical averages and live trace overlay |
 | `frontend/src/components/PerformanceInsights.tsx` | LLM-generated insight cards for trace performance analysis |
 | `frontend/src/components/CelestialDistribution.tsx` | Statistical distribution chart (mean/median/mode) with legend tooltips |
 | `frontend/src/components/SunburstChart.tsx` | 2/3-level radial treemap for DDC, LCC, and Multi-Label classification — d3.arc() wedges, portaled tooltip, click-to-highlight, CSV export, keyword-clusters placeholder |
+| `frontend/src/components/SynthesisBridge.tsx` | Sentence-level highlighted output linking final response text to retrieved chunks via word-overlap similarity. Colored underlines show influence source; hover tooltip reveals chunk content, relevance, and used/discarded status. Wired in IntelligencePanel completed state after Memory Retrieval section. |
+| `frontend/src/components/charts/DualTimeline.tsx` | Synchronized side-by-side cards for 7 orchestration stages (+ overall) pairing Objective Trace (system metrics) with LLM Self-Rationale (model reasoning). Includes **ghost references**: sentence-level detection of data references within rationale text — hover a sentence to highlight the matching objective card, and vice versa. Wired in IntelligencePanel completed state. |
 | `frontend/src/hooks/useWebSocket.ts` | WebSocket hook with auto-reconnect (currently HTTP polling) |
 | `frontend/src/hooks/useOrchestrate.ts` | Orchestration hook — async POST returns trace_id, polls for incremental updates every 1.5s |
 | `frontend/src/hooks/useTraceReplay.ts` | Step-by-step animation hook for historical trace replay |
@@ -1011,7 +1021,7 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `backend/data/services.json` | Service definitions (glyph layout, name, description) served via `GET /api/services` |
 | `backend/services/classifier_agent.py` | Background agent: polls every 45s, classifies unprocessed traces via LLM against `synesthesia_schema.md`, stores results in `synesth_cache.json` |
 | `backend/services/synesthesia_schema.md` | Plain-language classification schema (5 input + 5 output categories) for Cognitive Synesthesia — edit this to change classification behavior without code |
-| `tools/backfill_synesth.py` | One-shot backfill script using backoffice GPU (`gpt-oss:20B`) to classify all existing traces into `synesth_cache.json` |
+| `tools/backfill_synesth.py` | One-shot backfill script using Worker Node 1 GPU (`qwen2.5:7b`) to classify all existing traces into `synesth_cache.json` |
 | `DEVELOPMENT.md` | Quick-start guide for local dev |
 | `LVM-ROOT-EXPAND.md` | Instructions for expanding the root LVM volume |
 | `Innovation.md` | Ideas log for practical experiments with the local 3B model |
@@ -1033,14 +1043,14 @@ Replaced regex classification with a background agent that uses the local LLM to
 
 2. **`classifier_agent.py`** — background task polls every 45 seconds, finds traces without synesth data, classifies them via `qwen2.5:1.5b` (local, fast for 1-2 new traces), stores results in `synesth_cache.json`.
 
-3. **`backfill_synesth.py`** — one-shot script using backoffice GPU (`gpt-oss:20B`) to classify all 93 existing traces in ~45 seconds.
+3. **`backfill_synesth.py`** — one-shot script using Worker Node 1 GPU (`qwen2.5:7b`) to classify all 93 existing traces in ~45 seconds.
 
 4. **`SynesthClassification` model** — `input_cat`/`output_cat` fields on `TraceSession`. Frontend reads `trace.synesth` when available, falls back to regex for unclassified traces.
 
 ### Key Architectural Decisions
 - **Separate cache file** (`synesth_cache.json`) rather than modifying `traces.jsonl` — avoids rewriting the entire history file on each classification.
 - **Merge at API layer** — `api_list_traces` calls `merge_synesth()` which overlays cache data onto `TraceSession` objects before returning them. Backward-compatible: old traces without cache entries get `synesth: null`.
-- **Two-tier model strategy** — backoffice GPU for initial backfill (fast, parallel), local CPU model for ongoing (cheap, always available).
+- **Two-tier model strategy** — Worker Node 1 GPU for initial backfill (fast, parallel), local CPU model for ongoing (cheap, always available).
 
 ### Frontend: 6-Ring Concentric Synesthesia Chart
 
@@ -1074,14 +1084,14 @@ The RelationshipsPanel renders a 6-ring concentric SVG chart that visualizes the
 | Problem | Fix |
 |---------|-----|
 | `qwen2.5:3b` too slow on CPU (120s+ per trace) | Switched to `qwen2.5:1.5b` for the background agent |
-| Backoffice `gpt-oss:20B` returned 500 errors with concurrency=4 | Reduced `CONCURRENCY` to 1 — model can't handle parallel requests |
+| Worker Node 1 `qwen2.5:7b` returned 500 errors with concurrency=4 | Reduced `CONCURRENCY` to 1 — model can't handle parallel requests |
 | `synesth: null` in API responses after backfill | Server's `_cache` module variable was stale — restart picked up the cache file |
 | Analysis model settings showed "qwen2.5:3b" with backoffice provider (404 error) | Race condition between `fetchModels` and `fetchNetworkSources` in SettingsModal; auto-selection effect was not updating `analysisModel` state; `handleSave` used stale model name |
 | Settings modal didn't load network sources until Models tab opened | Added `fetchNetworkSources()` to the modal mount effect |
 
 ### Lessons Learned
 - **Schema-driven classification works** — the LLM correctly interpreted the plain-language schema, classifying traces with nuanced understanding that regex couldn't match.
-- **Backoffice GPU is ~100x faster** — gpt-oss:20B classified traces in 1.2s each vs 120s+ for qwen2.5:3b on CPU. But it can't handle >1 concurrent request without crashing.
+- **Worker Node 1 GPU is ~100x faster** — qwen2.5:7b classified traces in 1.2s each vs 120s+ for qwen2.5:3b on CPU. But it can't handle >1 concurrent request without crashing.
 - **State sync is the hardest part** — React state + concurrent API calls + async effects create race conditions that are invisible until the wrong value persists across a save. Always test the "open settings → save without touching anything" path.
 - **Separate cache from source of truth** — storing classifications in a separate file (`synesth_cache.json`) avoided coupling to the trace persistence layer and made backfill trivially idempotent.
 
@@ -1093,7 +1103,7 @@ The RelationshipsPanel renders a 6-ring concentric SVG chart that visualizes the
 - `frontend/src/components/RelationshipsPanel.tsx` — `synInputCat`/`synOutputCat` helpers with LLM-first, regex-fallback
 - `frontend/src/components/SettingsModal.tsx` — analysis model save fix (race condition, stale state)
 - `frontend/src/types/trace.ts` — `SynesthClassification` TypeScript interface
-- `tools/backfill_synesth.py` — backfill script using backoffice GPU
+- `tools/backfill_synesth.py` — backfill script using Worker Node 1 GPU
 - `frontend/src/components/RelationshipsPanel.tsx` — `buildSynesthTree()`, `layoutSunburst()`, `nodeColor()` for 6-ring concentric chart
 - `frontend/src/components/RelationshipsPanel.tsx` — `classifyDepth()`, `classifyMood5()`, `classifyActionType()`, `classifyPragmaticTone()`, `classifyOutputForm()` client-side classifiers
 

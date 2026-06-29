@@ -188,7 +188,7 @@ export default function StageDebate({ step5Output, step6Output }: Props) {
             <div className="grid grid-cols-2 gap-0 relative">
               <div className="absolute left-1/2 top-0 bottom-0 w-px bg-white/[0.06]" />
               <div className="pr-3">
-                <div className="text-[8px] font-mono text-zinc-600 mb-1">Context Synthesis</div>
+                <div className="text-[8px] font-mono text-zinc-600 mb-1">Context Assembly</div>
                 <div className="text-[9px] text-zinc-400 font-mono leading-relaxed bg-white/[0.02] rounded px-1.5 py-1">
                   {step5Output}
                 </div>
@@ -228,7 +228,7 @@ export default function StageDebate({ step5Output, step6Output }: Props) {
                 conflict.aPolarity === "affirms" ? "bg-emerald-400" : "bg-rose-400"
               }`}
             />
-            <span className="text-[8px] font-mono text-zinc-500">Context Synthesis</span>
+            <span className="text-[8px] font-mono text-zinc-500">Context Assembly</span>
             <span className={`text-[7px] font-mono ml-auto ${
               conflict.aPolarity === "affirms" ? "text-emerald-500/60" : "text-rose-400/60"
             }`}>
@@ -270,7 +270,7 @@ export default function StageDebate({ step5Output, step6Output }: Props) {
         </div>
         <div className="text-[8px] text-zinc-500 mt-1 leading-relaxed italic">
           Two stages generated opposing claims about the same topic —
-          Context Synthesis feeds Response Generation its prompt context, but
+          Context Assembly feeds Response Generation its prompt context, but
           the response contradicted what the synthesis implied. This tension
           reveals how assumptions break as information flows
           through the pipeline.

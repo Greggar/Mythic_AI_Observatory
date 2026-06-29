@@ -7,9 +7,11 @@ import ConfusionMatrix from "./charts/ConfusionMatrix";
 import StackedBarChart from "./charts/StackedBarChart";
 import SynesthesiaHeatmap from "./charts/SynesthesiaHeatmap";
 import DriftHeatmap from "./charts/DriftHeatmap";
-import DriftScatter from "./charts/DriftScatter";
 import EmbeddingConfusionProfile from "./charts/EmbeddingConfusionProfile";
 import SankeyChart, { SankeyData } from "./charts/SankeyChart";
+import SynesthCorrelationHeatmap from "./charts/SynesthCorrelationHeatmap";
+import SynesthTimelineEvolution from "./charts/SynesthTimelineEvolution";
+import SynesthSunburst from "./charts/SynesthSunburst";
 import { CHART_OPTIONS, DEFAULT_CHART } from "@/data/chartOptions";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -22,7 +24,7 @@ const LABEL_R = 152;
 const INNER = 40;
 const PAD_ANGLE = 0.04;
 
-type RelType = "synesthesia" | "drift" | "cross" | "intonation" | "grammar" | "mood-intent";
+type RelType = "synesthesia" | "drift" | "cross" | "grammar" | "mood-intent";
 
 interface IntentProb {
   label: string;
@@ -232,36 +234,6 @@ function buildCrossMatrix(traces: TraceData[]): number[][] {
         M[10 + li][di] += 1;
       }
     }
-  }
-  return M;
-}
-
-// ── Prompt Intonation ────────────────────────────────────
-const INTON_INPUT_LABELS = ["Imperative", "Socratic", "Skeptical", "Ambiguous"];
-const INTON_INPUT_COLORS = ["#34d399", "#60a5fa", "#f87171", "#a78bfa"];
-const INTON_OUTPUT_LABELS = ["Very Short", "Short", "Medium", "Long", "Very Long"];
-const INTON_OUTPUT_COLORS = ["#34d399", "#60a5fa", "#fbbf24", "#f472b6", "#f87171"];
-
-function classifyIntonation(prompt: string): number {
-  const SKEPTICAL = /\b(are you sure|that'?s (wrong|incorrect)|prove|incorrect|i (don't think|disagree|doubt)|but actually|you (didn't|failed|should have)|explain (why|yourself))\b/i;
-  const SOCRATIC = /^(how|what|why|what if|how would|could you|i wonder|what are the|is there)\b/i;
-  const text = prompt.trim();
-  if (!text) return 3;
-  if (SKEPTICAL.test(text)) return 2;
-  if (SOCRATIC.test(text) || text.endsWith("?")) return 1;
-  if (text.length < 25) return 3;
-  return 0;
-}
-
-function buildIntonationMatrix(traces: TraceData[]): number[][] {
-  const N = 4 + 5;
-  const M = Array.from({ length: N }, () => Array(N).fill(0));
-  for (const t of traces) {
-    const cat = classifyIntonation(t.prompt);
-    const len = (t.output || "").length;
-    const bucket = len < 100 ? 0 : len < 300 ? 1 : len < 700 ? 2 : len < 1500 ? 3 : 4;
-    M[cat][4 + bucket] += 1;
-    M[4 + bucket][cat] += 1;
   }
   return M;
 }
@@ -544,15 +516,6 @@ const REL_CONFIGS: Record<RelType, {
     outputColors: CROSS_LCC_ORDER.map((l) => CROSS_LCC_COLORS[l] || "#374151"),
     buildMatrix: buildCrossMatrix,
   },
-  intonation: {
-    title: "Prompt Intonation",
-    description: "Groups prompts by linguistic tone — imperative commands, Socratic questions, skeptical challenges, or ambiguous fragments — and maps them to output length (Very Short <100, Short 100-300, Medium 300-700, Long 700-1500, Very Long >1500 chars). Does the model over-defend when challenged?",
-    inputLabels: INTON_INPUT_LABELS,
-    outputLabels: INTON_OUTPUT_LABELS,
-    inputColors: INTON_INPUT_COLORS,
-    outputColors: INTON_OUTPUT_COLORS,
-    buildMatrix: buildIntonationMatrix,
-  },
   grammar: {
     title: "7-Ring Synesthesia Schema",
     description: "Maps the full stimulus→sensation pipeline: prompt Depth → Mood → Syntax (inner rings) → response Action → Tone → Form (outer rings) → DDC main class (outermost ring). Color-bled by mood family.",
@@ -648,8 +611,8 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
   const legendInputColors = moodIntentLabels?.inputColors ?? cfg.inputColors;
   const legendOutputLabels = moodIntentLabels?.outputLabels ?? cfg.outputLabels;
   const legendOutputColors = moodIntentLabels?.outputColors ?? cfg.outputColors;
-  const legendSideLeft = isMoodIntent ? "MOOD" : relType === "synesthesia" ? "INPUT →" : relType === "cross" ? "DDC" : relType === "intonation" ? "INTONATION" : "PROMPT";
-  const legendSideRight = isMoodIntent ? "INTENT" : relType === "synesthesia" ? "OUTPUT" : relType === "cross" ? "LCC" : relType === "intonation" ? "TOKENS" : "RESPONSE";
+  const legendSideLeft = isMoodIntent ? "MOOD" : relType === "synesthesia" ? "INPUT →" : relType === "cross" ? "DDC" : "PROMPT";
+  const legendSideRight = isMoodIntent ? "INTENT" : relType === "synesthesia" ? "OUTPUT" : relType === "cross" ? "LCC" : "RESPONSE";
 
   const fetchTraces = useCallback(async () => {
     try {
@@ -935,19 +898,6 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                     lc, li,
                   ].join(","));
                 }
-              } else if (relType === "intonation") {
-                rows.push("id,prompt,output,model_used,intonation,output_length,output_bucket");
-                const INTON_LABELS = ["Imperative", "Socratic", "Skeptical", "Ambiguous"];
-                const BUCKET_LABELS = ["Very Short", "Short", "Medium", "Long", "Very Long"];
-                for (const t of filteredTraces) {
-                  const cat = classifyIntonation(t.prompt);
-                  const len = (t.output || "").length;
-                  const bucket = len < 100 ? 0 : len < 300 ? 1 : len < 700 ? 2 : len < 1500 ? 3 : 4;
-                  rows.push([
-                    esc(t.id), esc(t.prompt), esc(t.output || ""), esc(t.model_used || "unknown"),
-                    INTON_LABELS[cat], String(len), BUCKET_LABELS[bucket],
-                  ].join(","));
-                }
               } else if (relType === "mood-intent") {
                 rows.push("id,prompt,output,model_used,mood,intent_1,intent_2,intent_3");
                 for (const t of filteredTraces) {
@@ -1008,9 +958,6 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
 
           // Grammar analysis — radial rings or alternative chart
           if (relType === "grammar" && grammarData) {
-            if (chartType === "rings") {
-              return <SynesthSchemaSVG data={grammarData as SynesthNode} onArcClick={handleGrammarExport} />;
-            }
             if (chartType === "stacked-bar") {
               const ringLabels = ["Depth", "Mood", "Syntax", "Action", "Tone", "Form", "DDC"];
               return (
@@ -1048,6 +995,9 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
               return <SankeyChart data={sankeyData} />;
             }
             // grammar + other chart types
+            if (chartType === "timeline") {
+              return <SynesthTimelineEvolution traces={filteredTraces} />;
+            }
             return (
               <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
                 <span className="text-[10px] font-mono text-zinc-600">This chart type is coming soon for Grammar Schema</span>
@@ -1116,13 +1066,6 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                   const di = parseInt(dc);
                   const li = CROSS_LCC_ORDER.indexOf(lc.toUpperCase());
                   return !isNaN(di) && li === col && di === row;
-                });
-              } else if (relType === "intonation") {
-                matching = filteredTraces.filter(t => {
-                  const cat = classifyIntonation(t.prompt);
-                  const len = (t.output || "").length;
-                  const bucket = len < 100 ? 0 : len < 300 ? 1 : len < 700 ? 2 : len < 1500 ? 3 : 4;
-                  return cat === row && bucket === col;
                 });
               } else if (relType === "mood-intent") {
                 matching = filteredTraces.filter(t => {
@@ -1194,11 +1137,14 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
               />
             );
           }
+          if (chartType === "correlation" && relType === "synesthesia") {
+            return <SynesthCorrelationHeatmap traces={filteredTraces} />;
+          }
+          if (chartType === "sunburst" && relType === "synesthesia") {
+            return <SynesthSunburst traces={filteredTraces} />;
+          }
           if (chartType === "heatmap" && relType === "drift") {
             return <DriftHeatmap traces={filteredTraces} />;
-          }
-          if (chartType === "scatter" && relType === "drift") {
-            return <DriftScatter traces={filteredTraces} />;
           }
 
           // New chart types that aren't implemented yet
@@ -1206,6 +1152,15 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
             return (
               <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
                 <span className="text-[10px] font-mono text-zinc-600">This chart type is coming soon for {cfg.title}</span>
+              </div>
+            );
+          }
+
+          // Synesthesia has no chord — shouldn't reach here, but guard against stale chartType
+          if (relType === "synesthesia") {
+            return (
+              <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
+                <span className="text-[10px] font-mono text-zinc-600">Select a chart type from the dropdown</span>
               </div>
             );
           }

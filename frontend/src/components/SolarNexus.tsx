@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Info } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { Telemetry } from "@/hooks/useWebSocket";
@@ -24,66 +24,87 @@ const RING_R = 240;
 const STEP_LABELS = [
   "Request Received",
   "Intent Classification",
-  "Agent Selection",
+  "Model Routing",
   "Memory Retrieval",
-  "Context Synthesis",
+  "Context Assembly",
   "Response Generation",
-  "Final Response",
+  "Output Packaging",
 ];
 
 const STAGE_DESCRIPTIONS: { role: string; detail: string }[] = [
   {
-    role: "The ingestion point.",
+    role: "Prompt ingestion.",
     detail:
       "Handles the raw API boundary. It captures the user\u2019s input, logs the initial timestamp, sanitizes the data, and prepares the payload for the internal pipeline.",
   },
   {
-    role: "The gatekeeper / router.",
+    role: "Intent classification.",
     detail:
-      "Before throwing the prompt at a massive LLM, a small, fast model (or specialized classifier) determines what the user actually wants. Are they trying to run code? Are they asking a historical question? Are they trying to bypass guardrails?",
+      "An embedding-based classifier (all-minilm:22m cosine similarity) determines what the user actually wants — factual query, creative writing, enumeration, constraint testing, or one of 13 intent categories. No LLM call needed: the entire step completes in ~73ms.",
   },
   {
-    role: "Orchestration / Dispatching.",
+    role: "Model routing.",
     detail:
-      "Based on the intent classified in step 2, the system chooses the best specialized agent or tool for the job. If the intent was \u201CAnalytical,\u201D it selects the data-analyst agent; if \u201CCreative,\u201D it routes to a narrative sub-routine.",
+      "Maps the classified intent to the execution model. Since only a single model backend is available, this step selects the default handler and passes intent metadata forward for context assembly.",
   },
   {
-    role: "Contextual awareness.",
+    role: "Memory retrieval.",
     detail:
-      "The selected agent fetches relevant history. This means pulling semantic memories from a vector database (long-term memory) and gathering the recent conversational turns (short-term memory) so the model has continuity.",
+      "Vector similarity search over past trace embeddings (all-minilm:22m cosine similarity). The top-5 most relevant historical chunks are retrieved and tagged as used or discarded based on a relevance threshold, providing context for the response.",
   },
   {
-    role: "Prompt construction / De-duplication.",
+    role: "Context assembly.",
     detail:
-      "A crucial step that many basic systems skip. It takes the raw user request, the retrieved memories, and any injected RAG data, and weaves them together into a single, cohesive, optimized prompt context. It strips out noise so the generation model doesn\u2019t get confused.",
+      "Assembles the retrieved memory chunks and user input into a single context window for the generation model. Currently echoes the primary intent as a synthesised instruction — the full LLM-based assembly step was removed for efficiency, reducing trace time by 13\u201374s.",
   },
   {
-    role: "The heavy lifting.",
+    role: "Response generation.",
     detail:
       "This is where the core model finally executes. Because all the routing, memory gathering, and context filtering were done in steps 2\u20135, this model can focus purely on generating a high-quality, precise token stream.",
   },
   {
-    role: "Post-processing / Egress.",
+    role: "Output packaging.",
     detail:
-      "The raw text from step 6 is checked one last time (guardrails, formatting fixes, or tracking token telemetry) before being packaged and sent back to the user interface, closing the orchestration loop.",
+      "The final output is stored on the trace session. Heuristic insights (slowest stage, cold start detection, service health) are computed from the recorded metrics and attached to the trace for the dashboard.",
   },
 ];
 
-const AGENT_NAMES: Record<string, string> = {
-  "step-2": "Intent Classifier",
-  "step-3": "Agent Selector",
-  "step-4": "Memory Retriever",
-  "step-5": "Context Synthesizer",
-  "step-6": "Response Generator",
-};
-
 const SYSTEM_PROMPTS: Record<string, string | null> = {
-  "step-2": "You are an intent classifier. Respond with one short sentence classifying the user request.",
-  "step-5": "You are a synthesizer. In one sentence, note the key context for responding to this request.",
+  "step-2": null,
+  "step-5": null,
   "step-6": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user.",
 };
 
 const CTX_WINDOW = 4096;
+
+const STAGE_WEIGHTS: number[] = [0.3, 0.6, 0.2, 0.6, 0.4, 1.0, 0.2];
+
+type StageType = "model" | "embedding" | "noop";
+const STAGE_TYPES: StageType[] = ["noop", "embedding", "noop", "embedding", "noop", "model", "noop"];
+
+const BASE_WEIGHT_R = 20;
+
+type StageStatus = "pending" | "active" | "complete";
+function stageColor(type: StageType, status: StageStatus) {
+  const colors: Record<StageType, Record<StageStatus, { stroke: string; fill: string; text: string; pulse: [number, number] }>> = {
+    model: {
+      pending: { stroke: "oklch(58% 0.10 75 / 0.15)", fill: "oklch(58% 0.10 75 / 0.04)", text: "oklch(52% 0.03 265 / 0.3)", pulse: [0.15, 0.3] },
+      active: { stroke: "#fbbf24", fill: "rgba(251,191,36,0.1)", text: "#fbbf24", pulse: [0.5, 1] },
+      complete: { stroke: "#fbbf24", fill: "rgba(251,191,36,0.04)", text: "#fbbf2480", pulse: [0.15, 0.4] },
+    },
+    embedding: {
+      pending: { stroke: "oklch(58% 0.10 75 / 0.12)", fill: "oklch(58% 0.10 75 / 0.04)", text: "oklch(52% 0.03 265 / 0.3)", pulse: [0.1, 0.25] },
+      active: { stroke: "#2dd4bf", fill: "rgba(45,212,191,0.08)", text: "#2dd4bf", pulse: [0.3, 0.7] },
+      complete: { stroke: "#2dd4bf", fill: "rgba(45,212,191,0.04)", text: "#2dd4bf80", pulse: [0.1, 0.3] },
+    },
+    noop: {
+      pending: { stroke: "oklch(52% 0.03 265 / 0.3)", fill: "oklch(52% 0.03 265 / 0.04)", text: "oklch(52% 0.03 265 / 0.4)", pulse: [0.1, 0.25] },
+      active: { stroke: "oklch(72% 0.11 75 / 0.5)", fill: "oklch(72% 0.11 75 / 0.06)", text: "oklch(72% 0.11 75 / 0.7)", pulse: [0.2, 0.4] },
+      complete: { stroke: "oklch(52% 0.03 265 / 0.3)", fill: "oklch(52% 0.03 265 / 0.04)", text: "oklch(52% 0.03 265 / 0.5)", pulse: [0.1, 0.25] },
+    },
+  };
+  return colors[type][status];
+}
 
 function estimateTokens(text: string): number {
   return Math.round(text.length / 4);
@@ -97,7 +118,7 @@ function pos(deg: number, r: number) {
 const ANGLES = [0, 1, 2, 3, 4, 5, 6].map((i) => i * 51.4 - 90);
 
 function formatTime(ms: number | null): string {
-  if (ms === null || ms === undefined) return "—";
+  if (ms === null || ms === undefined) return "\u2014";
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
 }
@@ -106,19 +127,13 @@ function stepStatus(
   index: number,
   activeStepIndex: number | null,
   phase: "idle" | "replaying" | "complete"
-): "pending" | "active" | "complete" {
+): StageStatus {
   if (phase === "complete") return "complete";
   if (activeStepIndex === null) return "pending";
   if (index < activeStepIndex) return "complete";
   if (index === activeStepIndex) return "active";
   return "pending";
 }
-
-const STATUS_COLORS = {
-  pending: { stroke: "oklch(58% 0.10 75 / 0.12)", fill: "oklch(58% 0.10 75 / 0.04)", text: "oklch(52% 0.03 265 / 0.4)", pulse: [0.3, 0.6] },
-  active: { stroke: "#fbbf24", fill: "rgba(251,191,36,0.06)", text: "#fbbf24", pulse: [0.5, 1] },
-  complete: { stroke: "#34d399", fill: "rgba(52,211,153,0.06)", text: "#34d399", pulse: [0.3, 0.6] },
-};
 
 function TokenMeter({ text }: { text: string }) {
   const tokens = estimateTokens(text);
@@ -170,30 +185,26 @@ export default function SolarNexus({
   phase = "idle",
 }: Props) {
   const [mounted, setMounted] = useState(false);
-  const [timeOffset, setTimeOffset] = useState(0);
   const [selectedStep, setSelectedStep] = useState<number | null>(null);
   const [hoveredStage, setHoveredStage] = useState<{ index: number; x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    const interval = setInterval(() => setTimeOffset((p) => (p + 0.15) % 360), 1000);
-    return () => clearInterval(interval);
-  }, [mounted]);
-
   const handleNodeClick = useCallback((i: number) => {
     setSelectedStep((prev) => (prev === i ? null : i));
   }, []);
 
   const totalDuration = trace?.steps.reduce((a, s) => a + (s.duration_ms || 0), 0) ?? 0;
-  const conductorState = !telemetry?.cpu ? "offline"
-    : telemetry.cpu.percent > 80 ? "busy"
-    : telemetry.cpu.percent > 50 ? "processing"
-    : "online";
+  const modelName = trace?.model_used || "qwen2.5:3b";
 
-  const driftAngle = timeOffset;
+  // Model element positioned at top-center above the ring
+  const MODEL_CX = CX;
+  const MODEL_CY = 70;
+  const MODEL_R = 35;
+
+  // Step 6 position (response generation — the only stage that calls the LLM)
+  const s6 = pos(ANGLES[5], RING_R);
 
   if (phase === "idle" && !trace && !traceActive) {
     return (
@@ -206,26 +217,12 @@ export default function SolarNexus({
             <circle cx="12" cy="12" r="11" opacity="0.2" strokeDasharray="1 4" />
           </svg>
           <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-            Agent Nexus
+            Stage Orbit
           </span>
         </div>
 
         <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="relative w-full max-w-[600px] h-auto" style={{ zIndex: 1 }}>
           <circle cx={CX} cy={CY} r={RING_R} fill="none" stroke="oklch(58% 0.10 75 / 0.08)" strokeWidth="0.5" strokeDasharray="2 6" />
-
-          {[0, 72, 144, 216, 288].map((base, i) => {
-            const a = base + driftAngle;
-            const p = pos(a, RING_R);
-            return (
-              <motion.circle
-                key={`drift-${i}`}
-                cx={p.x} cy={p.y} r={2.5}
-                fill="oklch(58% 0.10 75 / 0.15)"
-                animate={mounted ? { opacity: [0.1, 0.3, 0.1] } : {}}
-                transition={{ duration: 3 + i * 0.5, repeat: Infinity, ease: "easeInOut" }}
-              />
-            );
-          })}
 
           <circle cx={CX} cy={CY} r={30} fill="oklch(14% 0.04 268)" stroke="oklch(58% 0.10 75 / 0.15)" strokeWidth="0.5" />
           <motion.circle
@@ -256,13 +253,14 @@ export default function SolarNexus({
           <circle cx="12" cy="12" r="11" opacity="0.2" strokeDasharray="1 4" />
         </svg>
         <span className="text-[11px] font-semibold tracking-[0.28em] uppercase text-[oklch(72%_0.11_75)] font-[system-ui]">
-          Agent Nexus
+          Stage Orbit
         </span>
       </div>
 
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="relative w-full max-w-[600px] h-auto" style={{ zIndex: 1 }}>
         <circle cx={CX} cy={CY} r={RING_R} fill="none" stroke="oklch(58% 0.10 75 / 0.08)" strokeWidth="0.5" strokeDasharray="2 6" />
 
+        {/* Sequential stage-to-stage arcs */}
         {trace && ANGLES.map((_, i) => {
           if (i >= 6) return null;
           const status = stepStatus(i, activeTraceStep, phase);
@@ -297,23 +295,54 @@ export default function SolarNexus({
           );
         })}
 
+        {/* Step-6 to Model connection — the only actual LLM call */}
+        {trace && (stepStatus(5, activeTraceStep, phase) !== "pending") && (
+          <g key="model-link">
+            <motion.path
+              d={`M ${s6.x} ${s6.y} Q 250 200 ${MODEL_CX} ${MODEL_CY}`}
+              fill="none"
+              stroke="rgba(251,191,36,0.35)"
+              strokeWidth={2}
+              strokeDasharray="4 6"
+              initial={{ pathLength: 0, opacity: 0 }}
+              animate={{ pathLength: 1, opacity: 1 }}
+              transition={{ duration: 0.8, delay: 0.3 }}
+            />
+            {stepStatus(5, activeTraceStep, phase) === "active" && mounted && (
+              <motion.circle
+                r={2.5}
+                fill="#fbbf24"
+                initial={{ offsetDistance: "0%" }}
+                animate={{ offsetDistance: "100%" }}
+                transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                style={{
+                  offsetPath: `path('M ${s6.x} ${s6.y} Q 250 200 ${MODEL_CX} ${MODEL_CY}')`,
+                }}
+              />
+            )}
+          </g>
+        )}
+
+        {/* Stage nodes */}
         {ANGLES.map((angle, i) => {
           const p = pos(angle, RING_R);
           const status = stepStatus(i, activeTraceStep, phase);
-          const s = STATUS_COLORS[status];
+          const type = STAGE_TYPES[i];
+          const s = stageColor(type, status);
           const step = trace?.steps[i];
           const duration = step?.duration_ms ?? null;
           const label = STEP_LABELS[i];
-          const agent = step?.agent_used;
           const isActive = status === "active";
-          const nodeR = isActive ? 18 : 14;
+          const weight = STAGE_WEIGHTS[i];
+          const nodeR = Math.max(4, BASE_WEIGHT_R * weight * (isActive ? 1.2 : 1));
+          const innerR = Math.max(2, 6 * weight * (isActive ? 1.3 : 1));
           const isSelected = selectedStep === i;
 
           return (
             <g key={`stage-${i}`}>
               <circle cx={p.x} cy={p.y} r={nodeR} fill={s.fill} stroke={isSelected ? "#2dd4bf" : s.stroke} strokeWidth={isSelected ? 2.5 : (isActive ? 2 : 1)} />
               <motion.circle
-                cx={p.x} cy={p.y} r={isActive ? 6 : 4}
+                cx={p.x} cy={p.y} r={innerR}
                 fill={s.stroke}
                 animate={mounted ? { opacity: s.pulse } : {}}
                 transition={{ duration: isActive ? 1.5 : 3, repeat: Infinity, ease: "easeInOut" }}
@@ -326,14 +355,8 @@ export default function SolarNexus({
                 fontSize="10" fontFamily="monospace" letterSpacing="0.04em">
                 {label}
               </text>
-              {agent && (
-                <text x={p.x} y={p.y + nodeR + 27} textAnchor="middle"
-                  fill="oklch(52% 0.03 265 / 0.4)" fontSize="9" fontFamily="monospace">
-                  {agent}
-                </text>
-              )}
               {duration !== null && status !== "pending" && (
-                <text x={p.x} y={p.y + nodeR + 38} textAnchor="middle"
+                <text x={p.x} y={p.y + nodeR + 27} textAnchor="middle"
                   fill="oklch(52% 0.03 265 / 0.35)" fontSize="8" fontFamily="monospace">
                   {formatTime(duration)}
                 </text>
@@ -351,6 +374,46 @@ export default function SolarNexus({
           );
         })}
 
+        {/* External Model element — positioned above the ring */}
+        <g>
+          <circle cx={MODEL_CX} cy={MODEL_CY} r={MODEL_R} fill="oklch(14% 0.04 268)" stroke="rgba(251,191,36,0.2)" strokeWidth="0.5" />
+          <motion.circle
+            cx={MODEL_CX} cy={MODEL_CY} r={MODEL_R}
+            fill="none" stroke="rgba(251,191,36,0.15)"
+            animate={mounted ? { r: [MODEL_R, MODEL_R + 8, MODEL_R], opacity: [0.15, 0.3, 0.15] } : {}}
+            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.circle
+            cx={MODEL_CX} cy={MODEL_CY} r={MODEL_R - 5}
+            fill="rgba(251,191,36,0.06)"
+            animate={mounted ? { r: [MODEL_R - 5, MODEL_R + 4, MODEL_R - 5], opacity: [0.06, 0.15, 0.06] } : {}}
+            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <text x={MODEL_CX} y={MODEL_CY - 14} textAnchor="middle"
+            fill="rgba(251,191,36,0.5)" fontSize="6.5" fontFamily="monospace" letterSpacing="0.12em">
+            INFERENCE
+          </text>
+          <text x={MODEL_CX} y={MODEL_CY + 4} textAnchor="middle"
+            fill="#fbbf24" fontSize="9" fontFamily="monospace" fontWeight="bold">
+            {modelName}
+          </text>
+          {phase === "complete" && (
+            <text x={MODEL_CX} y={MODEL_CY + 18} textAnchor="middle"
+              fill="rgba(52,211,153,0.5)" fontSize="7" fontFamily="monospace">
+              ● READY
+            </text>
+          )}
+          {trace && phase !== "complete" && phase !== "idle" && (
+            <motion.circle
+              cx={MODEL_CX} cy={MODEL_CY} r={MODEL_R + 6}
+              fill="none" stroke="rgba(251,191,36,0.3)" strokeWidth="1.5"
+              animate={{ r: [MODEL_R + 6, MODEL_R + 18, MODEL_R + 6], opacity: [0.3, 0, 0.3] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+            />
+          )}
+        </g>
+
+        {/* Central status display */}
         <g>
           <circle cx={CX} cy={CY} r={55} fill="oklch(14% 0.04 268)" stroke="oklch(58% 0.10 75 / 0.1)" strokeWidth="0.5" />
           <motion.circle
@@ -368,7 +431,7 @@ export default function SolarNexus({
               </text>
               <text x={CX} y={CY - 6} textAnchor="middle"
                 fill="oklch(52% 0.03 265 / 0.5)" fontSize="6.5" fontFamily="monospace">
-                {AGENT_NAMES[`step-${selectedStep + 1}`] || ""}
+                Stage {selectedStep + 1}
               </text>
               <text x={CX} y={CY + 12} textAnchor="middle"
                 fill="oklch(72% 0.11 75 / 0.4)" fontSize="7" fontFamily="monospace">
@@ -388,15 +451,9 @@ export default function SolarNexus({
                 fill="oklch(72% 0.11 75 / 0.6)" fontSize="7" fontFamily="monospace" letterSpacing="0.1em">
                 {phase === "complete" ? "COMPLETE" : "PROCESSING"}
               </text>
-              {trace?.model_used && (
-                <text x={CX} y={CY - 6} textAnchor="middle"
-                  fill="oklch(52% 0.03 265 / 0.5)" fontSize="6.5" fontFamily="monospace">
-                  {trace.model_used}
-                </text>
-              )}
               <text x={CX} y={CY + 10} textAnchor="middle"
                 fill="oklch(72% 0.11 75)" fontSize="16" fontFamily="monospace" fontWeight="bold">
-                {phase === "complete" ? formatTime(totalDuration) : "…"}
+                {phase === "complete" ? formatTime(totalDuration) : "\u2026"}
               </text>
               <text x={CX} y={CY + 26} textAnchor="middle"
                 fill="oklch(52% 0.03 265 / 0.4)" fontSize="6.5" fontFamily="monospace">
@@ -444,11 +501,6 @@ export default function SolarNexus({
                   <span className="text-[11px] font-semibold text-teal-mystic uppercase tracking-wider">
                     {selectedTraceStep.label}
                   </span>
-                  {selectedTraceStep.agent_used && (
-                    <span className="text-[10px] text-zinc-500 font-mono">
-                      {selectedTraceStep.agent_used}
-                    </span>
-                  )}
                 </div>
                 <button
                   onClick={() => setSelectedStep(null)}

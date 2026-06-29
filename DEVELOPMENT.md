@@ -44,11 +44,11 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 #
 # Option A — dev mode (RECOMMENDED):
 cd ~/mythic-ai-observatory/frontend
-NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm dev
+NEXT_PUBLIC_API_URL=http://192.168.1.1:8001 pnpm dev
 
 # Option B — production preview (for demos):
 cd ~/mythic-ai-observatory/frontend
-NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm build
+NEXT_PUBLIC_API_URL=http://192.168.1.1:8001 pnpm build
 next start -p 3001
 ```
 
@@ -121,11 +121,11 @@ Set `NEXT_PUBLIC_API_URL` to the server's LAN IP so the frontend JS calls the ri
 
 ```bash
 cd ~/mythic-ai-observatory/frontend
-NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm build
+NEXT_PUBLIC_API_URL=http://192.168.1.1:8001 pnpm build
 next start -p 3001 -H 0.0.0.0
 ```
 
-Then open `http://192.168.0.237:3001` from your workstation.
+Then open `http://192.168.1.1:3001` from your workstation.
 
 ---
 
@@ -191,7 +191,7 @@ CONDUCTOR_HOST=0.0.0.0 nohup python main.py > /tmp/backend-prod.log 2>&1 &
 
 # 3. Frontend — build with LAN IP baked in
 cd ~/mythic-ai-observatory/frontend
-NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 pnpm build
+NEXT_PUBLIC_API_URL=http://192.168.1.1:8001 pnpm build
 next start -p 3001 -H 0.0.0.0
 ```
 
@@ -210,13 +210,13 @@ next start -p 3001 -H 0.0.0.0
 Set the API URL to the server's LAN IP so the built frontend knows where to find the backend:
 
 ```bash
-NEXT_PUBLIC_API_URL=http://192.168.0.237:8001 next build
+NEXT_PUBLIC_API_URL=http://192.168.1.1:8001 next build
 ```
 
 Or create `frontend/.env.production` (not committed — see `.env.example`):
 
 ```
-NEXT_PUBLIC_API_URL=http://192.168.0.237:8001
+NEXT_PUBLIC_API_URL=http://192.168.1.1:8001
 ```
 
 ---
@@ -256,7 +256,7 @@ NEXT_PUBLIC_API_URL=http://192.168.0.237:8001
 
 | Variable | Dev default | Dev LAN test | Production | Where used |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8001` | `http://192.168.0.237:8001` | Server LAN IP | `useWebSocket.ts`, `useOrchestrate.ts`, `page.tsx` |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8001` | `http://192.168.1.1:8001` | Server LAN IP | `useWebSocket.ts`, `useOrchestrate.ts`, `page.tsx` |
 | `CONDUCTOR_HOST` | `127.0.0.1` | `127.0.0.1` | `0.0.0.0` | `backend/main.py` |
 | `ORCHESTRATOR_MODEL` | `local` | `local` | `local` | `orchestrator.py` — model provider default |
 

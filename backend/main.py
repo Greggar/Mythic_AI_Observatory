@@ -261,6 +261,57 @@ async def api_telemetry() -> dict[str, Any]:
 async def api_vitals() -> dict:
     return await collect_vitals()
 
+# ── First-Run Setup ─────────────────────────────────────────────────
+@app.get("/api/config/first-run")
+async def get_first_run() -> dict[str, bool]:
+    from services.config_manager import is_first_run
+    return {"firstRun": is_first_run()}
+
+
+class SetupBody(BaseModel):
+    primary_name: str
+    ollama_host: str = "127.0.0.1"
+    ollama_port: int = 11434
+    workers: list[dict[str, Any]] = []
+
+
+@app.post("/api/config/setup")
+async def post_setup(body: SetupBody) -> dict[str, Any]:
+    from services.config_manager import save, get_all
+
+    cfg = get_all()
+
+    # Set primary machine name
+    if "machines" not in cfg:
+        cfg["machines"] = {}
+    if "primary" not in cfg["machines"]:
+        cfg["machines"]["primary"] = {}
+    cfg["machines"]["primary"]["name"] = body.primary_name
+    cfg["machines"]["primary"]["host"] = "127.0.0.1"
+
+    # Set Ollama host/port
+    if "services" not in cfg:
+        cfg["services"] = {}
+    if "ollama" not in cfg["services"]:
+        cfg["services"]["ollama"] = {"label": "Ollama", "enabled": True}
+    cfg["services"]["ollama"]["host"] = body.ollama_host
+    cfg["services"]["ollama"]["port"] = body.ollama_port
+
+    # Add worker machines
+    for i, w in enumerate(body.workers):
+        wid = w.get("id", f"worker{i+1}")
+        cfg["machines"][wid] = {
+            "name": w.get("name", f"Worker {i+1}"),
+            "host": w.get("host", "192.168.1.100"),
+            "desc": w.get("desc", ""),
+            "insight": w.get("insight", ""),
+            "services": w.get("services", []),
+        }
+
+    cfg["_configured"] = True
+    return save(cfg)
+
+
 # ── Network Config ───────────────────────────────────────────────────
 @app.get("/api/network-config")
 async def get_network_config() -> dict[str, Any]:
@@ -1014,20 +1065,6 @@ def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_i
             "2. Any mismatches where mood and intent are at odds (e.g., imperative mood producing creative intent)\n"
             "3. How the model adapts its interpretation based on the user's framing\n"
             "4. Practical insights for phrasing prompts to trigger specific intent categories\n\n"
-            "Use plain paragraphs, not markdown or bullet lists."
-        )
-    elif rel_type == "intonation":
-        return base + (
-            "You are analyzing a prompt intonation map — how the user's tone (Socratic, Imperative, Ambiguous, Hypothetical)\n"
-            "correlates with the model's output length (Very Low, Low, Medium, High token counts).\n\n"
-            "This is a map of cognitive load triggers. Socratic tone signals open-ended exploration and increases cognitive\n"
-            "load, producing longer responses. Imperative tone signals bounded tasks and focuses cognitive load, producing\n"
-            "variable output. Ambiguous tone diffuses cognitive load. Hypothetical tone redirects it.\n\n"
-            "Provide a concise analysis (3-5 paragraphs) covering:\n"
-            "1. Which tone is the strongest amplifier of output length and why — identify the single most powerful lever\n"
-            "2. Semantic activation: which tones reliably produce long responses across ALL length tiers vs. only spiking in one\n"
-            "3. Cognitive compression vs. expansion: which tones are interpreted as tasks (bounded, efficient) vs. dialogue (open-ended, exploratory)\n"
-            "4. Practical prompt engineering insights for deliberately shaping verbosity through tone choice\n\n"
             "Use plain paragraphs, not markdown or bullet lists."
         )
     elif rel_type == "grammar":

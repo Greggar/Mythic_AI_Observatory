@@ -51,7 +51,7 @@ function buildProfile(modelKey: string, modelLabel: string): ModelProfile {
         ok: [20000 * scale, 30000 * scale],
         bad: 30000 * scale,
       },
-      "Context Synthesis": {
+      "Context Assembly": {
         good: [4000 * scale, 8000 * scale],
         ok: [8000 * scale, 12000 * scale],
         bad: 12000 * scale,
@@ -163,7 +163,7 @@ function generate(
     });
   }
 
-  const nonModelStages = ["Request Received", "Agent Selection", "Memory Retrieval", "Final Response"];
+  const nonModelStages = ["Request Received", "Model Routing", "Memory Retrieval", "Output Packaging"];
   for (const label of nonModelStages) {
     const ms = stepMap.get(label) || 0;
     if (ms > 500) {
@@ -180,7 +180,7 @@ function generate(
       ? " This is the first trace — cold start expected."
       : "";
     const gpuNotice = profile.label.includes("on CPU")
-      ? " BackOffice with RTX 5070 Ti would cut these times by ~5x."
+      ? " A GPU-equipped worker node would cut these times significantly."
       : "";
     insights.push({
       level: "info",

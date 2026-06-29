@@ -101,7 +101,7 @@ async def _compute_embedding(text: str) -> list[float]:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{base_url}/api/embeddings",
-            json={"model": EMBED_MODEL, "prompt": text[:768]},
+            json={"model": EMBED_MODEL, "prompt": text[:512]},
         )
         resp.raise_for_status()
         data = resp.json()

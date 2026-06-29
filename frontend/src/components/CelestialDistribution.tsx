@@ -178,7 +178,7 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
           <button
             onClick={() => {
               const esc = (v: string) => `"${(v || "").replace(/"/g, '""')}"`;
-              const STAGE_ORDER = ["Request Received", "Intent Classification", "Agent Selection", "Memory Retrieval", "Context Synthesis", "Response Generation", "Final Response"];
+              const STAGE_ORDER = ["Request Received", "Intent Classification", "Model Routing", "Memory Retrieval", "Context Assembly", "Response Generation", "Output Packaging"];
               const header = ["id", "model_used", "prompt", "output", ...STAGE_ORDER, "total_ms"];
               const rows = [header.join(",")];
               for (const e of filteredEntries) {

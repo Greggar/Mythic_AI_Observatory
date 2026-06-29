@@ -66,10 +66,10 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 | 10 | **LAN-distributed architecture research** — investigate best practices for running the observatory over a small network with multiple AI nodes | — | ★★☆ | research + implement |
 | 11 | **Context Assembly Viewer enhancement** — syntax-highlighted split-pane (system prompt / assembled context / user input) with token count breakdown per section | — | ★★☆ | 1 h |
 | 12 | **Runtime Metrics auto-refresh** — visibility-aware polling (15s interval, stops when tab hidden) to keep throughput/latency/bar chart live ✓ *(2026-06-08)* | — | ★☆☆ | 15 min |
-| 13 | **Service health timeline** — mini sparkline in the Issues tooltip showing ok/err/off proportions over the last N telemetry polls | — | ★☆☆ | 30 min |
+| 13 | **Service health timeline** — mini sparkline in the Issues tooltip showing ok/err/off proportions over the last N telemetry polls ✓ *(already built in EngineStatusPanel)* | — | ★☆☆ | 30 min |
 | 14 | **Stage descriptions & Assembled Context Viewer** — descriptive tooltips for each orchestration stage explaining what it does ✓ *(2026-06-05)* | — | ★☆☆ | 30 min |
 | 15 | **Intent classification probabilities** — show top-3 intent labels and their confidence scores in IntelligencePanel stage 2, so the user sees not just *what* was classified but *how sure* the model was ✓ *(2026-06-07)* | — | ★☆☆ | 30 min |
-| 16 | **Used vs discarded chunks indicator** — in Context Synthesis step, tag each retrieved chunk as "used" or "discarded" with a relevance score; show both in the IntelligencePanel breakdown ✓ *(2026-06-07)* | — | ★★☆ | 1 h |
+| 16 | **Used vs discarded chunks indicator** — in Context Assembly step, tag each retrieved chunk as "used" or "discarded" with a relevance score; show both in the IntelligencePanel breakdown ✓ *(2026-06-07)* | — | ★★☆ | 1 h |
 | 17 | **Personality fingerprinting** — over many traces, build a per-model profile: avg latency distribution, token efficiency (output/input ratio), failure mode frequency, typical confidence. Show as a radar or summary card. ✓ *(2026-06-08)* — Enhanced 2026-06-11: linguistic style (verbosity slider, directness slider, formatting DNA donut) and cognitive fingerprint (hedging gauge, lexical diversity) added; performance collapsed under a "Performance & Latency" toggle. | — | ★★☆ | 1.5 h |
 | 18 | **Agentic Step-Level Latency Monitor** — standalone Python script that polls `http://127.0.0.1:8001/api/trace/<id>`, extracts per-stage durations, computes rolling averages, and renders a stacked horizontal bar chart to visualize pipeline bottlenecks. Includes a verification harness with mock data. ✓ *(2026-06-06)* | — | ★☆☆ | 30 min |
 | 19 | **Live trace overlay on latency panel** — overlay the current trace's per-stage durations (as a brighter inner bar or dot) on top of the historical averages in the Step Latency panel, so you can compare the live run against the baseline at a glance. ✓ *(2026-06-06)* | — | ★☆☆ | 30 min |
@@ -88,15 +88,17 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
 | 19 | **Vector Distance Graph** — clicking Memory Retrieval opens an interactive cosine-similarity cluster map showing top-5 retrieved chunks ✓ *(2026-06-08)* | List 1 | ★★☆ | 1.5 h |
-| 20 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Synthesis | List 1 | ★★☆ | 1 h |
-| 21 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight | List 1 | ★★☆ | 1 h |
+| 20 | **Context Assembly Breakdown** — split-pane comparison (system prompt / injected context) with token budget meter when clicking Context Assembly ✓ *(2026-06-28)* | List 1 | ★★☆ | 1 h |
+| 21 | **Model Switcher / Hot-Reload** — toggle agent backend between model runners inline, orbital icon changes to reflect resource weight ✓ *(2026-06-28)* | List 1 | ★★☆ | 1 h |
 | 22 | **Trace Annotations & Collaborative Memory** — attach notes, tags, and ratings to any trace ✓ *(2026-06-05)* | — | ★★☆ | 2–3 h |
 | 23 | **Causal tracing** — when a trace produces a bad or unexpected output, click "trace root cause" to highlight the most likely culprit stage (e.g., misclassification in stage 2, missing context in stage 4, poor synthesis in stage 5). Derives from existing step data — no new instrumentation needed. ✓ *(2026-06-07)* | — | ★★☆ | 1.5 h |
 | 24 | **Live thought stream** — during orchestration, a real-time scrolling log in the IntelligencePanel showing the exact text flowing through each stage: incoming prompt → classified intent → retrieved chunks → assembled context → raw model output. Like watching the AI think aloud. ✓ *(2026-06-07)* | — | ★★☆ | 1.5 h |
-| 45 | **Synesthesia Cross-Ring Correlation Heatmap** — square heatmap showing how classifications across adjacent rings correlate (e.g., does Imperative mood correlate with Direct Execution action? Does Complex Syntax correlate with Technical/Code output?). Reveals systematic coupling between prompt- and response-side rings. Computed from historical trace data. | — | ★★☆ | 1.5 h |
-| 46 | **Synesthesia Timeline Evolution** — line/area chart showing how the distribution of each ring's categories changes over chronological trace history. See shifts in user behavior (e.g., more Imperative moods over time) or model response patterns (e.g., shift toward Bulleted formatting). | — | ★★☆ | 1.5 h |
+| 45 | **Synesthesia Cross-Ring Correlation Heatmap** — square heatmap showing how classifications across adjacent rings correlate (e.g., does Imperative mood correlate with Direct Execution action? Does Complex Syntax correlate with Technical/Code output?). Reveals systematic coupling between prompt- and response-side rings. Computed from historical trace data. ✓ *(2026-06-25)* | — | ★★☆ | 1.5 h |
+| 46 | **Synesthesia Timeline Evolution** — line/area chart showing how the distribution of each ring's categories changes over chronological trace history. See shifts in user behavior (e.g., more Imperative moods over time) or model response patterns (e.g., shift toward Bulleted formatting). ✓ *(2026-06-28)* | — | ★★☆ | 1.5 h |
 
 ## Phase 3 — Deep Work (★★★)
+
+> **Note on Galaxy design intent**: The 4-arm spiral is a **browsing metaphor** — a cross between a galaxy and a library. Arms are themed shelves (DDC main classes), not a claim about embedding geometry or emergent knowledge structure. The labels (Natural Sciences, Social Sciences, etc.) are navigation landmarks, not discovered natural laws. OrbitControls + zoom gives spatial memory ("the trace I want was toward the orange arm"). Three.js is just a more immersive alternative to the existing 2D SVG galaxy — no data-fabrication concern.
 
 | # | Idea | List | Effort | Est. Time |
 |---|------|------|--------|-----------|
@@ -105,18 +107,18 @@ The unique identifier ensures that any other "Greg Long" cannot claim authorship
 | 27 | **OrbitControls + Zoom-to-Cluster** — smooth camera zoom into an arm to reveal sub-domain constellation clusters with fade labels | List 2 | ★★★ | 4–5 h |
 | 28 | **"Thought Stream" Full-Screen Terminal** — clicking the Intelligence panel expands to a full-screen live log viewer with both backend logs and token-velocity chart overlaid | List 1 | ★★★ | 3–4 h |
 | 29 | **Comparative mode** — submit the same prompt to two different model providers simultaneously and watch both traces unfold side-by-side. A/B testing for LLMs with real-time comparison of latency, output quality, and stage durations. | — | ★★★ | 3–4 h |
-| 36 | **RAG Document Query** — ingest documents (PDF, text, markdown) into a local vector store; the orchestrator retrieves relevant passages alongside past traces during Memory Retrieval. IntelligencePanel shows document source, chunk relevance, and passage-level confidence alongside the existing retrieved-chunks display. Enables comparative confidence analysis: does the model answer more confidently from document sources vs past trace patterns? Natively extends the existing Memory Retrieval / Context Synthesis pipeline — no new stage needed. | — | ★★★ | 4–6 h |
+| 36 | **RAG Document Query** — ingest documents (PDF, text, markdown) into a local vector store; the orchestrator retrieves relevant passages alongside past traces during Memory Retrieval. IntelligencePanel shows document source, chunk relevance, and passage-level confidence alongside the existing retrieved-chunks display. Enables comparative confidence analysis: does the model answer more confidently from document sources vs past trace patterns? Natively extends the existing Memory Retrieval / Context Assembly pipeline — no new stage needed. | — | ★★★ | 4–6 h |
 
 ## Phase 2b — Dual-Trace Visualization (Gemini-Inspired) (★★☆)
 
 | # | Idea | Effort | Est. Time |
 |---|------|--------|-----------|
-| 30 | **Dual-Timeline Workspace** — synchronized side-by-side view pairing the Objective Trace (retrieval scores, system constraints, stage latencies) with the LLM Self-Rationale (intent explanations, path choices) for each stage. Cards scroll together, highlighting the gap between what the model *thought* it did and what the system *actually* did. | ★★☆ | 2–3 h |
+| 30 | **Dual-Timeline Workspace** — synchronized side-by-side view pairing the Objective Trace (retrieval scores, system constraints, stage latencies) with the LLM Self-Rationale (intent explanations, path choices) for each stage. Cards scroll together, highlighting the gap between what the model *thought* it did and what the system *actually* did. ✓ *(2026-06-25)* | ★★☆ | 2–3 h |
 | 31 | **Fork in the Road / Decision Tree** — for each decision stage (intent classification, context synthesis, response generation), render a mini decision tree showing the chosen path vs rejected alternatives with the model's stated reasoning for each branch. Visual A/B split (Confrontational vs Transparent, etc.). ✓ *(2026-06-10)* | ★★☆ | 2 h |
-| 32 | **"Hover to Reveal the Ghost"** — interactive text-linking: hovering a sentence in the LLM's rationale highlights the corresponding system data in the objective trace and vice-versa. Proves the model's subjective "feeling" about the conversation matches the hard mathematical retrieval data. | ★★☆ | 2.5 h |
+| 32 | **"Hover to Reveal the Ghost"** — interactive text-linking: hovering a sentence in the LLM's rationale highlights the corresponding system data in the objective trace and vice-versa. Proves the model's subjective "feeling" about the conversation matches the hard mathematical retrieval data. ✓ *(2026-06-29)* | ★★☆ | 2.5 h |
 | 33 | **Confidence Filter Gauge** — donut/gauge showing the ratio of relevant retrievals to total searches (e.g., 3/5 relevant traces contextualized). If similarity scores are low but the model claims high confidence, the user spots a hallucination risk immediately. ✓ *(2026-06-11)* | ★☆☆ | 30 min |
-| 34 | **The Synthesis Bridge** — highlighted text overlay connecting retrieved data fragments directly to the sentences they influenced in the final output. Proof that system instructions and past context actually shaped the text. | ★★☆ | 1.5 h |
-| 35 | **Enhanced Radar Fingerprint** — extend TraceRadar with tone-specific axes (Transparency/Honesty, Conflict Avoidance, Data Constraint Adherence) so each trace has a scannable "fingerprint" that can be compared across runs. | ★☆☆ | 45 min |
+| 34 | **The Synthesis Bridge** — highlighted text overlay connecting retrieved data fragments directly to the sentences they influenced in the final output. Proof that system instructions and past context actually shaped the text. ✓ *(2026-06-29)* | ★★☆ | 1.5 h |
+| 35 | **Enhanced Radar Fingerprint** — extend TraceRadar with tone-specific axes (Transparency/Honesty, Conflict Avoidance, Data Constraint Adherence) so each trace has a scannable "fingerprint" that can be compared across runs. ✓ *(2026-06-28)* | ★☆☆ | 45 min |
 
 ## Phase 4 — Polish & Transition Aesthetic (★★☆)
 
@@ -144,7 +146,7 @@ Currently every trace is a single prompt → response pair. Chat traces would ca
 | 5 | **Per-exchange classification** — run DDC, LCC, synesthesia, mood/intent, intonation on each exchange individually. Aggregate to show how classifications evolve over the conversation (e.g., drifting from Factual Question to Complex Inquiry). | ★★☆ | 1.5 h | Uses existing pipeline |
 | 6 | **Chat-level metrics** — aggregate across exchanges: topic drift velocity (how fast DDC/LCC class changes), mood volatility (mood switches per exchange), intent consistency (does the model maintain the same persona?), context utilization (which chunks were retrieved per turn). | ★★☆ | 2 h | Analytics |
 | 7 | **Context window research** — study how each deployed model uses its context window across turns. Do responses degrade after N exchanges? At what token count does retrieval quality drop? Document per-model context profiles. | ★★★ | 3–5 h | Research |
-| 8 | **Content cleaner (ML)** — optional pre-processing stage that strips pleasantries ("Thanks!", "Sure!", "I'd be happy to...") and offensive language, tagging them as `social_lubricant` or `toxic` with a frequency metric per model/session. Could use a small classifier (all-minilm fine-tune or regex cascade). | ★★☆ | 3–4 h | ML |
+| 8 | **Content cleaner (collapsible)** — optional pre-processing stage that tags pleasantries ("Thanks!", "Sure!", "I'd be happy to...") and offensive language as `social_lubricant` or `toxic` with a frequency metric per model/session. Original text is **collapsed behind a labelled badge** rather than stripped — nothing is hidden. Could use a small classifier (all-minilm fine-tune or regex cascade). | ★★☆ | 3–4 h | ML |
 | 9 | **Chat timeline visualization** — horizontal timeline showing exchanges as linked cards, with per-exchange classification badges, token counts, and a sentiment/confidence trend line along the bottom. | ★★☆ | 2 h | UI |
 | 10 | **Session replay** — replay an entire chat in the IntelligencePanel, showing context accumulation across turns and how the model's reasoning evolves. Each exchange gets its own ForkInTheRoad, ThoughtStream, and TokenVelocity. | ★★★ | 3 h | Polish |
 
@@ -184,7 +186,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 - Failed traces should still be saved with their error status so the user can see which lines failed.
 - Frontend file upload can use a hidden `<input type="file">` with `.txt` accept filter. No need for a complex upload UI.
 
-### From "Agent Nexus, System Orbit, Intelligence Deep-Dive" (List 1)
+### From "Stage Orbit, System Orbit, Intelligence Deep-Dive" (List 1)
 1. Vector Distance Graph — interactive cosine-similarity cluster map
 2. Context Assembly Breakdown — split-pane prompt/context + token meter
 3. Engine Status Panel — Docker containers, memory, network charts
@@ -213,7 +215,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 9. Responsive labels that fade in/out with zoom level
 10. Colour coding: Blue (Natural Sciences), Teal (Social Sciences), Purple/Magenta (Arts), Orange/Gold (Applied Sciences)
 
-### From "Agent Nexus, System Orbit, Intelligence Deep-Dive" (List 1)
+### From "Stage Orbit, System Orbit, Intelligence Deep-Dive" (List 1)
 1. Vector Distance Graph — interactive cosine-similarity cluster map
 2. Context Assembly Breakdown — split-pane prompt/context + token meter
 3. Engine Status Panel — Docker containers, memory, network charts
@@ -244,7 +246,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 
 ### North Star — Decision Transparency & Comparative Insight (added 2026-06-05)
 1. **Intent classification probabilities** — top-3 labels with confidence in stage 2 ✓ *(2026-06-07)*
-2. **Used vs discarded chunks** — relevance-tagged retrieval results in Context Synthesis ✓ *(2026-06-07)*
+2. **Used vs discarded chunks** — relevance-tagged retrieval results in Context Assembly ✓ *(2026-06-07)*
 3. **Personality fingerprinting** — per-model profiles (latency, token efficiency, failure modes) ✓ *(2026-06-08)*
 4. **Causal tracing** — walk back through stages from a bad output to find root cause ✓ *(2026-06-07)*
 5. **Live thought stream** — real-time text flow through each stage during orchestration ✓ *(2026-06-07)*
@@ -306,7 +308,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 - **Machine prefix in Issues tooltip** — `main.py:collect_telemetry()` builds a `service_id → machine_name` reverse-lookup from `network.json:machines` and injects it as a `machine` field on each remote telemetry entry. Frontend displays `BackOffice–hermes` instead of bare `hermes`.
 - **Sparkline tally fix** — the health sparkline's status tally now checks `detail: "connection_refused"` (maps to amber, not red), matching the existing Issues tooltip logic.
 - **#33 Confidence Filter Gauge** — `IntelligencePanel.tsx`: SVG donut chart inside the Memory Retrieval completed-state card showing used/total chunks ratio. Red arc when <50% relevant, teal otherwise. Label shows `{used}/{total} relevant` with `— low confidence` warning when most chunks are discarded. Placed between ChunkDisplay and VectorDistanceGraph.
-- **Context Synthesis keyword highlighting** — `IntelligencePanel.tsx`: new `highlightKeyWords()` helper extracts significant words from `trace.prompt` (≥4 chars, excluding ~30 stopwords), cross-references them against step outputs, and wraps matches in teal bold `<span>`. Applied to the processing-state current stage output display. Lets the user see which of their query words the system latched onto during context assembly.
+- **Context Assembly keyword highlighting** — `IntelligencePanel.tsx`: new `highlightKeyWords()` helper extracts significant words from `trace.prompt` (≥4 chars, excluding ~30 stopwords), cross-references them against step outputs, and wraps matches in teal bold `<span>`. Applied to the processing-state current stage output display. Lets the user see which of their query words the system latched onto during context assembly.
 - **JSONL dedup** — `orchestrator.py:load_history()`: reverse-iterates sessions, keeps last occurrence of each trace_id via a `seen` set, then reverses back preserving file order. Before: 109 lines / 58 unique (51 duplicates). After: 58 unique traces. Directly doubles the effective Memory Retrieval pool for similarity search. No write-path changes — the raw file still has duplicates but every read is clean.
 - **RAG Document Query (#36)** — added to Phase 3 — Deep Work in FUTURE_PLANS.md. Extends existing Memory Retrieval pipeline to ingest documents into a local vector store alongside past traces.
 - **Enhanced Personality Profile (#37)** — `profile.py` adds 10 new fields to `ModelProfile`: `verbosity_score`, `avg_output_tokens`, `formatting_bullet/table/code/prose_pct`, `hedging_freq`, `lexical_diversity`, `directness_score`. Computed per-model from `trace.output`. `PersonalityProfile.tsx` completely redesigned with personality-first hierarchy: Linguistic Style (Verbosity slider, Directness slider, Formatting DNA donut) → Cognitive Fingerprint (Hedging gauge, Lexical Diversity slider) → collapsible Performance & Latency section. Performance is now secondary, one click away.
@@ -339,7 +341,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 | 9 | **Reasoning-probe suite** — CoT tendency, confidence calibration, hedging | ★☆☆ | 30 min | Future |
 
 ### 2026-06-10
-- **StageDebate component** — `frontend/src/components/StageDebate.tsx`: detects polar opposition between Context Synthesis and Response Generation outputs using sentence-level polarity scoring + topic domain overlap (`TOPIC_PAT` regex with words like `previous`, `access`, `history`). Neutral traces show collapsible "No stage conflicts detected ▸ Inspect"; conflicting traces show glowing violet "Internal Debate" panel with side-by-side claims. Exports `detectContradiction()` for reuse.
+- **StageDebate component** — `frontend/src/components/StageDebate.tsx`: detects polar opposition between Context Assembly and Response Generation outputs using sentence-level polarity scoring + topic domain overlap (`TOPIC_PAT` regex with words like `previous`, `access`, `history`). Neutral traces show collapsible "No stage conflicts detected ▸ Inspect"; conflicting traces show glowing violet "Internal Debate" panel with side-by-side claims. Exports `detectContradiction()` for reuse.
 - **TraceRadar component** — `frontend/src/components/TraceRadar.tsx`: SVG pentagon radar chart with 5 axes (Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty). Computed from trace step metadata. Always renders in IntelligencePanel completed state with 8pt font labels.
 - **History tab blank crash** — debugged: (1) FastAPI route ordering — `/api/traces/profile` AFTER `/{trace_id}`; wildcard caught "profile" as trace ID, returning null; (2) `PersonalityProfile` null guard missing — `profiles.length` on null unmounted entire React tree; (3) `next start` cached stale HTML from old build
 - **ForkInTheRoad component** — `frontend/src/components/ForkInTheRoad.tsx`: decision tree visualization for intent classification. Chosen path highlighted in teal with branch line + confidence bar + reasoning; rejected paths dimmed at 50% opacity with strikethrough labels. Shows during processing state in IntelligencePanel
@@ -363,7 +365,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 
 ### 2026-06-20
 - **Intent classifier (embeddings)** — `backend/services/intent_classifier.py`: 13 intent categories classified via all-minilm cosine similarity, 0.10 threshold, cached embeddings. Step-2 orchestrator: 137s → 73ms.
-- **Context Synthesis (removed LLM)** — step-5 model call removed (was 13-74s per trace). Now echoes primary intent as context pass-through.
+- **Context Assembly (removed LLM)** — step-5 model call removed (was 13-74s per trace). Now echoes primary intent as context pass-through.
 - **Diagnostic probe profiles (persistence)** — `backend/services/probe_manager.py`: per-model probe result files at `backend/data/model_profiles/{slug}.json`. `tools/run_diagnostic.py` saves results via `save_probe_result()` on completion. 12 probes submitted, 11 completed for qwen2.5:3b baseline.
 - **LLM_TIMEOUT 180s → 300s** — to handle queued model calls from concurrent traces on single-CPU inference.
 - **Phase 10 #2-4 complete** — all three per-trace post-processing LLM calls replaced:
@@ -431,5 +433,31 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 | 5 | **Plugin system** — external adapter packages (npm/Python) that self-register with the Observatory. Third parties can write an adapter for their agent system without modifying core code. | ★★★ | 4-5 h | Advanced |
 | 6 | **Unified trace view** — trace sessions from any agent source appear in the same History tab, MemoryConstellation, and IntelligencePanel. The source/agent is a property on the trace, not a different UI. | ★★☆ | 2 h | Once adapters exist |
 | 7 | **Cross-agent comparison** — compare behavior across agents (OpenClaw vs Hermes vs bare Ollama) on the same prompt. Show latency, classification divergence, output structure differences. | ★★★ | 2-3 h | Requires phases 14 + 16 |
+
+---
+
+## Session summary — 2026-06-25 (Synesthesia Cross-Ring Correlation Heatmap)
+
+- **Phase 2 #45 Synesthesia Cross-Ring Correlation Heatmap** — `frontend/src/components/charts/SynesthCorrelationHeatmap.tsx`: 24×24 Pearson correlation matrix across all 6 grammar rings (Depth, Mood, Syntax, Action, Tone, Form). One-hot vectors per trace category, only cross-ring pairs computed (same-ring forced to 0). Teal = positive, red = negative, intensity via sqrt scaling. Filter buttons (\`|r| ≥ 0\` to \`≥ 0.5\`) hide weak correlations. Ring-group dividers with colored headers and matching row labels. Hover tooltip via `createPortal` to `document.body` showing ring name, category, and `r = ±0.xxx`.
+- **Axis descriptions** — SVG `<title>` elements on every row label (24 category descriptions) and column header (6 ring descriptions) so users can hover to learn what "Interjection", "Subjunctive", "Direct Execution" etc. mean.
+- **Registered in chartOptions.ts** — `"correlation"` chart type added to synesthesia dropdown; `DEFAULT_CHART` unchanged.
+- **Wired into RelationshipsPanel** — import + routing branch in the synesthesia charting IIFE after the heatmap block.
+
+### Lessons Learned
+- **Pearson on one-hot vectors works for co-occurrence** — a 1/0 vector per category across traces gives correlations that parallel co-occurrence counts. Same-ring categories yield zero by design (mutually exclusive), cross-ring correlations reveal systematic couplings like Imperative → Direct Execution.
+- **SVG `<title>` is the simplest tooltip** — no state, no portal, no positioning logic needed for axis labels. Native browser tooltip on hover. Use for labels that need a static explanation; use `createPortal` for data-driven tooltips that need dynamic positioning.
+- **Duplicate classifiers are acceptable in a standalone chart component** — rather than importing from RelationshipsPanel (tight coupling), the heatmap duplicates the 6 grammar ring classifiers inline. The classifiers are stable regex and unlikely to drift. This keeps the component self-contained and portable.
+- **Response-side rings need response text** — the heatmap requires `output` on each trace. Traces with no output are handled gracefully (defaults to "Conversational Phatic" / "Informative" / "Continuous Prose").
+
+## Session summary — 2026-06-25 (Dual-Timeline Workspace + Cross-Ring Correlation Heatmap)
+
+- **Phase 2b #30 Dual-Timeline Workspace** — `frontend/src/components/charts/DualTimeline.tsx`: synchronized side-by-side cards for each orchestration stage, pairing Objective Trace (teal, system-recorded metrics: duration, tokens, velocity, chunks, confidence) with LLM Self-Rationale (violet, model's stated reasoning: intent explanations, chunk relevance, synthesized intent, response rationale). Vertical timeline line with stage labels on centered pill badges. Overall summary card at end. Wired into IntelligencePanel completed state after trace explanation.
+- **Phase 2 #45 Synesthesia Cross-Ring Correlation Heatmap** — 24×24 Pearson correlation matrix across all 6 grammar rings. Teal = positive, red = negative, sqrt intensity. Filter buttons hide weak correlations. SVG `<title>` on every axis label for plain-English descriptions. Portaled tooltip on data cells.
+
+### Lessons Learned
+- **The richest self-rationale data is intent_probs** — each intent carries a `reasoning` string explaining why it was chosen/rejected. Even though these are currently template-based (not LLM-generated), they provide a meaningful comparison against the system's recorded metrics.
+- **Chunks naturally bridge both columns** — objective metrics (count, avg relevance) belong on the left, while individual chunk content with used/discarded status and relevance sits naturally in the self-rationale column as evidence of what the model *could* have used.
+- **Self-contained component keeps IntelligencePanel clean** — the DualTimeline takes a single `TraceSession` and derives all data internally via `useMemo`. No new props or state needed in the parent.
+- **Centered timeline with side cards handles variable data density** — stages with rich data (Intent Classification, Memory Retrieval) fill both columns naturally; stages with thin data (Model Routing, Output Packaging) show "No data" gracefully rather than looking broken.
 
 

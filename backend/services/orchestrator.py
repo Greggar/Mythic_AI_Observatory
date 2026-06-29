@@ -18,7 +18,7 @@ from services import config_manager
 from services.ddc_embeddings import classify_ddc, classify_multi as classify_multi_ddc
 from services.lcc_embeddings import classify_lcc, classify_multi as classify_multi_lcc
 
-# Set to "local" to use Gingerlong's CPU, "backoffice" for GPU worker
+# Set to "local" to use the primary server's CPU, "backoffice" for GPU worker
 # Use set_model_provider() to change at runtime
 _model_provider_cfg = config_manager.get_model_provider_config()
 _MODEL_PROVIDER: str = os.environ.get("ORCHESTRATOR_MODEL", _model_provider_cfg.get("provider", "local")).lower()
@@ -51,18 +51,13 @@ HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "traces.jso
 
 STAGES: list[dict[str, Any]] = [
     {"id": "step-1", "label": "Request Received", "model": None, "system": None},
-    {"id": "step-2", "label": "Intent Classification", "model": "backoffice",
-     "system": "You are an intent classifier. Respond with ONLY a JSON object with these fields:\n"
-               "- \"classification\": a short one-sentence classification of the user request\n"
-               "- \"intents\": an array of the top-3 most likely intents, each with \"label\" (short intent name), \"confidence\" (0.0 to 1.0, all values sum to 1.0), and \"reasoning\" (one sentence explaining why this path was chosen or rejected)\n\n"
-               "Example: {\"classification\": \"User is asking a factual question about history.\", \"intents\": [{\"label\": \"factual_query\", \"confidence\": 0.85, \"reasoning\": \"Directly answers the factual request with evidence.\"}, {\"label\": \"educational_request\", \"confidence\": 0.10, \"reasoning\": \"While related, the user didn't ask for a lesson.\"}, {\"label\": \"casual_curiosity\", \"confidence\": 0.05, \"reasoning\": \"The phrasing is formal, not casual.\"}]}"},
-    {"id": "step-3", "label": "Agent Selection", "model": None, "system": None},
+    {"id": "step-2", "label": "Intent Classification", "model": "backoffice", "system": None},
+    {"id": "step-3", "label": "Model Routing", "model": None, "system": None},
     {"id": "step-4", "label": "Memory Retrieval", "model": None, "system": None},
-    {"id": "step-5", "label": "Context Synthesis", "model": None,
-     "system": "You are a synthesizer. In one sentence, note the key context for responding to this request."},
+    {"id": "step-5", "label": "Context Assembly", "model": None, "system": None},
     {"id": "step-6", "label": "Response Generation", "model": "backoffice",
      "system": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user."},
-    {"id": "step-7", "label": "Final Response", "model": None, "system": None},
+    {"id": "step-7", "label": "Output Packaging", "model": None, "system": None},
 ]
 
 LOCAL_MODEL: str = os.environ.get("OLLAMA_MODEL", "qwen2.5:3b")
@@ -482,7 +477,7 @@ async def _generate_trace_explanation(session: TraceSession) -> str | None:
         parts.append("Memory Retrieval was not invoked.")
 
     # Context synthesis
-    ctx_step = next((s for s in session.steps if s.label == "Context Synthesis"), None)
+    ctx_step = next((s for s in session.steps if s.label == "Context Assembly"), None)
     if ctx_step and ctx_step.context_assembled:
         ctx_len = len(ctx_step.context_assembled)
         parts.append(f"Context Assembly built a {ctx_len}-character context from retrieved data and system instructions.")
@@ -556,9 +551,9 @@ def _snapshot_cpu_mem() -> tuple[float, float]:
 # ── Agent / model inference ───────────────────────────────────────
 _AGENT_MAP: dict[str, str] = {
     "step-2": "Intent Classifier",
-    "step-3": "Agent Selector",
+    "step-3": "Model Router",
     "step-4": "Memory Retriever",
-    "step-5": "Context Synthesizer",
+    "step-5": "Context Assembler",
     "step-6": "Response Generator",
 }
 

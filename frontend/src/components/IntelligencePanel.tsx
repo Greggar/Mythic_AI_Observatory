@@ -19,6 +19,9 @@ import StageDebate from "@/components/StageDebate";
 import TraceRadar from "@/components/TraceRadar";
 import ForkInTheRoad from "@/components/ForkInTheRoad";
 import TokenVelocity from "@/components/TokenVelocity";
+import DualTimeline from "@/components/charts/DualTimeline";
+import HallucinationGauge from "@/components/HallucinationGauge";
+import SynthesisBridge from "@/components/SynthesisBridge";
 
 interface Props {
   telemetry: Telemetry | null;
@@ -311,23 +314,23 @@ interface StageInfo {
 
 const STAGES: StageInfo[] = [
   { label: "Request Received",     desc: "Raw prompt enters the system. Parsed and normalized before routing to the orchestration pipeline." },
-  { label: "Intent Classification",desc: "Prompt is analysed to determine user goal, domain, and required capabilities. Routes to the correct agent or model." },
-  { label: "Agent Selection",      desc: "The most suitable agent or model is selected based on intent, resource availability, and capability requirements." },
-  { label: "Memory Retrieval",     desc: "Relevant context from past traces, annotations, and the vector store is retrieved to inform the current response." },
-  { label: "Context Synthesis",    desc: "Retrieved memory is merged with the system prompt and user input to form the complete context window for the model." },
-  { label: "Response Generation",  desc: "The selected model generates a response using the synthesised context. Streams tokens in real-time." },
-  { label: "Final Response",       desc: "Generated output is post-processed, formatted, and delivered. Insights and confidence are computed from the result." },
+  { label: "Intent Classification",desc: "Embedding-based classifier assigns one of 13 intent categories via all-minilm cosine similarity — no LLM call, completes in ~73ms." },
+  { label: "Model Routing",      desc: "Maps the classified intent to the available execution model. Currently routes to the default handler since only one model backend is available." },
+  { label: "Memory Retrieval",     desc: "Vector similarity search over past trace embeddings. Top-5 relevant chunks are tagged as used or discarded based on a relevance threshold." },
+  { label: "Context Assembly",    desc: "Retrieved chunks and user input are assembled into the context window. The LLM assembly step was removed for efficiency — primary intent is echoed as synthesised instruction." },
+  { label: "Response Generation",  desc: "The selected model generates a response using the assembled context. Streams tokens in real-time." },
+  { label: "Output Packaging",       desc: "Output is stored on the trace. Heuristic insights (stage bottlenecks, cold start, service health) are computed from recorded metrics." },
 ];
 
 const SYSTEM_PROMPTS: Record<string, string | null> = {
-  "step-2": "You are an intent classifier. Respond with one short sentence classifying the user request.",
-  "step-5": "You are a synthesizer. In one sentence, note the key context for responding to this request.",
+  "step-2": null,
+  "step-5": null,
   "step-6": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user.",
 };
 
 function getSystemPrompt(step: TraceStep | null): string | null {
   if (!step) return null;
-  const stepIndex = ["Request Received","Intent Classification","Agent Selection","Memory Retrieval","Context Synthesis","Response Generation","Final Response"].indexOf(step.label);
+  const stepIndex = ["Request Received","Intent Classification","Model Routing","Memory Retrieval","Context Assembly","Response Generation","Output Packaging"].indexOf(step.label);
   if (stepIndex === -1) return null;
   return SYSTEM_PROMPTS[`step-${stepIndex + 1}`] ?? null;
 }
@@ -522,7 +525,10 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
                 {showContext && (
                   <ContextAssemblyBreakdown
                     step={currentStage}
-                    systemPrompt={getSystemPrompt(currentStage)}
+                    systemPrompt={getSystemPrompt(
+                      trace?.steps.find((s) => s.label === "Response Generation") ?? null
+                    )}
+                    userPrompt={trace?.prompt}
                   />
                 )}
               </div>
@@ -611,6 +617,8 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
 
           <TraceRadar trace={trace} />
 
+          <HallucinationGauge trace={trace} />
+
           {/* Confidence — radiant solar ring */}
           {confidence !== null && (
             <div className="flex justify-center py-2">
@@ -622,7 +630,7 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
 
           {/* Stage Debate — cognitive dissonance detection */}
           {(() => {
-            const csStep = trace.steps.find((s) => s.label === "Context Synthesis");
+            const csStep = trace.steps.find((s) => s.label === "Context Assembly");
             const rgStep = trace.steps.find((s) => s.label === "Response Generation");
             const csOut = csStep?.metadata?.output as string | undefined;
             const rgOut = rgStep?.metadata?.output as string | undefined;
@@ -667,7 +675,7 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
           <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03]">
             <Brain size={14} className="text-zinc-500" />
             <span className="text-xs text-zinc-400 flex-1">Model</span>
-            <span className="text-xs font-mono text-zinc-400">{trace.model_used || "qwen3.5:9B"}</span>
+            <span className="text-xs font-mono text-zinc-400">{trace.model_used || "qwen2.5:3b"}</span>
           </div>
 
           {/* Token velocity — precise from eval_count */}
@@ -779,6 +787,9 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
             );
           })()}
 
+          {/* Synthesis Bridge */}
+          <SynthesisBridge trace={trace} />
+
           {/* Insight tags */}
           {insightTags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
@@ -820,23 +831,27 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
             </div>
           )}
 
-          {/* Context Assembly Breakdown */}
+          {/* Dual-Timeline Workspace */}
+          <DualTimeline trace={trace} />
+
+          {/* Assembled Context Breakdown (uses Response Generation step — that's where the model payload is assembled) */}
           {(() => {
-            const csStep = trace.steps.find((s) => s.label === "Context Synthesis");
-            if (!csStep?.context_assembled) return null;
+            const rgStep = trace.steps.find((s) => s.label === "Response Generation");
+            if (!rgStep?.context_assembled) return null;
             return (
               <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.05] space-y-2">
                 <button
-                  onClick={() => setShowReplayContext(showReplayContext === "cs" ? null : "cs")}
+                  onClick={() => setShowReplayContext(showReplayContext === "rg" ? null : "rg")}
                   className="w-full flex items-center justify-between text-[9px] font-semibold tracking-widest uppercase text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
-                  <span>Context Assembly</span>
-                  <span className="text-zinc-600">{showReplayContext === "cs" ? "▾" : "▸"}</span>
+                  <span>Assembled Context</span>
+                  <span className="text-zinc-600">{showReplayContext === "rg" ? "▾" : "▸"}</span>
                 </button>
-                {showReplayContext === "cs" && (
+                {showReplayContext === "rg" && (
                   <ContextAssemblyBreakdown
-                    step={csStep}
-                    systemPrompt={getSystemPrompt(csStep)}
+                    step={rgStep}
+                    systemPrompt={getSystemPrompt(rgStep)}
+                    userPrompt={trace.prompt}
                   />
                 )}
               </div>

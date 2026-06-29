@@ -31,7 +31,10 @@ import RelationshipsPanel from "@/components/RelationshipsPanel";
 import TestRunner from "@/components/TestRunner";
 import TestComparison from "@/components/TestComparison";
 import LogTerminal from "@/components/LogTerminal";
-import type { Probe, ModelOption } from "@/types/trace";
+import ModelSwitcher from "@/components/ModelSwitcher";
+import ComparativeRadarPanel from "@/components/ComparativeRadarPanel";
+import SetupWizard from "@/components/SetupWizard";
+import type { Probe, ModelOption, TraceSession } from "@/types/trace";
 import { DEFAULT_CHART } from "@/data/chartOptions";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -52,6 +55,8 @@ export default function Home() {
   const [testProbes, setTestProbes] = useState<Probe[]>([]);
   const [testModels, setTestModels] = useState<ModelOption[]>([]);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [compareTraces, setCompareTraces] = useState<TraceSession[]>([]);
+  const [firstRun, setFirstRun] = useState<boolean | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to timeline when a history trace is selected
@@ -60,6 +65,14 @@ export default function Home() {
       timelineRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [replayTrace]);
+
+  // Check first-run on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/api/config/first-run`)
+      .then((r) => r.json())
+      .then((data) => setFirstRun(data.firstRun))
+      .catch(() => setFirstRun(false));
+  }, []);
 
   // Track live polling completion
   useEffect(() => {
@@ -105,6 +118,20 @@ export default function Home() {
       const data = await res.json();
       setReplayTrace(data);
       setActiveTab("trace");
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  // Handle compare — load full trace data for selected IDs
+  const handleCompare = useCallback(async (traceIds: string[]) => {
+    try {
+      const results = await Promise.all(
+        traceIds.map((id) =>
+          fetch(`${API_BASE}/api/traces/${id}`).then((r) => r.json())
+        )
+      );
+      setCompareTraces(results);
     } catch {
       // silently fail
     }
@@ -234,6 +261,7 @@ export default function Home() {
               Clear replay
             </button>
           )}
+          <ModelSwitcher />
           <button
             onClick={() => setSettingsOpen(true)}
             className="text-zinc-600 hover:text-teal-mystic transition-colors p-2 rounded-full hover:bg-white/[0.04]"
@@ -384,12 +412,19 @@ export default function Home() {
                 <ErrorBoundary>
                   <MemoryConstellation
                     onSelect={handleHistorySelect}
+                    onCompare={handleCompare}
                     refreshTrigger={historyRefresh}
                     grouping={groupingMethod}
                     visualization={visualizationType}
                   />
                 </ErrorBoundary>
               </HoverProvider>
+              {compareTraces.length >= 2 && (
+                <ComparativeRadarPanel
+                  traces={compareTraces}
+                  onClose={() => setCompareTraces([])}
+                />
+              )}
               <TraceTable refreshTrigger={historyRefresh} />
             </div>
           </div>
@@ -421,7 +456,6 @@ export default function Home() {
                 ["synesthesia", "Cognitive Synesthesia"],
                 ["drift", "Semantic Drift"],
                 ["cross", "DDC × LCC Cross"],
-                ["intonation", "Prompt Intonation"],
                 ["grammar", "Grammar Schema"],
                 ["mood-intent", "Mood × Intent"],
                 ["distribution", "Runtime Distribution"],
@@ -513,6 +547,8 @@ export default function Home() {
       {showSummary && activeTrace && (
         <TraceSummaryModal trace={activeTrace} onClose={() => setShowSummary(false)} />
       )}
+
+      {firstRun === true && <SetupWizard onComplete={() => setFirstRun(false)} />}
 
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 

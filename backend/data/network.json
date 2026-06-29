@@ -14,33 +14,33 @@
     },
     "backoffice_llm": {
       "label": "Backoffice LLM",
-      "host": "198.51.100.100",
+      "host": "192.168.1.100",
       "port": 12434,
-      "model": "docker.io/ai/gpt-oss:20B",
+      "model": "qwen2.5:7b",
       "enabled": true
     },
     "prometheus": {
       "label": "Prometheus",
-      "host": "100.100.179.99",
+      "host": "192.168.1.100",
       "port": 9090,
       "enabled": true
     },
-    "hermes": {
-      "label": "Hermes Bridge",
-      "host": "198.51.100.100",
+    "backoffice_agent": {
+      "label": "Backoffice Agent",
+      "host": "192.168.1.100",
       "port": 9119,
       "enabled": true
     },
     "comfyui": {
       "label": "ComfyUI",
-      "host": "198.51.100.100",
+      "host": "192.168.1.100",
       "port": 8188,
       "enabled": true
     }
   },
   "machines": {
-    "primary-server": {
-      "name": "Gingerlong",
+    "primary": {
+      "name": "Primary Server",
       "host": "127.0.0.1",
       "desc": "Primary orchestration server \u2014 API, UI, Ollama, OpenClaw",
       "insight": "The conductor. Hosts the API, UI, Ollama, OpenClaw. All orchestration originates here.",
@@ -49,31 +49,31 @@
         "openclaw"
       ]
     },
-    "backoffice": {
-      "name": "BackOffice",
-      "host": "198.51.100.100",
+    "worker1": {
+      "name": "Worker Node 1",
+      "host": "192.168.1.100",
       "desc": "Worker node \u2014 inference cluster, Docker Model Runner",
-      "insight": "Compute heart. GPU-bound inference worker with Hermes Bridge and ComfyUI.",
+      "insight": "Compute heart. GPU-bound inference worker with agent bridge and ComfyUI.",
       "services": [
         "backoffice_llm",
-        "hermes",
+        "backoffice_agent",
         "comfyui"
       ]
     },
-    "loungeroom": {
-      "name": "LoungeRoom",
-      "host": "100.89.142.70",
+    "worker2": {
+      "name": "Worker Node 2",
+      "host": "192.168.1.101",
       "desc": "Worker node \u2014 batch tasks, training pipelines",
       "insight": "Pipeline worker. Handles batch tasks, long-running training loops, and data processing.",
       "services": []
     }
   },
   "analysis": {
-    "model": "docker.io/ai/gpt-oss:20B",
-    "provider": "backoffice"
+    "model": "qwen2.5:3b",
+    "provider": "local"
   },
   "model_provider": {
     "provider": "local",
-    "model": "Impulse2000/smollm3:latest"
+    "model": ""
   }
 }

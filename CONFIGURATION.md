@@ -32,7 +32,7 @@ No code changes are needed to reconfigure the system for a new network.
 | Variable | Default | Description |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8001` | Backend API URL (must be reachable from browser) |
-| `ALLOWED_ORIGINS` | *(empty)* | Comma-separated IPs allowed in dev mode (e.g. `192.168.0.237,198.51.100.5`) |
+| `ALLOWED_ORIGINS` | *(empty)* | Comma-separated IPs allowed in dev mode (e.g. `192.168.1.1,192.168.1.100`) |
 | `FRONTEND_PORT` | `3001` | Port for the Next.js server (used by `restart.sh`) |
 
 ---
@@ -53,10 +53,10 @@ Located at `backend/data/network.json`. Editable through **Settings → Services
       "enabled": true
     },
     "backoffice_llm": {
-      "label": "Backoffice LLM",
-      "host": "198.51.100.100",
+      "label": "Worker Node 1 LLM",
+      "host": "192.168.1.100",
       "port": 12434,
-      "model": "docker.io/ai/gpt-oss:20B",
+      "model": "qwen2.5:7b",
       "enabled": true
     },
     "openclaw": { ... },
@@ -80,7 +80,7 @@ Each service has:
 {
   "machines": {
     "primary-server": {
-      "name": "Gingerlong",
+      "name": "Primary Server",
       "host": "127.0.0.1",
       "desc": "Primary orchestration server",
       "insight": "The conductor. All orchestration originates here.",
@@ -95,7 +95,7 @@ Each service has:
 ```json
 {
   "analysis": {
-    "model": "docker.io/ai/gpt-oss:20B",
+    "model": "qwen2.5:7b",
     "provider": "backoffice"
   }
 }

@@ -14,11 +14,11 @@ DATA_FILE = os.path.expanduser("~/.latency_monitor_cache.json")
 STAGE_LABELS = [
     "Request Received",
     "Intent Classification",
-    "Agent Selection",
+    "Model Routing",
     "Memory Retrieval",
-    "Context Synthesis",
+    "Context Assembly",
     "Response Generation",
-    "Final Response",
+    "Output Packaging",
 ]
 
 STAGE_COLORS = ["#4a5568", "#e53e3e", "#3182ce", "#805ad5", "#dd6b20", "#319795", "#718096"]

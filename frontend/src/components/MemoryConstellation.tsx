@@ -69,6 +69,7 @@ interface Annotation {
 
 interface Props {
   onSelect: (traceId: string) => void;
+  onCompare?: (traceIds: string[]) => void;
   refreshTrigger: number;
   grouping?: string;
   visualization?: string;
@@ -275,7 +276,7 @@ function galaxySpokePaths(clusters: ClusterLayout[]): string[] {
   });
 }
 
-export default function MemoryConstellation({ onSelect, refreshTrigger, grouping = "ddc", visualization = "constellation" }: Props) {
+export default function MemoryConstellation({ onSelect, onCompare, refreshTrigger, grouping = "ddc", visualization = "constellation" }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -292,6 +293,8 @@ export default function MemoryConstellation({ onSelect, refreshTrigger, grouping
   const [noteRating, setNoteRating] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState("");
   const { hoveredTraceId, setHoveredTraceId } = useHover();
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set());
 
   useEffect(() => setMounted(true), []);
 
@@ -420,6 +423,18 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
   }, [hovered]);
 
   const handleDotClick = (dotEntry: HistoryEntry) => {
+    if (compareMode) {
+      setSelectedForCompare((prev) => {
+        const next = new Set(prev);
+        if (next.has(dotEntry.id)) {
+          next.delete(dotEntry.id);
+        } else {
+          next.add(dotEntry.id);
+        }
+        return next;
+      });
+      return;
+    }
     setNewIds((prev) => { const c = new Set(prev); c.delete(dotEntry.id); return c; });
     setSelectedTraceId(dotEntry.id);
     onSelect(dotEntry.id);
@@ -505,6 +520,40 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           </button>
+        )}
+      </div>
+
+      {/* Compare mode controls */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => {
+            setCompareMode((p) => !p);
+            if (compareMode) setSelectedForCompare(new Set());
+          }}
+          className={`text-[9px] font-mono px-2 py-1 rounded transition-colors ${
+            compareMode
+              ? "bg-teal-mystic/15 text-teal-mystic border border-teal-mystic/20"
+              : "text-zinc-500 hover:text-zinc-300 border border-white/[0.06]"
+          }`}
+        >
+          {compareMode ? "Exit compare" : "Compare"}
+        </button>
+        {compareMode && selectedForCompare.size >= 2 && onCompare && (
+          <button
+            onClick={() => {
+              onCompare([...selectedForCompare]);
+              setCompareMode(false);
+              setSelectedForCompare(new Set());
+            }}
+            className="text-[9px] font-mono px-2 py-1 rounded bg-violet-500/15 text-violet-400 border border-violet-500/20 hover:bg-violet-500/25 transition-colors"
+          >
+            Compare {selectedForCompare.size} traces
+          </button>
+        )}
+        {compareMode && (
+          <span className="text-[8px] text-zinc-600 ml-auto">
+            {selectedForCompare.size} selected
+          </span>
         )}
       </div>
 
@@ -622,6 +671,9 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
                         <circle cx={dot.x} cy={dot.y} r={dot.r + 3} fill={entryColor(dot.entry, grouping)} style={{ opacity: 0.05 }} />
                         <circle cx={dot.x} cy={dot.y} r={dot.r} fill="none" stroke={entryColor(dot.entry, grouping)} style={{ opacity: 0.4 }} strokeWidth={0.7} />
                         <circle cx={dot.x} cy={dot.y} r={dot.r * 0.55} fill={entryColor(dot.entry, grouping)} />
+                        {compareMode && selectedForCompare.has(dot.entry.id) && (
+                          <circle cx={dot.x} cy={dot.y} r={dot.r + 4} fill="none" stroke="#34d399" strokeWidth={1.5} style={{ opacity: 0.8 }} />
+                        )}
                       </motion.g>
                     );
                   })

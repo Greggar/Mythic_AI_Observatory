@@ -25,7 +25,7 @@ interface TraceRow {
 
 function stripStagePrefix(s: string | null | undefined): string {
   if (!s) return "";
-  return s.replace(/^\[(Response Generation|Intent Classification|Context Synthesis)\]:\s*/, "");
+  return s.replace(/^\[(Response Generation|Intent Classification|Context Assembly)\]:\s*/, "");
 }
 
 function trunc(s: string | null | undefined, n: number): string {

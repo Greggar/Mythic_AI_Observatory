@@ -59,7 +59,7 @@ const STATE_STYLES: Record<
   },
 };
 
-const INFERENCE_AGENTS = new Set(["Intent Classifier", "Context Synthesizer", "Response Generator"]);
+const INFERENCE_STAGES = new Set(["Response Generator"]);
 
 function resolveState(key: string, t: Telemetry | null, isActive: boolean): NodeState {
   if (!t) return "unreachable";
@@ -67,7 +67,7 @@ function resolveState(key: string, t: Telemetry | null, isActive: boolean): Node
   const cpuHigh = t.cpu.percent > 80 || t.gpu.gpu_util > 80;
   const cpuMed = t.cpu.percent > 50 || t.gpu.gpu_util > 50;
 
-  if (INFERENCE_AGENTS.has(key)) {
+  if (INFERENCE_STAGES.has(key)) {
     if (t.ollama.status !== "ok") return "unreachable";
     if (cpuHigh) return "processing";
     return cpuMed ? "active" : "idle";
@@ -75,7 +75,7 @@ function resolveState(key: string, t: Telemetry | null, isActive: boolean): Node
   return "idle";
 }
 
-export default function AgentNode({
+export default function StageNode({
   size,
   orbitRadius,
   label,

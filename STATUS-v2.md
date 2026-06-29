@@ -51,7 +51,7 @@ All animations use fade+scale transitions (no blinking). Custom scrollbar stylin
 ## Current Architecture
 
 ```
-User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ Backoffice qwen3.5:9B (:12434)
+User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ Worker Node 1 qwen2.5:7b (:12434)
                           ↑
                     Prometheus (:9090) + Node Exporter (:9100)
 
@@ -93,7 +93,7 @@ Persistence:
 
 ## What Works
 
-- 7-stage orchestration pipeline with real LLM calls to backoffice `qwen3.5:9B`
+- 7-stage orchestration pipeline with real LLM calls to Worker Node 1 `qwen2.5:7b`
 - Telemetry polling (CPU, memory, GPU, Ollama, OpenClaw, remotes) every 1.5s
 - Solar Nexus visualisation with sacred geometry, breathing core, orbiting nodes, flowing energy paths
 - Trace replay with 600ms minimum step delay
@@ -125,10 +125,10 @@ All SVG path coordinates built from `Math.cos`/`Math.sin` use `.toFixed(4)` to a
 Fully open. Anyone on the LAN can view the interface and submit orchestration prompts.
 
 ### Hardcoded URLs
-- Telemetry poll URL is hardcoded to `http://192.168.0.237:8001/api/telemetry` in `useWebSocket.ts`
+- Telemetry poll URL is hardcoded to `http://192.168.1.1:8001/api/telemetry` in `useWebSocket.ts`
 - API base is `process.env.NEXT_PUBLIC_API_URL` (falls back to `http://localhost:8001`)
-- Backoffice URL hardcoded in `orchestrator.py`
-- Backoffice model name hardcoded as `docker.io/ai/qwen3.5:9B-UD-Q4_K_XL`
+- Worker Node 1 URL hardcoded in `orchestrator.py`
+- Worker Node 1 model name hardcoded as `qwen2.5:7b`
 
 ### No Database
 All state (traces, telemetry) is in-memory or flat-file. No session persistence beyond the trace list.

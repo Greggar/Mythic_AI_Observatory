@@ -24,7 +24,7 @@ export default function StackedBarChart({ matrix, inputLabels, outputLabels, out
   const { totals, maxTotal, W, H } = useMemo(() => {
     const t = matrix.map(row => row.reduce((s, v) => s + v, 0));
     const m = Math.max(...t, 1);
-    const w = PAD.left + PAD.right + 280;
+    const w = PAD.left + PAD.right + 252;
     const h = PAD.top + PAD.bottom + inputLabels.length * (BAR_H + BAR_GAP) + LEGEND_H;
     return { totals: t, maxTotal: m, W: w, H: h };
   }, [matrix, inputLabels]);
@@ -39,7 +39,7 @@ export default function StackedBarChart({ matrix, inputLabels, outputLabels, out
 
   return (
     <div ref={ref} className="relative">
-      <svg width={W} height={H} className="mx-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ aspectRatio: `${W}/${H}` }}>
         {title && (
           <text x={W / 2} y={12} textAnchor="middle" fill="rgba(161,161,170,0.5)" fontSize="9" fontFamily="monospace">
             {title}
@@ -77,7 +77,7 @@ export default function StackedBarChart({ matrix, inputLabels, outputLabels, out
               {matrix[i].map((val, j) => {
                 if (val === 0) return null;
                 const pct = totals[i] > 0 ? val / totals[i] : 0;
-                const w = (val / maxTotal) * 280;
+                const w = (val / maxTotal) * 252;
                 const segX = xOff;
                 xOff += w;
                 const isHovered = hovered?.row === i && hovered?.col === j;
@@ -105,7 +105,7 @@ export default function StackedBarChart({ matrix, inputLabels, outputLabels, out
         {/* Legend */}
         <g transform={`translate(${PAD.left}, ${PAD.top + inputLabels.length * (BAR_H + BAR_GAP) + 4})`}>
           {outputLabels.map((label, j) => (
-            <g key={`leg-${j}`} transform={`translate(${j * 130}, 0)`}>
+            <g key={`leg-${j}`} transform={`translate(${j * 117}, 0)`}>
               <rect x={0} y={0} width={10} height={10} rx={1} fill={outputColors[j]} opacity={0.7} />
               <text x={14} y={8} fill="rgba(161,161,170,0.5)" fontSize="7" fontFamily="monospace">{label}</text>
             </g>

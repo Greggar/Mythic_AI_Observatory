@@ -140,6 +140,17 @@ def get_remote_targets() -> dict[str, str]:
     return targets
 
 
+def is_first_run() -> bool:
+    cfg = _load()
+    return not cfg.get("_configured", False)
+
+
+def mark_configured() -> None:
+    cfg = _load()
+    cfg["_configured"] = True
+    save(cfg)
+
+
 def save(cfg: dict[str, Any]) -> dict[str, Any]:
     global _config
     _config = cfg

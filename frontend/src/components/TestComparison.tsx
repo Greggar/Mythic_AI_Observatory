@@ -145,7 +145,7 @@ export default function TestComparison({ probes, models }: Props) {
         "",
         "── Response ──",
         (trace.output || trace.response || "(empty)").replace(
-          /\[(Response Generation|Intent Classification|Context Synthesis)\]:\s*/g, ""
+          /\[(Response Generation|Intent Classification|Context Assembly)\]:\s*/g, ""
         ),
         "",
       ].join("\n");

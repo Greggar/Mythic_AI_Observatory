@@ -8,11 +8,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const STAGES = [
   "Request Received",
   "Intent Classification",
-  "Agent Selection",
+  "Model Routing",
   "Memory Retrieval",
-  "Context Synthesis",
+  "Context Assembly",
   "Response Generation",
-  "Final Response",
+  "Output Packaging",
 ];
 
 const STAGE_COLORS = [

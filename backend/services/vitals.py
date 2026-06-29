@@ -67,6 +67,7 @@ def _build_machine_map(instances: dict[str, dict[str, str]]) -> dict[str, dict[s
             "id": mid,
             "name": friendly.get("name", hostname.capitalize()) if friendly else hostname.capitalize(),
             "desc": friendly.get("desc", f"Auto-discovered node — {hostname}") if friendly else f"Auto-discovered node — {hostname}",
+            "host": friendly.get("host", "") if friendly else "",
         }
     return machine_map
 
@@ -221,7 +222,7 @@ async def collect_vitals() -> list[dict[str, Any]]:
 
     for instance, info in machine_map.items():
         mid = info["id"]
-        is_remote = not prom_ok and mid != LOCAL_HOSTNAME
+        is_remote = not prom_ok and mid != LOCAL_HOSTNAME and info.get("host", "") not in ("127.0.0.1", "localhost", "")
 
         if is_remote:
             vitals = [
@@ -273,6 +274,7 @@ async def collect_vitals() -> list[dict[str, Any]]:
         machines.append({
             "id": mid,
             "name": info["name"],
+            "host": info.get("host", ""),
             "desc": info["desc"],
             "insight": insights.get(mid, ""),
             "status": _machine_status(vitals),
@@ -312,6 +314,7 @@ async def collect_vitals() -> list[dict[str, Any]]:
         machines.append({
             "id": "_logs",
             "name": "Trace Logs",
+            "host": "",
             "desc": "Backend application log stream — SSE ring buffer + rotating file",
             "insight": "; ".join(insight_lines),
             "status": "critical" if err_count > 0 else ("warning" if warn_count > 5 else "healthy"),

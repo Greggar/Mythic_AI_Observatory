@@ -18,12 +18,12 @@ function fmt(ms: number): string {
 
 const STAGE_DESCRIPTIONS: Record<string, string> = {
   "Request Received": "Raw prompt enters the system. Parsed and normalized before routing to the orchestration pipeline.",
-  "Intent Classification": "Prompt is analysed to determine user goal, domain, and required capabilities. Routes to the correct agent or model.",
-  "Agent Selection": "The most suitable agent or model is selected based on intent, resource availability, and capability requirements.",
-  "Memory Retrieval": "Relevant context from past traces, annotations, and the vector store is retrieved to inform the current response.",
-  "Context Synthesis": "Retrieved memory is merged with the system prompt and user input to form the complete context window for the model.",
-  "Response Generation": "The selected model generates a response using the synthesised context. Streams tokens in real-time.",
-  "Final Response": "Generated output is post-processed, formatted, and delivered. Insights and confidence are computed from the result.",
+  "Intent Classification": "Embedding-based classifier assigns one of 13 intent categories via all-minilm cosine similarity — no LLM call, completes in ~73ms.",
+  "Model Routing": "Maps the classified intent to the available execution model. Currently routes to the default handler since only one model backend is available.",
+  "Memory Retrieval": "Vector similarity search over past trace embeddings. Top-5 relevant chunks are tagged as used or discarded based on a relevance threshold.",
+  "Context Assembly": "Retrieved chunks and user input are assembled into the context window. The LLM assembly step was removed for efficiency — primary intent is echoed as synthesised instruction.",
+  "Response Generation": "The selected model generates a response using the assembled context. Streams tokens in real-time.",
+  "Output Packaging": "Output is stored on the trace. Heuristic insights (stage bottlenecks, cold start, service health) are computed from recorded metrics.",
 };
 
 export default function TraceSummaryModal({ trace, onClose }: Props) {
