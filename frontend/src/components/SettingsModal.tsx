@@ -106,7 +106,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       setModelProvider(data.provider || "local");
       if (data.provider === "local" && data.model) {
         setCurrentModel(data.model);
-      } else if (data.provider === "backoffice" && data.model) {
+      } else if (data.provider === "worker" && data.model) {
         setSavedBackofficeModel(data.model);
       }
     } catch {
@@ -208,7 +208,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     fetchNetworkSources();
   }, [open, tab, fetchNetworkSources]);
 
-  // Restore saved backoffice model selection after network sources load
+  // Restore saved worker model selection after network sources load
   useEffect(() => {
     if (!savedBackofficeModel || networkSources.length === 0) return;
     let found = false;
@@ -228,7 +228,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   useEffect(() => {
     if (networkSources.length === 0 || analysisNetworkSourceId) return;
-    if (analysisProvider !== "backoffice") return;
+    if (analysisProvider !== "worker") return;
     let found = false;
     for (const src of networkSources) {
       if (src.models.includes(analysisModel)) {
@@ -323,14 +323,14 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!config) return;
     setSaving(true);
     try {
-      const resolvedModel = analysisProvider === "backoffice" && analysisNetworkModelName
+      const resolvedModel = analysisProvider === "worker" && analysisNetworkModelName
         ? analysisNetworkModelName
         : analysisModel;
       const mergedConfig = {
         ...config,
         model_provider: {
           provider: modelProvider,
-          model: modelProvider === "backoffice" ? networkModelName : currentModel,
+          model: modelProvider === "worker" ? networkModelName : currentModel,
         },
         analysis: { model: resolvedModel, provider: analysisProvider },
       };
@@ -643,21 +643,21 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         </div>
                       </label>
                       <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                        modelProvider === "backoffice"
+                        modelProvider === "worker"
                           ? "border-teal-mystic/40 bg-teal-mystic/5"
                           : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
                       }`}>
                         <input
                           type="radio"
                           name="provider"
-                          value="backoffice"
-                          checked={modelProvider === "backoffice"}
-                          onChange={() => setModelProvider("backoffice")}
+                          value="worker"
+                          checked={modelProvider === "worker"}
+                          onChange={() => setModelProvider("worker")}
                           className="accent-teal-mystic mt-1"
                         />
                         <div className="flex-1 space-y-2">
                           <div className="text-sm text-zinc-200 font-medium">Network Source</div>
-                          {modelProvider === "backoffice" ? (
+                          {modelProvider === "worker" ? (
                             <>
                               <div className="flex gap-2">
                                 <select
@@ -701,7 +701,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                           const r = await fetch(`${API_BASE}/api/config/model`, {
                                             method: "POST",
                                             headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ provider: "backoffice", model: val }),
+                                            body: JSON.stringify({ provider: "worker", model: val }),
                                           });
                                           if (r.ok) {
                                             setNetModelSaved(true);
@@ -747,7 +747,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         setSaving(true);
                         try {
                           const payload: Record<string, string> = { provider: modelProvider };
-                          if (modelProvider === "backoffice" && networkModelName) {
+                          if (modelProvider === "worker" && networkModelName) {
                             payload.model = networkModelName;
                           }
                           const res = await fetch(`${API_BASE}/api/config/model`, {
@@ -763,7 +763,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                 ...prev,
                                 model_provider: {
                                   provider: modelProvider,
-                                  model: modelProvider === "backoffice" ? networkModelName : currentModel,
+                                  model: modelProvider === "worker" ? networkModelName : currentModel,
                                 },
                               };
                             });
@@ -784,7 +784,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       ) : saved ? (
                         <span className="text-jade-glow flex items-center gap-1.5">
                           <Check className="w-4 h-4" />
-                          {modelProvider === "backoffice" ? networkModelName : currentModel}
+                          {modelProvider === "worker" ? networkModelName : currentModel}
                         </span>
                       ) : (
                         <>
@@ -856,21 +856,21 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         </div>
                       </label>
                       <label className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                        analysisProvider === "backoffice"
+                        analysisProvider === "worker"
                           ? "border-teal-mystic/40 bg-teal-mystic/5"
                           : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
                       }`}>
                         <input
                           type="radio"
                           name="analysisProvider"
-                          value="backoffice"
-                          checked={analysisProvider === "backoffice"}
-                          onChange={() => setAnalysisProvider("backoffice")}
+                          value="worker"
+                          checked={analysisProvider === "worker"}
+                          onChange={() => setAnalysisProvider("worker")}
                           className="accent-teal-mystic mt-1"
                         />
                         <div className="flex-1 space-y-2">
                           <div className="text-sm text-zinc-200 font-medium">Network Source</div>
-                          {analysisProvider === "backoffice" ? (
+                          {analysisProvider === "worker" ? (
                             <>
                               <div className="flex gap-2">
                                 <select
@@ -915,7 +915,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                           const res = await fetch(`${API_BASE}/api/config/analysis-model`, {
                                             method: "POST",
                                             headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ model: val, provider: "backoffice" }),
+                                            body: JSON.stringify({ model: val, provider: "worker" }),
                                           });
                                           if (res.ok) {
                                             setAnalysisModelSaved(true);

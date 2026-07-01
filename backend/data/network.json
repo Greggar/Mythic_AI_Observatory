@@ -12,30 +12,30 @@
       "port": 18789,
       "enabled": true
     },
-    "backoffice_llm": {
-      "label": "Backoffice LLM",
-      "host": "192.168.1.100",
+    "worker_llm": {
+      "label": "Worker LLM",
+      "host": "0.0.0.0",
       "port": 12434,
       "model": "qwen2.5:7b",
-      "enabled": true
+      "enabled": false
     },
     "prometheus": {
       "label": "Prometheus",
-      "host": "192.168.1.100",
+      "host": "0.0.0.0",
       "port": 9090,
-      "enabled": true
+      "enabled": false
     },
-    "backoffice_agent": {
-      "label": "Backoffice Agent",
-      "host": "192.168.1.100",
+    "worker_agent": {
+      "label": "Worker Agent",
+      "host": "0.0.0.0",
       "port": 9119,
-      "enabled": true
+      "enabled": false
     },
     "comfyui": {
       "label": "ComfyUI",
-      "host": "192.168.1.100",
+      "host": "0.0.0.0",
       "port": 8188,
-      "enabled": true
+      "enabled": false
     }
   },
   "machines": {
@@ -50,22 +50,15 @@
       ]
     },
     "worker1": {
-      "name": "Worker Node 1",
-      "host": "192.168.1.100",
-      "desc": "Worker node \u2014 inference cluster, Docker Model Runner",
-      "insight": "Compute heart. GPU-bound inference worker with agent bridge and ComfyUI.",
+      "name": "Worker Node",
+      "host": "0.0.0.0",
+      "desc": "GPU worker node \u2014 add your worker's IP",
+      "insight": "Compute node. Configure with your worker's LAN address.",
       "services": [
-        "backoffice_llm",
-        "backoffice_agent",
+        "worker_llm",
+        "worker_agent",
         "comfyui"
       ]
-    },
-    "worker2": {
-      "name": "Worker Node 2",
-      "host": "192.168.1.101",
-      "desc": "Worker node \u2014 batch tasks, training pipelines",
-      "insight": "Pipeline worker. Handles batch tasks, long-running training loops, and data processing.",
-      "services": []
     }
   },
   "analysis": {
@@ -75,5 +68,6 @@
   "model_provider": {
     "provider": "local",
     "model": ""
-  }
+  },
+  "_configured": false
 }

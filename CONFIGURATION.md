@@ -32,7 +32,7 @@ No code changes are needed to reconfigure the system for a new network.
 | Variable | Default | Description |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8001` | Backend API URL (must be reachable from browser) |
-| `ALLOWED_ORIGINS` | *(empty)* | Comma-separated IPs allowed in dev mode (e.g. `192.168.1.1,192.168.1.100`) |
+| `ALLOWED_ORIGINS` | *(empty)* | Comma-separated IPs allowed in dev mode (e.g. `198.51.100.1,198.51.100.2`) |
 | `FRONTEND_PORT` | `3001` | Port for the Next.js server (used by `restart.sh`) |
 
 ---
@@ -54,7 +54,7 @@ Located at `backend/data/network.json`. Editable through **Settings → Services
     },
     "backoffice_llm": {
       "label": "Worker Node 1 LLM",
-      "host": "192.168.1.100",
+      "host": "198.51.100.2",
       "port": 12434,
       "model": "qwen2.5:7b",
       "enabled": true
@@ -136,7 +136,7 @@ Results from `tools/run_diagnostic.py` are saved per model:
 ```
 backend/data/model_profiles/
 ├── qwen2.5_3b.json
-└── docker.io_ai_gpt-oss_20B.json
+└── llama3.2_3b.json
 ```
 
 Each file contains:

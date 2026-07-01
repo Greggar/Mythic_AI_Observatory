@@ -11,9 +11,5 @@
     { "x": 0, "y": -11, "label": "Agent", "color": "#2dd4bf", "name": "Agent Bridge", "desc": "AI agent for prompt processing and tool calls" },
     { "x": 10, "y": 0, "label": "ComfyUI", "color": "#a78bfa", "name": "ComfyUI", "desc": "Image generation interface" },
     { "x": 0, "y": 11, "label": "LLM", "color": "#34d399", "name": "Worker LLM", "desc": "Local LLM model running on worker for inference offload" }
-  ],
-  "Worker Node 2": [
-    { "x": 0, "y": -9, "label": "Batch", "color": "#2dd4bf", "name": "Batch Processor", "desc": "Background batch job runner" },
-    { "x": 0, "y": 9, "label": "Train", "color": "#f59e0b", "name": "Train Worker", "desc": "Model fine-tuning / training worker" }
   ]
 }

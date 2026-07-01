@@ -18,7 +18,7 @@ from services import config_manager
 from services.ddc_embeddings import classify_ddc, classify_multi as classify_multi_ddc
 from services.lcc_embeddings import classify_lcc, classify_multi as classify_multi_lcc
 
-# Set to "local" to use the primary server's CPU, "backoffice" for GPU worker
+# Set to "local" to use the primary server's CPU, "worker" for a remote GPU machine
 # Use set_model_provider() to change at runtime
 _model_provider_cfg = config_manager.get_model_provider_config()
 _MODEL_PROVIDER: str = os.environ.get("ORCHESTRATOR_MODEL", _model_provider_cfg.get("provider", "local")).lower()
@@ -30,15 +30,15 @@ def _set_model_provider_internal(value: str) -> None:
     """Update the in-memory provider global without writing to disk."""
     global _MODEL_PROVIDER
     value = value.lower()
-    if value not in ("local", "backoffice"):
-        raise ValueError(f"Invalid model provider: {value!r}. Must be 'local' or 'backoffice'.")
+    if value not in ("local", "worker"):
+        raise ValueError(f"Invalid model provider: {value!r}. Must be 'local' or 'worker'.")
     _MODEL_PROVIDER = value
 
 def set_model_provider(value: str) -> None:
     global _MODEL_PROVIDER
     value = value.lower()
-    if value not in ("local", "backoffice"):
-        raise ValueError(f"Invalid model provider: {value!r}. Must be 'local' or 'backoffice'.")
+    if value not in ("local", "worker"):
+        raise ValueError(f"Invalid model provider: {value!r}. Must be 'local' or 'worker'.")
     _MODEL_PROVIDER = value
     config_manager.set_model_provider_config(value)
     logger.info("Model provider switched to: %s", value)
@@ -51,11 +51,11 @@ HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "traces.jso
 
 STAGES: list[dict[str, Any]] = [
     {"id": "step-1", "label": "Request Received", "model": None, "system": None},
-    {"id": "step-2", "label": "Intent Classification", "model": "backoffice", "system": None},
+    {"id": "step-2", "label": "Intent Classification", "model": "worker", "system": None},
     {"id": "step-3", "label": "Model Routing", "model": None, "system": None},
     {"id": "step-4", "label": "Memory Retrieval", "model": None, "system": None},
     {"id": "step-5", "label": "Context Assembly", "model": None, "system": None},
-    {"id": "step-6", "label": "Response Generation", "model": "backoffice",
+    {"id": "step-6", "label": "Response Generation", "model": "worker",
      "system": "You are a wise and knowledgeable AI oracle. Provide a thoughtful, clear response to the user."},
     {"id": "step-7", "label": "Output Packaging", "model": None, "system": None},
 ]
@@ -121,8 +121,8 @@ def get_analysis_provider() -> str:
 def set_analysis_provider(value: str) -> None:
     global ANALYSIS_PROVIDER
     value = value.lower()
-    if value not in ("local", "backoffice"):
-        raise ValueError(f"Invalid analysis provider: {value!r}. Must be 'local' or 'backoffice'.")
+    if value not in ("local", "worker"):
+        raise ValueError(f"Invalid analysis provider: {value!r}. Must be 'local' or 'worker'.")
     ANALYSIS_PROVIDER = value
     config_manager.set_analysis_config(ANALYSIS_MODEL, value)
     logger.info("Analysis provider switched to: %s", value)
@@ -151,7 +151,7 @@ async def warmup_model() -> None:
 
     # Warm up analysis model if different from execution model
     if ANALYSIS_MODEL and ANALYSIS_MODEL != model_name:
-        an_url = config_manager.get_backoffice_url() if ANALYSIS_PROVIDER == "backoffice" else base_url
+        an_url = config_manager.get_worker_url() if ANALYSIS_PROVIDER == "worker" else base_url
         if an_url:
             an_payload = {
                 "model": ANALYSIS_MODEL,
@@ -173,8 +173,8 @@ def _resolve_model_url(model_key: str) -> tuple[str, str]:
         base_url = config_manager.get_ollama_url()
         model_name = LOCAL_MODEL
     else:
-        base_url = config_manager.get_backoffice_url()
-        model_name = config_manager.get_backoffice_model()
+        base_url = config_manager.get_worker_url()
+        model_name = config_manager.get_worker_model()
     return base_url, model_name
 
 
@@ -184,7 +184,7 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
         if provider == "local":
             base_url = config_manager.get_ollama_url()
         else:
-            base_url = config_manager.get_backoffice_url()
+            base_url = config_manager.get_worker_url()
         model_name = model_name_override
     else:
         base_url, model_name = _resolve_model_url(model)
@@ -615,7 +615,7 @@ def load_history(limit: int = 50) -> list[TraceSession]:
 
 
 _embed_cache: dict[str, list[float]] = {}
-EMBED_MODEL = "all-minilm:22m"
+EMBED_MODEL = os.environ.get("EMBEDDING_MODEL") or config_manager.get_embeddings_config().get("model", "all-minilm:22m")
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -658,7 +658,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
     if model_override:
         resolved_model = model_override
     else:
-        _, resolved_model = _resolve_model_url("backoffice")
+        _, resolved_model = _resolve_model_url("worker")
         if _MODEL_PROVIDER == "local":
             resolved_model = LOCAL_MODEL
     session.model_used = resolved_model

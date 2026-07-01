@@ -134,11 +134,11 @@ export const PROBE_ARTEFACT_OPTIONS: Record<ProbeAttribute, ProbeArtefact[]> = {
 
 export interface ModelOption {
   name: string;
-  provider: "local" | "backoffice";
+  provider: "local" | "worker";
 }
 
 export interface TestModelConfig {
-  provider: "local" | "backoffice";
+  provider: "local" | "worker";
   model: string;
 }
 

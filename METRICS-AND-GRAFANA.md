@@ -5,7 +5,7 @@ This document explains how the Mythic AI Observatory's monitoring stack works an
 ## Current Topology
 
 ```
-Worker Node 1 (192.168.1.100)                    primary-server (192.168.1.1)
+Worker Node 1 (198.51.100.100)                    primary-server (198.51.100.1)
 ┌──────────────────────────────┐               ┌──────────────────────────────────┐
 │  Prometheus :9090 (Snap)     │               │  Grafana :3030                   │
 │  Node Exporter :9100         │◄──Tailscale──►│  Node Exporter :9100             │
@@ -18,7 +18,7 @@ Worker Node 1 (192.168.1.100)                    primary-server (192.168.1.1)
 ## Grafana
 
 - **URL:** http://localhost:3030 (login: `admin`/`admin`)
-- **Data source:** Prometheus at `http://192.168.1.100:9090`
+- **Data source:** Prometheus at `http://198.51.100.100:9090`
 - **Dashboard imported:** "Multi-PC Resource Monitor" (UID: `multi-pc-monitor`)
 
 The dashboard has three sections:
@@ -46,13 +46,13 @@ The FastAPI server already exposes `/metrics` at `http://localhost:8001/metrics`
    ```yaml
    - job_name: "conductor"
      static_configs:
-       - targets: ["192.168.1.1:8001"]   # primary-server Tailscale IP
+       - targets: ["198.51.100.1:8001"]   # primary-server Tailscale IP
    ```
 3. Restart Prometheus: `sudo snap restart prometheus`
 
 ## What the Frontend Uses
 
-The frontend (`useWebSocket.ts`) currently polls `http://192.168.1.1:8001/api/telemetry` every 1.5s — this is the backend's structured JSON telemetry (CPU, memory, GPU, remotes, etc.). It does **not** query Prometheus directly.
+The frontend (`useWebSocket.ts`) currently polls `http://198.51.100.1:8001/api/telemetry` every 1.5s — this is the backend's structured JSON telemetry (CPU, memory, GPU, remotes, etc.). It does **not** query Prometheus directly.
 
 The frontend visualises telemetry via:
 - `ResourceConstellation.tsx` — SVG celestial bodies for CPU/Memory/GPU/Network
@@ -70,7 +70,7 @@ Import or create a new dashboard showing `system_cpu_percent`, `ollama_models_co
 ### 3. Use Prometheus Data in the Frontend
 Add a new frontend hook (`usePromQL`) that queries Prometheus's HTTP API:
 ```
-GET http://192.168.1.100:9090/api/v1/query?query=node_cpu_seconds_total
+GET http://198.51.100.100:9090/api/v1/query?query=node_cpu_seconds_total
 ```
 This would give the frontend richer historical data than the 90-second telemetry window.
 
@@ -82,8 +82,8 @@ Grafana has built-in alerting. Could trigger notifications when CPU > 90%, Worke
 
 ## Credentials
 - Grafana: `admin` / `admin` (http://localhost:3030)
-- Prometheus: no auth (LAN only — Worker Node 1 at 192.168.1.100:9090)
-- SSH to Worker Node 1: `ssh user@192.168.1.100`
+- Prometheus: no auth (LAN only — Worker Node 1 at 198.51.100.100:9090)
+- SSH to Worker Node 1: `ssh user@198.51.100.100`
 
 ## Config File Locations
 - Prometheus: `/var/snap/prometheus/current/prometheus.yml` (Worker Node 1)
@@ -93,11 +93,11 @@ Grafana has built-in alerting. Could trigger notifications when CPU > 90%, Worke
 ## Gotchas & Unwritten Knowledge
 
 ### 1. Prometheus Scrape Targets May Be Incomplete
-The Prometheus instance runs on Worker Node 1 (`192.168.1.100:9090`) as a Snap package. Its config likely only scrapes localhost. **It may NOT be scraping:**
-- `primary-server`'s node-exporter at `192.168.1.1:9100` (Tailscale IP)
-- The Conductor's `/metrics` at `192.168.1.1:8001`
+The Prometheus instance runs on Worker Node 1 (`198.51.100.100:9090`) as a Snap package. Its config likely only scrapes localhost. **It may NOT be scraping:**
+- `primary-server`'s node-exporter at `198.51.100.1:9100` (Tailscale IP)
+- The Conductor's `/metrics` at `198.51.100.1:8001`
 
-Verify with `curl http://192.168.1.100:9090/api/v1/targets` before assuming data is flowing.
+Verify with `curl http://198.51.100.100:9090/api/v1/targets` before assuming data is flowing.
 
 ### 2. Grafana v13 CLI Syntax Change
 The old `grafana-cli` binary is deprecated. All admin commands use the new syntax:
@@ -109,7 +109,7 @@ Running the old `grafana-cli` without `--homepath` will fail with "Could not fin
 ### 3. Worker Node 1 Has an HTTP File Server on Port 9999
 Worker Node 1 runs a simple HTTP file server on port 9999 (not SSH, not documented elsewhere). Files can be fetched from it:
 ```bash
-curl -O http://192.168.1.100:9999/<filename>
+curl -O http://198.51.100.100:9999/<filename>
 ```
 SSH to Worker Node 1 is not available (no sshd running). Use this HTTP server or Tailscale for file transfers.
 
@@ -132,8 +132,8 @@ Several services occupy non-standard ports due to past conflicts:
 Always check `ss -tlnp` before adding new services.
 
 ### 6. Tailscale IPs Are Stable
-- primary-server: `192.168.1.1`
-- Worker Node 1: `192.168.1.100`
-- Worker Node 2: `192.168.1.101`
+- primary-server: `198.51.100.1`
+- Worker Node 1: `198.51.100.100`
+- Worker Node 2: `198.51.100.101`
 
 Use Tailscale IPs for cross-machine communication — they're stable and encrypted. LAN IPs (`192.168.0.x`) may change depending on DHCP. Tailscale is authenticated and active.

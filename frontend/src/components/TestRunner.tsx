@@ -10,7 +10,7 @@ const ATTRIBUTES = Object.keys(PROBE_ATTRIBUTE_LABELS) as ProbeAttribute[];
 
 interface ModelOption {
   name: string;
-  provider: "local" | "backoffice";
+  provider: "local" | "worker";
 }
 
 interface Props {
@@ -43,11 +43,11 @@ export default function TestRunner({ onRun, hasResults }: Props) {
       const netData: { sources: any[] } = netRes.ok ? await netRes.json() : { sources: [] };
 
       const localSet = new Set(localModels);
-      // Collect backoffice model names from network sources
-      const officeSet = new Set<string>();
+      // Collect worker model names from network sources
+      const workerSet = new Set<string>();
       for (const src of netData.sources ?? []) {
         for (const m of src.models ?? []) {
-          officeSet.add(m);
+          workerSet.add(m);
         }
       }
 
@@ -58,9 +58,9 @@ export default function TestRunner({ onRun, hasResults }: Props) {
         const name: string = t.model_used;
         if (!name || seen.has(name)) continue;
         seen.add(name);
-        // Determine provider: prefer backoffice if model exists there and not locally
-        const provider: "local" | "backoffice" =
-          localSet.has(name) ? "local" : officeSet.has(name) ? "backoffice" : "local";
+        // Determine provider: prefer worker if model exists there and not locally
+        const provider: "local" | "worker" =
+          localSet.has(name) ? "local" : workerSet.has(name) ? "worker" : "local";
         models.push({ name, provider });
       }
       models.sort((a, b) => a.name.localeCompare(b.name));
@@ -215,7 +215,7 @@ export default function TestRunner({ onRun, hasResults }: Props) {
                 >
                   {m.name}
                   <span className={`text-[7px] uppercase tracking-wider px-1 rounded ${
-                    m.provider === "backoffice"
+                    m.provider === "worker"
                       ? "bg-amber/10 text-amber/60"
                       : "bg-teal-mystic/10 text-teal-mystic/50"
                   }`}>

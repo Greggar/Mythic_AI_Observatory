@@ -23,7 +23,7 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Ubuntu Server                             │
-│                    192.168.1.1 (primary-server)              │
+│                    198.51.100.1 (primary-server)              │
 │                                                                  │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐ │
 │  │  Ollama   │  │ OpenClaw │  │ FastAPI  │  │   Next.js 16    │ │
@@ -39,7 +39,7 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 │                           ▼ LAN
 │              ┌──────────────────────────┐
 │              │   Worker Node 1           │
-│              │   192.168.1.100           │
+│              │   198.51.100.100           │
 │              │                           │
 │              │  Docker Model Runner      │
 │              │  :12434                   │
@@ -110,7 +110,7 @@ Using Pydantic `BaseModel` with sensible defaults (auto-timestamps, empty metada
   7. Output Packaging — 50ms, no model
 - Steps execute sequentially via `asyncio`
 - Each model call sends the accumulated context + the original prompt, using `httpx.AsyncClient`
-- Worker Node 1 URL: `http://192.168.1.100:12434` (Ollama-compatible API)
+- Worker Node 1 URL: `http://198.51.100.100:12434` (Ollama-compatible API)
 - The model (`qwen2.5:3b`) generates a standard response
 - In-memory dict store (`_store`) keyed by trace ID (UUID hex, 12 chars)
 
@@ -144,7 +144,7 @@ Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and also **hot-sw
 | Value | Base URL | Model | Suitable for |
 |---|---|---|---|
 | `local` | `http://127.0.0.1:11434` (Ollama) | `qwen2.5:3b` | CPU inference on primary server (moderate quality, slow) |
-| `backoffice` | `http://192.168.1.100:12434` (Docker Model Runner) | `qwen2.5:7b` | GPU inference on Worker Node 1 (high quality, fast) |
+| `backoffice` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen2.5:7b` | GPU inference on Worker Node 1 (high quality, fast) |
 
 When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the 3B model's context window. When `backoffice`, the context limit is handled by the remote server.
 
@@ -264,12 +264,12 @@ uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 cd ~/mythic-ai-observatory/frontend
 
 # Development mode (hot-reload, avoids HTML caching issue — preferred for active dev):
-NEXT_PUBLIC_API_URL=http://192.168.1.1:8001 pnpm dev
+NEXT_PUBLIC_API_URL=http://198.51.100.1:8001 pnpm dev
 
 # Production mode (LAN access, stable — use for demos):
 npx next build   # one-time build
 npx next start -p 3001 -H 0.0.0.0
-# → http://localhost:3001 or http://192.168.1.1:3001
+# → http://localhost:3001 or http://198.51.100.1:3001
 ```
 
 **Dev vs prod:** Dev mode (`pnpm dev`) hot-reloads on file changes and avoids the stale-HTML caching problem. Prod mode (`next start`) serves pre-built files in memory — rebuilding `.next` while the server runs has no effect. Use dev for active development, prod for demos. See restart.sh for a combined start script.
@@ -399,7 +399,7 @@ scrape_configs:
 
 ### 6.5 Next.js Dev Server Not Reachable on LAN
 
-**Symptom:** Site worked at `http://localhost:3000` on the server but not at `http://192.168.1.1:3000` from another PC.
+**Symptom:** Site worked at `http://localhost:3000` on the server but not at `http://198.51.100.1:3000` from another PC.
 
 **Root cause:** Next.js dev server defaults to binding on `127.0.0.1` only. The `-H 0.0.0.0` flag is required to accept connections from the network.
 
@@ -415,19 +415,19 @@ scrape_configs:
 
 ### 6.7 WebSocket Connections Fail from Remote LAN Machines
 
-**Symptom:** The frontend works perfectly at `http://localhost:3001` on the server but shows "no connection" at `http://192.168.1.1:3001` from another LAN machine (Worker Node 1). The Next.js dev server page loads fine, but the telemetry WebSocket won't connect.
+**Symptom:** The frontend works perfectly at `http://localhost:3001` on the server but shows "no connection" at `http://198.51.100.1:3001` from another LAN machine (Worker Node 1). The Next.js dev server page loads fine, but the telemetry WebSocket won't connect.
 
 **Browser console errors:**
 ```
 web-socket.ts:50 WebSocket connection to
-'ws://192.168.1.1:3001/_next/webpack-hmr?id=...' failed
+'ws://198.51.100.1:3001/_next/webpack-hmr?id=...' failed
 ```
 
 **Diagnosis process:**
 1. Verified the backend FastAPI server listens on `0.0.0.0:8001` (all interfaces) — correct.
 2. Tested WebSocket connectivity via Python `websockets` library FROM the server itself — connected fine, received telemetry messages.
 3. Tested with explicit `Origin` headers to simulate browser cross-origin requests — still worked.
-4. Checked the backend access log and found WebSocket connections FROM Worker Node 1 (`192.168.1.100`) were being *accepted* but then *closed* shortly after (`connection closed` appears within 1–2 log lines of `connection open`).
+4. Checked the backend access log and found WebSocket connections FROM Worker Node 1 (`198.51.100.100`) were being *accepted* but then *closed* shortly after (`connection closed` appears within 1–2 log lines of `connection open`).
 5. Tested with regular HTTP `fetch()` to port 8001 — this worked reliably, confirming the backend is reachable.
 6. Checked browser DevTools → Network tab — saw only Next.js HMR WebSocket failures; our app's WebSocket never appeared, meaning the JavaScript runtime was crashing before our hook even executed.
 
@@ -458,11 +458,11 @@ The `useWebSocket` hook was rewritten to poll `GET /api/telemetry` via `fetch()`
 
 ```typescript
 // Before (useWebSocket):
-const ws = new WebSocket("ws://192.168.1.1:8001/ws/telemetry");
+const ws = new WebSocket("ws://198.51.100.1:8001/ws/telemetry");
 ws.onmessage = (event) => setData(JSON.parse(event.data));
 
 // After (useWebSocket — HTTP polling):
-const res = await fetch("http://192.168.1.1:8001/api/telemetry");
+const res = await fetch("http://198.51.100.1:8001/api/telemetry");
 const json = await res.json();
 setData(json);
 ```
@@ -852,7 +852,7 @@ except Exception as e:
 ### High Priority
 
 - **[Backend] Add proper error handling** for when Worker Node 1 is unreachable. Currently, failed HTTP polls silently return `"status": "error"` — the frontend should surface this more clearly.
-- **[Frontend] Move telemetry and API URLs to environment variables.** Currently, `http://192.168.1.1:8001` is hardcoded in the build. Use `NEXT_PUBLIC_API_URL` for deploy-time configuration.
+- **[Frontend] Move telemetry and API URLs to environment variables.** Currently, `http://198.51.100.1:8001` is hardcoded in the build. Use `NEXT_PUBLIC_API_URL` for deploy-time configuration.
 
 ### Done ✓
 

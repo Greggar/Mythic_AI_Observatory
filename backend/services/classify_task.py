@@ -241,7 +241,7 @@ async def _classify_call_model(
     base_url = (
         config_manager.get_ollama_url()
         if provider_override == "local"
-        else config_manager.get_backoffice_url()
+        else config_manager.get_worker_url()
     )
     model_name = model_name_override
     if "/" in model_name:

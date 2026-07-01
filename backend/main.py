@@ -302,7 +302,7 @@ async def post_setup(body: SetupBody) -> dict[str, Any]:
         wid = w.get("id", f"worker{i+1}")
         cfg["machines"][wid] = {
             "name": w.get("name", f"Worker {i+1}"),
-            "host": w.get("host", "192.168.1.100"),
+            "host": w.get("host", "0.0.0.0"),
             "desc": w.get("desc", ""),
             "insight": w.get("insight", ""),
             "services": w.get("services", []),
@@ -328,15 +328,19 @@ async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
         mp = body.config["model_provider"]
         from services.orchestrator import _set_model_provider_internal
         _set_model_provider_internal(mp.get("provider", "local"))
-        if mp.get("provider") == "backoffice" and mp.get("model"):
-            config_manager.set_backoffice_model(mp["model"])
+        if mp.get("provider") == "worker" and mp.get("model"):
+            config_manager.set_worker_model(mp["model"])
     return result
 
 class ModelConfigBody(BaseModel):
-    provider: str  # "local" or "backoffice"
+    provider: str  # "local" or "worker"
     model: str | None = None
 
 # ── Model config ──────────────────────────────────────────────────
+@app.get("/api/config/providers")
+async def get_providers() -> list[dict[str, Any]]:
+    return config_manager.get_available_providers()
+
 @app.get("/api/config/model")
 async def get_model_config() -> dict[str, str]:
     return config_manager.get_model_provider_config()
@@ -345,9 +349,9 @@ async def get_model_config() -> dict[str, str]:
 async def post_model_config(body: ModelConfigBody) -> dict[str, str]:
     try:
         set_model_provider(body.provider)
-        if body.model and body.provider == "backoffice":
-            from services.config_manager import set_backoffice_model
-            set_backoffice_model(body.model)
+        if body.model and body.provider == "worker":
+            from services.config_manager import set_worker_model
+            set_worker_model(body.model)
         return {"provider": get_model_provider(), "status": "ok"}
     except ValueError as e:
         from fastapi.responses import JSONResponse
@@ -432,9 +436,9 @@ async def list_network_models() -> dict[str, list[dict[str, Any]]]:
 
 @app.get("/api/models/current")
 async def get_current_model() -> dict[str, str]:
-    from services.config_manager import get_backoffice_model
-    if get_model_provider() == "backoffice":
-        return {"model": get_backoffice_model(), "provider": "backoffice"}
+    from services.config_manager import get_worker_model
+    if get_model_provider() == "worker":
+        return {"model": get_worker_model(), "provider": "worker"}
     return {"model": get_local_model(), "provider": "local"}
 
 @app.post("/api/models/select")
@@ -538,7 +542,7 @@ async def api_batch_status(batch_id: str) -> BatchStatus:
 
 # ── Test run endpoints ──────────────────────────────────────────
 class TestModelConfig(BaseModel):
-    provider: str  # "local" or "backoffice"
+    provider: str  # "local" or "worker"
     model: str
 
 class TestRunRequest(BaseModel):
@@ -1103,7 +1107,7 @@ async def api_analyze_relationships(body: RelationshipAnalysisRequest) -> dict:
         prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces, body.paths, body.samples)
 
         analysis_model = get_analysis_model()
-        response, _, _ = await _call_model("backoffice", prompt, model_name_override=analysis_model)
+        response, _, _ = await _call_model("worker", prompt, model_name_override=analysis_model)
         return {"response": response, "model": analysis_model}
     except Exception as e:
         logger.error("Relationship analysis failed: %s", e)

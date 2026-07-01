@@ -35,7 +35,7 @@ export default function SetupWizard({ onComplete }: Props) {
   const addWorker = () => {
     setWorkers((prev) => [
       ...prev,
-      { id: `worker-${Date.now()}`, name: "", host: "", desc: "", services: ["backoffice_llm"] },
+      { id: `worker-${Date.now()}`, name: "", host: "", desc: "", services: ["worker_llm"] },
     ]);
   };
 
@@ -183,7 +183,7 @@ export default function SetupWizard({ onComplete }: Props) {
                   type="text"
                   value={w.host}
                   onChange={(e) => updateWorker(w.id, "host", e.target.value)}
-                  placeholder="192.168.1.100"
+                  placeholder="192.0.2.1"
                   className="w-full bg-black/40 border border-white/[0.08] rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors font-mono"
                 />
               </div>

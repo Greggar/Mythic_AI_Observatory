@@ -46,6 +46,36 @@ def service_url(service_id: str, path: str = "") -> str:
     return f"http://{host}:{port}{path}"
 
 
+_PROVIDER_SERVICE_MAP: dict[str, str] = {
+    "worker": "worker_llm",
+}
+
+def _machine_for_service(sid: str) -> dict[str, Any] | None:
+    """Return the machine config that lists *sid* in its services array."""
+    for _mid, mc in get_machines_config().items():
+        if sid in mc.get("services", []):
+            return mc
+    return None
+
+
+def get_available_providers() -> list[dict[str, Any]]:
+    """Return all known provider IDs with labels and reachability.
+
+    'local' always exists and is always reachable. Other providers
+    (e.g. 'worker') pull their label from the owning machine's
+    name so the dropdown says "Worker Node" rather than "Worker LLM".
+    """
+    providers = [{"id": "local", "label": "Local CPU", "icon": "cpu", "reachable": True}]
+    for pid, sid in _PROVIDER_SERVICE_MAP.items():
+        svc = get_service(sid)
+        machine = _machine_for_service(sid)
+        label = machine.get("name", pid.capitalize()) if machine else pid.capitalize()
+        icon = "server"
+        reachable = bool(svc and svc.get("enabled", False) and svc.get("host", "") not in ("", "0.0.0.0"))
+        providers.append({"id": pid, "label": label, "icon": icon, "reachable": reachable})
+    return providers
+
+
 def get_ollama_url() -> str:
     return service_url("ollama")
 
@@ -62,23 +92,23 @@ def get_openclaw_health_url() -> str:
     return service_url("openclaw", "/health")
 
 
-def get_backoffice_url() -> str:
-    return service_url("backoffice_llm")
+def get_worker_url() -> str:
+    return service_url("worker_llm")
 
 
-def get_backoffice_model() -> str:
-    svc = get_service("backoffice_llm")
+def get_worker_model() -> str:
+    svc = get_service("worker_llm")
     return svc.get("model", "") if svc else ""
 
 
-def set_backoffice_model(model: str) -> None:
-    """Update the backoffice LLM model name in network.json."""
+def set_worker_model(model: str) -> None:
+    """Update the worker LLM model name in network.json."""
     cfg = _load()
-    if "backoffice_llm" in cfg.get("services", {}):
-        cfg["services"]["backoffice_llm"]["model"] = model
+    if "worker_llm" in cfg.get("services", {}):
+        cfg["services"]["worker_llm"]["model"] = model
         save(cfg)
     else:
-        raise ValueError("backoffice_llm service not found in config")
+        raise ValueError("worker_llm service not found in config")
 
 
 def get_analysis_config() -> dict[str, str]:
@@ -133,7 +163,7 @@ def get_remote_targets() -> dict[str, str]:
     # Internal services are skipped — they have dedicated endpoints
     targets: dict[str, str] = {}
     for sid, svc in get_services().items():
-        if sid in ("ollama", "openclaw", "backoffice_llm", "prometheus"):
+        if sid in ("ollama", "openclaw", "worker_llm", "prometheus"):
             continue
         if svc.get("enabled", True):
             targets[sid] = service_url(sid, "/health")

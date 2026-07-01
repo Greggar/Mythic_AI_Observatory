@@ -9,7 +9,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface ModelOption {
   name: string;
-  provider: "local" | "backoffice";
+  provider: "local" | "worker";
 }
 
 interface ClassifyCellResult {

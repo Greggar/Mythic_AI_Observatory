@@ -29,40 +29,10 @@ const LABEL: Record<string, string> = {
   optimal: "OPTIMAL",
 };
 
-interface StageRange {
-  good: [number, number];
-  ok: [number, number];
-  bad: number;
-}
-
-interface ModelProfile {
-  label: string;
-  stages: Record<string, StageRange>;
-}
-
-function buildProfile(modelKey: string, modelLabel: string): ModelProfile {
-  const isLocal = modelKey === "local" || modelKey.includes("qwen");
-  const scale = isLocal ? 1 : 0.35;
-  return {
-    label: `${modelLabel}${isLocal ? " on CPU" : " on GPU"}`,
-    stages: {
-      "Intent Classification": {
-        good: [12000 * scale, 20000 * scale],
-        ok: [20000 * scale, 30000 * scale],
-        bad: 30000 * scale,
-      },
-      "Context Assembly": {
-        good: [4000 * scale, 8000 * scale],
-        ok: [8000 * scale, 12000 * scale],
-        bad: 12000 * scale,
-      },
-      "Response Generation": {
-        good: [20000 * scale, 35000 * scale],
-        ok: [35000 * scale, 50000 * scale],
-        bad: 50000 * scale,
-      },
-    },
-  };
+interface SeenStats {
+  min: number;
+  max: number;
+  count: number;
 }
 
 function fmt(ms: number): string {
@@ -72,16 +42,18 @@ function fmt(ms: number): string {
 
 function assess(
   ms: number,
-  range: StageRange,
-): { verdict: "good" | "ok" | "bad"; label: string } {
-  if (ms < range.good[1]) return { verdict: "good", label: "within normal range" };
-  if (ms < range.ok[1]) return { verdict: "ok", label: "slightly elevated" };
-  return { verdict: "bad", label: "unusually slow" };
+  seen: SeenStats | undefined,
+): { verdict: "new" | "good" | "ok" | "bad"; message: string } {
+  if (!seen) return { verdict: "new", message: "no prior traces to compare against" };
+  const midpoint = (seen.min + seen.max) / 2;
+  if (ms > seen.max) return { verdict: "bad", message: `exceeds session max (${fmt(seen.max)}, n=${seen.count})` };
+  if (ms > midpoint) return { verdict: "ok", message: `above session midpoint (range ${fmt(seen.min)}–${fmt(seen.max)}, n=${seen.count})` };
+  return { verdict: "good", message: `within session baseline (range ${fmt(seen.min)}–${fmt(seen.max)}, n=${seen.count})` };
 }
 
 function generate(
   trace: TraceSession,
-  sessionSeen: Map<string, { min: number; max: number }>,
+  sessionSeen: Map<string, SeenStats>,
 ): Insight[] {
   const insights: Insight[] = [];
   const steps = trace.steps || [];
@@ -95,71 +67,51 @@ function generate(
   const totalMs = [...stepMap.values()].reduce((a, b) => a + b, 0);
   const totalSec = totalMs / 1000;
   const modelLabel = trace.model_used || "local";
-  const modelKey = modelLabel.toLowerCase();
-  const profile = buildProfile(modelKey, modelLabel);
   const promptLen = (trace.prompt || "").length;
 
-  const isFirstTrace = sessionSeen.size === 0;
-
   for (const [label, ms] of stepMap) {
-    const range = profile.stages[label];
-    if (!range) continue;
-
-    const { verdict, label: assessmentLabel } = assess(ms, range);
-
     const seen = sessionSeen.get(label);
-    const prevMin = seen?.min;
-    const prevMax = seen?.max;
-    const isColdStart = isFirstTrace || (prevMin === undefined);
+    const { verdict, message } = assess(ms, seen);
 
     if (verdict === "bad") {
       const pct = totalMs > 0 ? ((ms / totalMs) * 100).toFixed(0) : "?";
-      const reasons: string[] = [];
-      if (isColdStart) {
-        reasons.push("This is the first trace this session — the model was paged out of RAM (cold start).");
-      }
+      const reasons = [`${fmt(ms)} (${pct}% of run). ${message}.`];
       if (promptLen > 200) {
-        reasons.push(`The prompt is ${promptLen} characters — longer inputs increase classification time.`);
+        reasons.push(`Prompt is ${promptLen} chars — longer inputs increase time.`);
       }
-      if (prevMin !== undefined && ms > prevMax! * 1.5) {
-        reasons.push(`This is ${fmt(ms)} — ${fmt(prevMin!)} was the fastest this session, suggesting variable load.`);
-      }
-      reasons.push(
-        `Expected range for ${profile.label}: ${fmt(range.good[0])}–${fmt(range.good[1])}.`,
-      );
-
       insights.push({
         level: "critical",
         title: `${label} slow`,
-        body: `${fmt(ms)} (${pct}% of run). ${reasons.join(" ")}`,
+        body: reasons.join(" "),
       });
     } else if (verdict === "ok") {
       insights.push({
         level: "warning",
         title: `${label} elevated`,
-        body:
-          `${fmt(ms)} — slightly above the normal range (${fmt(range.good[0])}–${fmt(range.good[1])}) ` +
-          `for ${profile.label}.${isColdStart ? " Likely a cold start." : ""}`,
+        body: `${fmt(ms)} — ${message}.`,
       });
-    }
-
-    if (verdict === "good" && !isColdStart) {
-      const prevRange = prevMin !== undefined ? `${fmt(prevMin)}–${fmt(prevMax!)}` : null;
+    } else if (verdict === "good") {
       insights.push({
         level: "info",
         title: `${label} OK`,
-        body:
-          `${fmt(ms)} — within normal range for ${profile.label}.` +
-          (prevRange ? ` Session range: ${prevRange}.` : ""),
+        body: `${fmt(ms)} — ${message}.`,
+      });
+    } else {
+      insights.push({
+        level: "info",
+        title: `${label} (new)`,
+        body: `${fmt(ms)} — ${message}.`,
       });
     }
   }
 
-  if (totalSec < 5 && insights.length === 0) {
+  const hasWarning = insights.some(i => i.level === "critical" || i.level === "warning");
+
+  if (totalSec < 5 && !hasWarning && insights.length > 0) {
     insights.push({
       level: "optimal",
       title: "Fast pipeline",
-      body: "Completed in under 5s. Likely due to prompt caching, warm model, or minimal retrieval.",
+      body: "Completed in under 5s. All stages within session baseline.",
     });
   }
 
@@ -175,26 +127,27 @@ function generate(
     }
   }
 
-  if (profile) {
-    const coldNotice = isFirstTrace
-      ? " This is the first trace — cold start expected."
-      : "";
-    const gpuNotice = profile.label.includes("on CPU")
-      ? " A GPU-equipped worker node would cut these times significantly."
-      : "";
-    insights.push({
-      level: "info",
-      title: profile.label,
-      body:
-        `Prompt: ${promptLen} chars.${coldNotice}${gpuNotice}`,
-    });
-  }
+  const isLocal =
+    modelLabel === "local" || modelLabel.toLowerCase().includes("qwen");
+
+  const allCounts = [...sessionSeen.values()];
+  const totalDatapoints = allCounts.reduce((s, c) => s + c.count, 0);
+
+  insights.push({
+    level: "info",
+    title: `${modelLabel}${isLocal ? " on CPU" : " on GPU"}`,
+    body:
+      `Prompt: ${promptLen} chars. ` +
+      (totalDatapoints === 0
+        ? "First trace — cold start expected."
+        : `${totalDatapoints} prior data points across ${sessionSeen.size} stage types.`),
+  });
 
   return insights;
 }
 
 export default function PerformanceInsights({ trace }: { trace: TraceSession | null }) {
-  const sessionSeen = useRef(new Map<string, { min: number; max: number }>());
+  const sessionSeen = useRef(new Map<string, SeenStats>());
 
   const insights = useMemo(() => {
     if (!trace) return [];
@@ -205,10 +158,12 @@ export default function PerformanceInsights({ trace }: { trace: TraceSession | n
         if (seen) {
           seen.min = Math.min(seen.min, step.duration_ms);
           seen.max = Math.max(seen.max, step.duration_ms);
+          seen.count += 1;
         } else {
           sessionSeen.current.set(step.label, {
             min: step.duration_ms,
             max: step.duration_ms,
+            count: 1,
           });
         }
       }

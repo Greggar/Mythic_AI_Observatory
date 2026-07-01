@@ -40,13 +40,7 @@ We are a long way toward health + function transparency. The items below extend 
 
 ## Licensing & Attribution
 
-The project is released under a custom MIT License (see `LICENSE`) that:
-- Grants full freedom to **use, copy, modify, merge, publish, distribute, sublicense**, and permit others to do the same
-- Allows **commercial and non-commercial** use
-- **Prohibits selling the software as a standalone product** — you may charge for hosting, support, integration, or value-added services, but not for the Software itself
-- Requires **attribution to Gregory Long** with the unique identifier **greg@mythic-ai.dev** in all copies and derivative works
-
-The unique identifier ensures that any other "Greg Long" cannot claim authorship — the email domain `mythic-ai.dev` is Gregory Long's personal domain.
+The project is released under the standard MIT License (see `LICENSE`). The copyright notice and permission notice **must** be preserved in all copies or substantial portions of the Software, ensuring Gregory Long's authorship travels with every distribution.
 
 ---
 

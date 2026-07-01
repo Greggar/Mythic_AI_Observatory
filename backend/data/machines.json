@@ -6,19 +6,12 @@
       "insight": "The conductor. Hosts the API, UI, Ollama, OpenClaw. All orchestration originates here."
     },
     "worker1": {
-      "name": "Worker Node 1",
-      "desc": "Worker node \u2014 inference cluster, Docker Model Runner",
-      "insight": "Compute heart. GPU-bound inference worker with agent bridge and ComfyUI."
-    },
-    "worker2": {
-      "name": "Worker Node 2",
-      "desc": "Worker node \u2014 batch tasks, training pipelines",
-      "insight": "Pipeline worker. Handles batch tasks, long-running training loops, and data processing."
+      "name": "Worker Node",
+      "desc": "GPU worker node \u2014 add your machine details here",
+      "insight": "Compute node. Configure with your worker's LAN address in Settings."
     }
   },
   "instances": {
-    "127.0.0.1:9100": "primary",
-    "192.168.1.100:9100": "worker1",
-    "192.168.1.101:9100": "worker2"
+    "127.0.0.1:9100": "primary"
   }
 }
