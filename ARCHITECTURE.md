@@ -59,7 +59,7 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 | OpenClaw Gateway | 18789 | 0.0.0.0 | Running (systemd user service) |
 | FastAPI Conductor | 8001 | 0.0.0.0 | Manual start |
 | Next.js Solar Interface | 3001 | 0.0.0.0 | Manual start (next start — production mode) |
-| Docker Model Runner | 12434 | (backoffice) | Running |
+| Docker Model Runner | 12434 | (worker) | Running |
 | Prometheus | 9090 | 0.0.0.0 | Running (fix applied) |
 | Node Exporter | 9100 | 0.0.0.0 | Running |
 
@@ -139,19 +139,19 @@ async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
 
 ### 3.5 Model Provider Selection
 
-Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and also **hot-swappable at runtime** via `set_model_provider("local"|"backoffice")`.
+Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and also **hot-swappable at runtime** via `set_model_provider("local"|"worker")`.
 
 | Value | Base URL | Model | Suitable for |
 |---|---|---|---|
 | `local` | `http://127.0.0.1:11434` (Ollama) | `qwen2.5:3b` | CPU inference on primary server (moderate quality, slow) |
-| `backoffice` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen2.5:7b` | GPU inference on Worker Node 1 (high quality, fast) |
+| `worker` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen2.5:7b` | GPU inference on Worker Node 1 (high quality, fast) |
 
-When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the 3B model's context window. When `backoffice`, the context limit is handled by the remote server.
+When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the 3B model's context window. When `worker`, the context limit is handled by the remote server.
 
 **Runtime hot-swap** — implemented as a mutable module-level global `_MODEL_PROVIDER` with `get_model_provider()` / `set_model_provider()` accessors. Two REST endpoints expose this:
 
-- `GET /api/config/model` — returns `{"provider": "local"|"backoffice"}`
-- `POST /api/config/model` — accepts `{"provider": "local"|"backoffice"}`, switches on the fly, returns 400 on invalid value
+- `GET /api/config/model` — returns `{"provider": "local"|"worker"}`
+- `POST /api/config/model` — accepts `{"provider": "local"|"worker"}`, switches on the fly, returns 400 on invalid value
 
 No restart or reload needed — the next `_call_model()` invocation reads the current provider. This lets the frontend SettingsModal switch models without a server restart.
 
@@ -524,7 +524,7 @@ const { activeStepIndex: replayStep, phase: replayPhase } = useTraceReplay(trigg
 
 ### 6.10 Environment Variable Not Inherited by Background Processes
 
-**Symptom:** `ORCHESTRATOR_MODEL=local` had no effect — the backend still used the backoffice URL.
+**Symptom:** `ORCHESTRATOR_MODEL=local` had no effect — the backend still used the worker URL.
 
 **Root cause:** When starting uvicorn via `nohup ... &` or a shell wrapper script, the environment variable was set in the parent shell but not inherited by the child process due to shell scoping rules. Multiple failed attempts included `export` in one bash invocation and the actual command in another.
 
@@ -535,7 +535,7 @@ const { activeStepIndex: replayStep, phase: replayPhase } = useTraceReplay(trigg
 MODEL_PROVIDER = os.environ.get("ORCHESTRATOR_MODEL", "local").lower()
 ```
 
-The default was changed from `backoffice` to `local` to make the local-only experience work out of the box.
+The default was changed from `worker` to `local` to make the local-only experience work out of the box.
 
 **Lesson:** Shell environment variables do not persist across separate `bash` tool calls. Always set the env var in the same command that launches the process, or hardcode sensible defaults.
 
@@ -858,7 +858,7 @@ except Exception as e:
 
 - **[Backend] Streaming orchestration.** Implemented via async background task + polling pattern. POST returns trace_id immediately, frontend polls `/api/traces/{id}` every 1.5s. Activity events stream live during processing. (2026-06-03)
 - **[Backend + Frontend] Context Assembly Breakdown.** Each trace step now stores `context_assembled` — the exact text sent to the model. The frontend `SolarNexus` shows a split-pane (system prompt / assembled context) on node click, with a token budget meter. (2026-06-04)
-- **[Backend + Frontend] Model Provider Hot-Swap.** `GET/POST /api/config/model` endpoints added. `SettingsModal` has a "Models" tab with radio buttons for local/backoffice. No restart required. (2026-06-04)
+- **[Backend + Frontend] Model Provider Hot-Swap.** `GET/POST /api/config/model` endpoints added. `SettingsModal` has a "Models" tab with radio buttons for local/worker. No restart required. (2026-06-04)
 - **[Backend] Fix `MODEL_PROVIDER` → `_MODEL_PROVIDER` typo.** The missing underscore caused a silent `NameError` that froze traces at Intent Classification indefinitely. (2026-06-04)
 - **[Frontend] New-trace glow burst on MemoryConstellation.** When a new trace completes, `page.tsx` increments `historyRefresh`, triggering a re-fetch. The constellation detects which entries are new (by diffing IDs against the previous fetch) and animates them with an amber expanding ring (5s) + three quick amber pulses on the core dot. Colour is `#f59e0b` (solar gold) — complementary to the teal galaxy palette. (2026-06-04)
 - **[Backend + Frontend] Trace Annotations & Collaborative Memory.** Users can add notes, tags, and ratings to any trace via the MemoryConstellation panel. Persisted server-side in `annotations.jsonl`. Annotation count shown in hover tooltip. Full CRUD supported. (2026-06-05)
@@ -1086,7 +1086,7 @@ The RelationshipsPanel renders a 6-ring concentric SVG chart that visualizes the
 | `qwen2.5:3b` too slow on CPU (120s+ per trace) | Switched to `qwen2.5:1.5b` for the background agent |
 | Worker Node 1 `qwen2.5:7b` returned 500 errors with concurrency=4 | Reduced `CONCURRENCY` to 1 — model can't handle parallel requests |
 | `synesth: null` in API responses after backfill | Server's `_cache` module variable was stale — restart picked up the cache file |
-| Analysis model settings showed "qwen2.5:3b" with backoffice provider (404 error) | Race condition between `fetchModels` and `fetchNetworkSources` in SettingsModal; auto-selection effect was not updating `analysisModel` state; `handleSave` used stale model name |
+| Analysis model settings showed "qwen2.5:3b" with worker provider (404 error) | Race condition between `fetchModels` and `fetchNetworkSources` in SettingsModal; auto-selection effect was not updating `analysisModel` state; `handleSave` used stale model name |
 | Settings modal didn't load network sources until Models tab opened | Added `fetchNetworkSources()` to the modal mount effect |
 
 ### Lessons Learned
