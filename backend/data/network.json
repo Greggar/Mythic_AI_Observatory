@@ -24,18 +24,6 @@
       "host": "0.0.0.0",
       "port": 9090,
       "enabled": false
-    },
-    "worker_agent": {
-      "label": "Worker Agent",
-      "host": "0.0.0.0",
-      "port": 9119,
-      "enabled": false
-    },
-    "comfyui": {
-      "label": "ComfyUI",
-      "host": "0.0.0.0",
-      "port": 8188,
-      "enabled": false
     }
   },
   "machines": {
@@ -55,9 +43,7 @@
       "desc": "GPU worker node \u2014 add your worker's IP",
       "insight": "Compute node. Configure with your worker's LAN address.",
       "services": [
-        "worker_llm",
-        "worker_agent",
-        "comfyui"
+        "worker_llm"
       ]
     }
   },

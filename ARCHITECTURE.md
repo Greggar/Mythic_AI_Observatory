@@ -340,393 +340,43 @@ When the `active` prop is true (live orchestration in progress), glyphs pulse vi
 
 ---
 
-## 6. Troubleshooting Log
+## 6. Troubleshooting
 
-### 6.1 Prometheus Config Corruption
+### 6.1 Background Task Crashes Are Silent
 
-**Symptom:** `snap services prometheus` shows `inactive`. Service failed with `bind: address already in use` on first start, then after manual intervention would not restart.
+Any unhandled exception inside `asyncio.create_task()` produces a `Task exception was never retrieved` warning but does not propagate to any caller or HTTP response. The trace is left frozen at the failing step. Debug by wrapping task bodies in `try/except` with explicit logging, or attach a done callback that checks `task.exception()`.
 
-**Root cause:** The initial `sed` command used `\n` inside the replacement string, which was not interpreted as a newline by sed, producing broken YAML:
+### 6.2 Variable Shadowing in Nested Loops
 
-```yaml
-# Before (broken):
-scrape_configs:
- - job_name: "node"
-  static_configs:
- - targets: ["localhost:9100"]
+Reusing a loop variable name in a nested `for` loop overwrites the outer scope. In Python, `for i in ...` inside another `for i in ...` silently corrupts `i` after the inner loop exits — usually causing an `IndexError` on the next access. Always use distinct names (`stage_idx`, `chunk_idx`).
 
-# After (correct):
-scrape_configs:
-  - job_name: "node"
-    static_configs:
-      - targets: ["localhost:9100"]
-  - job_name: "prometheus"
-    static_configs:
-      - targets: ["localhost:9090"]
-```
+### 6.3 next start Caches Build Artifacts in Memory
 
-**Fix:** Overwrite the entire file using `tee` with a heredoc or `printf` instead of `sed`.
+The Next.js production server loads `.next/` into memory at startup and never refreshes it. Rebuilding while the server is running has no effect. Kill the server gracefully, delete `.next/`, rebuild, then restart.
 
-**Lesson:** Never use `sed` with embedded `\n` for multi-line YAML replacements. Always use `tee` with a heredoc or a proper YAML tool like `yq`.
+### 6.4 Incomplete CSS After Interrupted Build
 
-### 6.2 Small Model Produced Gibberish (Telegram Bot)
+Killing Next.js mid-build corrupts CSS chunks. Symptom: white page with unstyled content. Fix: `rm -rf .next && npx next build && npx next start`.
 
-**Symptom:** Sending "hi" to the Telegram bot returned a wall of text about subAgents tool calls.
+### 6.5 WebSocket Fragility Across LAN
 
-**Root cause:** OpenClaw was configured with `qwen2.5:1.5b`, a 1.5B parameter model that is too small for coherent conversation. It hallucinated system prompt instructions.
+Routers and firewalls often kill WebSocket connections after the HTTP upgrade handshake. If a remote machine's frontend loads but live data doesn't flow, switch to HTTP polling (`fetch()` at 1.5s interval) — simpler and more robust for LAN deployments.
 
-**Resolution:** Upgraded to `qwen2.5:3b` (still CPU-bound on this machine), then ultimately switched to using Worker Node 1 with 16GB VRAM running Docker Model Runner with `qwen2.5:7b` and `qwen2.5:7b`.
+### 6.6 Model Won't Fit in VRAM
 
-**Lesson:** Models below 3B parameters are not suitable for conversational AI. For a Telegram bot, use at minimum a 7B parameter model or delegate to a GPU-equipped machine.
+Check `nvidia-smi` before choosing a model size. A model that fits entirely in VRAM outperforms a larger model that spills to CPU, even if the smaller model has fewer parameters.
 
-### 6.3 3B Model Too Slow on Local CPU
+### 6.7 Hydration Mismatch from Floating-Point SVG
 
-**Symptom:** The 3B model was extremely slow despite the machine having a capable CPU (i7-6700, 8 threads, 15GB RAM).
+`Math.cos()`/`Math.sin()` produce slightly different values in Node.js vs browser V8 (~10^-15 difference). React's strict hydration comparison flags this. Always round computed SVG coordinates to 4+ decimal places with `.toFixed(4)`.
 
-**Root cause:** The machine has a GTX 960 with 2GB VRAM. The 3B model is 1.9GB — almost the entire VRAM — leaving no room for KV cache. Ollama likely attempted partial GPU offloading, causing PCIe transfer bottlenecks worse than pure CPU. The 1.5B model (986MB) fit in VRAM and ran faster on GPU despite being smaller.
+### 6.8 Guard Nested Fields in API Responses
 
-**Lesson:** Having a GPU doesn't help if the model doesn't fit in VRAM. A model that fits entirely in VRAM will outperform a larger model that spills to CPU. Check `nvidia-smi` VRAM before choosing a model size.
+A response object can be truthy while its nested fields are still undefined (e.g. `telemetry` exists but `telemetry.cpu` hasn't populated yet). Use optional chaining (`?.`) on every access path where the shape isn't guaranteed between page mount and first data arrival.
 
-### 6.4 Context Overflow with Telegram Bot
+### 6.9 Environment Variables Must Be Inline
 
-**Symptom:** `Context overflow: prompt too large for the model (22917 tokens exceeds 4096)`
-
-**Root cause:** The `qwen2.5:7b` model on Worker Node 1 has only 4096 context tokens. The Telegram conversation history accumulated beyond this limit.
-
-**Fix:** Add `reasoning: false` to model config (already set), and use `/reset` or `/new` to clear sessions. The auto-compaction feature attempted recovery.
-
-**Lesson:** Always check the `context_window` of a model before deploying. 4K context is very small — look for models with 8K, 32K, or 128K context windows for interactive use.
-
-### 6.5 Next.js Dev Server Not Reachable on LAN
-
-**Symptom:** Site worked at `http://localhost:3000` on the server but not at `http://198.51.100.1:3000` from another PC.
-
-**Root cause:** Next.js dev server defaults to binding on `127.0.0.1` only. The `-H 0.0.0.0` flag is required to accept connections from the network.
-
-**Fix:** Changed `dev` script in `package.json` from `next dev` to `next dev -p 3001 -H 0.0.0.0` (also changed port to 3001 due to RocketChat conflict).
-
-**Lesson:** Always add `-H 0.0.0.0` to Next.js dev in multi-machine dev environments. Consider switching to `next start` (production mode) for persistent LAN access.
-
-### 6.6 Port Clash with RocketChat
-
-**Symptom:** Port 3000 was already in use by RocketChat.
-
-**Fix:** Mapped Next.js to port 3001 via `-p 3001`.
-
-### 6.7 WebSocket Connections Fail from Remote LAN Machines
-
-**Symptom:** The frontend works perfectly at `http://localhost:3001` on the server but shows "no connection" at `http://198.51.100.1:3001` from another LAN machine (Worker Node 1). The Next.js dev server page loads fine, but the telemetry WebSocket won't connect.
-
-**Browser console errors:**
-```
-web-socket.ts:50 WebSocket connection to
-'ws://198.51.100.1:3001/_next/webpack-hmr?id=...' failed
-```
-
-**Diagnosis process:**
-1. Verified the backend FastAPI server listens on `0.0.0.0:8001` (all interfaces) — correct.
-2. Tested WebSocket connectivity via Python `websockets` library FROM the server itself — connected fine, received telemetry messages.
-3. Tested with explicit `Origin` headers to simulate browser cross-origin requests — still worked.
-4. Checked the backend access log and found WebSocket connections FROM Worker Node 1 (`198.51.100.100`) were being *accepted* but then *closed* shortly after (`connection closed` appears within 1–2 log lines of `connection open`).
-5. Tested with regular HTTP `fetch()` to port 8001 — this worked reliably, confirming the backend is reachable.
-6. Checked browser DevTools → Network tab — saw only Next.js HMR WebSocket failures; our app's WebSocket never appeared, meaning the JavaScript runtime was crashing before our hook even executed.
-
-**Root cause:**
-
-The **network path between the server and Worker Node 1** kills WebSocket connections after the HTTP upgrade handshake. This is likely due to a router or firewall feature (e.g., deep packet inspection, connection tracking timeout, or a proxy that handles HTTP but not WebSocket upgrades). Two separate WebSocket channels were affected:
-
-- **Next.js HMR WebSocket** (port 3001, `/_next/webpack-hmr`): Next.js dev mode uses this for hot module replacement. When this WebSocket repeatedly fails, the Next.js dev runtime can crash or fail to hydrate the React component tree, preventing our code from mounting at all.
-- **Our app WebSocket** (port 8001, `/ws/telemetry`): Even when the React app did mount, the telemetry WebSocket would connect briefly then drop.
-
-**Why `localhost` worked:** When accessing the server itself (either from the server's own browser or via `localhost`), both WebSocket connections stayed within the same machine — no router/firewall in the path.
-
-**Fix — two changes:**
-
-**1. Switch from dev mode to production mode** (eliminates HMR WebSocket):
-```bash
-# Instead of:
-pnpm dev
-
-# Use:
-npx next build        # one-time build
-npx next start -p 3001 -H 0.0.0.0   # production server, no HMR
-```
-Production `next start` serves pre-built static files. There is no HMR WebSocket, no dev overlay, and no hot-reloading infrastructure — just plain HTTP. The React app mounts normally because nothing tries to open a dev-time WebSocket.
-
-**2. Replace WebSocket with HTTP polling** (eliminates app WebSocket):
-The `useWebSocket` hook was rewritten to poll `GET /api/telemetry` via `fetch()` every 1.5 seconds instead of connecting to `ws://.../ws/telemetry`. This bypasses the WebSocket-killing network entirely:
-
-```typescript
-// Before (useWebSocket):
-const ws = new WebSocket("ws://198.51.100.1:8001/ws/telemetry");
-ws.onmessage = (event) => setData(JSON.parse(event.data));
-
-// After (useWebSocket — HTTP polling):
-const res = await fetch("http://198.51.100.1:8001/api/telemetry");
-const json = await res.json();
-setData(json);
-```
-
-A `GET /api/telemetry` endpoint was added to the backend that returns the latest collected telemetry snapshot (previously only broadcast via WebSocket).
-
-**Lesson for future devs:**
-- Next.js dev mode (`pnpm dev`) is for local development only. For LAN access, always use production mode: `next build && next start`.
-- WebSocket connections traversing network boundaries are fragile. If a WebSocket fails to stay open from remote machines, the problem is likely a router/firewall killing the connection after the HTTP upgrade, not a code issue.
-- When WebSocket is unreliable, HTTP polling is a robust fallback. For a 1.5s polling interval, the overhead is negligible.
-
-### 6.8 Orchestration POST Blocks Activity Feed
-
-**Symptom:** Activity feed showed no events until the full trace completed, even though the backend emitted events during processing.
-
-**Root cause:** The original `POST /api/orchestrate` handler awaited the full `orchestrate()` coroutine before returning. Although `emit_event()` was called during processing, the HTTP response wasn't sent until all 7 stages finished, so the frontend's polling of `/api/activity` received no new data.
-
-**Fix:** Split into two steps:
-1. `POST /api/orchestrate` creates the trace in `_store` and launches `asyncio.create_task(orchestrate(...))`, returning `trace_id` immediately.
-2. Frontend polls `GET /api/traces/{trace_id}` every 1.5s for incremental updates.
-
-```python
-# Before (synchronous):
-@app.post("/api/orchestrate")
-async def api_orchestrate(req):
-    return await orchestrate(req.prompt)
-
-# After (async task):
-@app.post("/api/orchestrate")
-async def api_orchestrate(req):
-    session = TraceSession(id=uuid.uuid4().hex[:12], prompt=req.prompt)
-    _store[session.id] = session
-    asyncio.create_task(orchestrate(req.prompt, session.id))
-    return {"trace_id": session.id, "status": "started"}
-```
-
-**Lesson:** Any endpoint that emits events consumed by a polling frontend must return immediately. Blocking until background work completes starves the event bus of visibility.
-
-### 6.9 useTraceReplay Conflicts with Live Polling
-
-**Symptom:** During live polling, `useTraceReplay` would restart its animation sequence every time the trace updated (every 1.5s), causing visual flickering as steps reset.
-
-**Root cause:** `useTraceReplay` was called unconditionally with the live trace. Each polling update triggered a new trace reference, which the hook interpreted as a new replay session.
-
-**Fix:** Separate the live step index (derived directly from `trace.steps` during polling) from the replay index (used only for history traces and completed live traces):
-
-```typescript
-// During live processing: derive step index from trace status
-const liveStepIndex = loading && trace !== null
-  ? trace.steps.findLastIndex((s) => s.status !== "pending")
-  : null;
-
-// Replay only triggers for completed or history traces
-const triggerReplay = (replayTrace || (liveComplete && trace)) ? (replayTrace || trace) : null;
-const { activeStepIndex: replayStep, phase: replayPhase } = useTraceReplay(triggerReplay);
-```
-
-**Lesson:** Don't feed rapidly-mutating data into replay/timeline hooks. Distinguish between live incremental state and post-hoc animation.
-
-### 6.10 Environment Variable Not Inherited by Background Processes
-
-**Symptom:** `ORCHESTRATOR_MODEL=local` had no effect — the backend still used the worker URL.
-
-**Root cause:** When starting uvicorn via `nohup ... &` or a shell wrapper script, the environment variable was set in the parent shell but not inherited by the child process due to shell scoping rules. Multiple failed attempts included `export` in one bash invocation and the actual command in another.
-
-**Fix:** Use `env ORCHESTRATOR_MODEL=local uvicorn ...` as a single command, or hardcode the default in the Python source:
-
-```python
-# orchestrator.py — environment with hardcoded fallback
-MODEL_PROVIDER = os.environ.get("ORCHESTRATOR_MODEL", "local").lower()
-```
-
-The default was changed from `worker` to `local` to make the local-only experience work out of the box.
-
-**Lesson:** Shell environment variables do not persist across separate `bash` tool calls. Always set the env var in the same command that launches the process, or hardcode sensible defaults.
-
-### 6.11 Hydration Mismatch Due to Floating-Point Precision in SVG
-
-**Symptom:** React hydration warning about mismatched attributes. The error pointed to `<path d="...">` in `OrchestrationRing.tsx:80`:
-
-```
-A tree hydrated but some attributes of the server rendered HTML
-didn't match the client properties.
-```
-
-The diff showed a tiny difference in the 15th decimal place of SVG path coordinates:
-```
-+ d="M 203.81337886407522 ..."
-- d="M 203.81337886407525 ..."
-```
-
-**Root cause:** `Math.cos()` and `Math.sin()` produce slightly different floating-point values in Node.js (server-side render) vs the browser's V8 engine. The difference is at the ~10^-15 level, but React's hydration comparison is strict — any difference, even in the 15th decimal place, triggers a mismatch.
-
-**Fix:** Round all SVG path coordinates to 4 decimal places using `.toFixed(4)`:
-
-```tsx
-// Before:
-d={`M ${x1} ${y1} Q ${CX} ${CY} ${x2} ${y2}`}
-
-// After:
-d={`M ${x1.toFixed(4)} ${y1.toFixed(4)} Q ${CX.toFixed(4)}
-   ${CY.toFixed(4)} ${x2.toFixed(4)} ${y2.toFixed(4)}`}
-```
-
-**Files fixed:**
-- `OrchestrationRing.tsx` — knotwork outer arc path
-- `SolarCore.tsx` — solar-knot inner geometry path
-
-**Lesson:** Any SVG `d` attribute built from floating-point arithmetic (`Math.cos`, `Math.sin`, `Math.random`, division) is at risk of hydration mismatch. Always round to a fixed precision (4–6 decimals) when embedding computed coordinates in JSX.
-
-### 6.12 Telemetry.cpu Undefined Before First Poll
-
-**Symptom:** Browser console error — `Cannot read properties of undefined (reading 'percent')` at `SolarNexus.tsx:81`.
-
-**Root cause:** The `conductorState` derivation checked `!telemetry` (the whole object) but not `telemetry.cpu`. During the brief window between page mount and the first successful telemetry poll (1.5s), `telemetry` was an empty/partial object — the backend hadn't returned CPU data yet. The guard `!telemetry ? "offline"` passed because the object was truthy, then `telemetry.cpu.percent` crashed because `cpu` was undefined.
-
-```typescript
-// Before (crashes if telemetry exists but cpu hasn't populated):
-const conductorState = !telemetry ? "offline"
-    : telemetry.cpu.percent > 80 ? "busy"
-    : ...
-
-// After (safe — checks for cpu sub-object):
-const conductorState = !telemetry?.cpu ? "offline"
-    : telemetry.cpu.percent > 80 ? "busy"
-    : ...
-```
-
-**Fix:** Replaced `!telemetry` with `!telemetry?.cpu` using optional chaining. If `cpu` is undefined, the expression short-circuits to `"offline"` without accessing `.percent`.
-
-**Lesson:** When deriving state from an API response object, always guard against partially-populated data — not just the top-level null/undefined check. A response object can exist without all its nested fields being populated, especially during the first polling cycle. Use optional chaining (`?.`) on every nested access path where the shape is not guaranteed.
-
-### 6.13 Undefined Variable Crashes Orchestration Silently
-
-**Symptom:** Submitting a prompt via the dashboard returned immediately with `trace_id`, but the trace never progressed past "Intent Classification" (step 2). The frontend polled `/api/traces/{id}` every 1.5s but step 2 remained stuck at "processing" indefinitely. No error appeared in the backend logs beyond the initial POST.
-
-**Root cause:** A typo in `orchestrator.py:_call_model()` at line 74:
-
-```python
-# Before (broken — MODEL_PROVIDER is undefined):
-if MODEL_PROVIDER == "local":
-    payload["options"] = {"num_ctx": 4096}
-```
-
-The module-level variable is `_MODEL_PROVIDER` (with underscore prefix). The bare `MODEL_PROVIDER` raised a `NameError` *outside* the `try/except` block in `_call_model()`, causing the entire `asyncio.create_task(orchestrate(...))` to crash silently. The trace in `_store` was left with step 2 in "processing" status — the exception handler in `orchestrate()` never ran because the error occurred at the callee level.
-
-**Why it was silent:**
-- `asyncio.create_task` wraps the coroutine in a Task; unhandled exceptions in the task are logged as `Task exception was never retrieved` but do **not** propagate to any caller.
-- The `POST /api/orchestrate` handler had already returned `{"trace_id": "..."}` before the task started, so the HTTP response was fine.
-- No middleware or global exception handler caught background task failures.
-
-**Fix:** Changed `MODEL_PROVIDER` to `_MODEL_PROVIDER` on line 74:
-
-```python
-# After (correct):
-if _MODEL_PROVIDER == "local":
-    payload["options"] = {"num_ctx": 4096}
-```
-
-**Lesson:**
-- A `NameError` for a misspelled global looks obvious in review but is invisible at runtime when it happens inside `asyncio.create_task`. Always write a small smoke test that exercises the full model-call path before declaring a feature done.
-- When using `asyncio.create_task`, attach a done callback that checks `task.exception()` or wrap the task body in a try/except that logs any crash. Without this, background task failures are indistinguishable from a slow model call.
-- Python's `_MODEL_PROVIDER` vs `MODEL_PROVIDER` underscore convention is easy to get wrong when writing defensive conditions inside long functions. Consider using a typed configuration object with IDE support instead of a bare module-level `str`.
-
-### 6.14 Corrupted CSS Bundle After Interrupted Rebuild
-
-**Symptom:** Frontend renders as a white page with gray SVG shapes ("large gray sunburst on white") — all dark backgrounds and glass-panel effects missing. The page HTML is correct but CSS styles are not applied.
-
-**Diagnosis:**
-1. The HTML served correctly (check with `curl | grep "deep-abyss"` — should return `1`).
-2. The CSS `<link>` tag was present in the HTML.
-3. Fetching the CSS file directly returned `500 Internal Server Error` — the CSS chunk in `.next/` was truncated or corrupted from a previous partial build.
-
-**Root cause:** A `pkill -f "next start"` killed the Next.js production server while a build was still writing output files, leaving a partial/corrupt `.next/static/chunks/*.css` file. The Next.js server process served the (correct) HTML from the static build, but the (corrupt) CSS from the interrupted write. Hard-refreshing the browser didn't help because the CSS file itself was broken — not a caching issue.
-
-**Fix:**
-```bash
-pkill -f "next-server"          # Kill the running server
-rm -rf .next                     # Remove entire build output
-npx next build                   # Clean build (takes 30-60s)
-nohup npx next start -p 3001 -H 0.0.0.0 &
-```
-
-The `rm -rf .next` is critical — a partial rebuild (`npx next build` without cleaning) may reuse the corrupted chunks and produce the same broken output.
-
-**Verification:**
-```bash
-css_href=$(curl -s http://localhost:3001 | grep -oP 'href="/_next/static/chunks/[^"]*\.css"' | head -1 | grep -oP '"[^"]+' | tr -d '"')
-curl -s "http://localhost:3001${css_href}" | grep "deep-abyss"
-# Should output: 1
-```
-
-**Lesson:** Never kill the Next.js production server while it's in the middle of writing build artifacts. Always stop the server cleanly (`pkill` then wait for process to disappear) before rebuilding. If the server was killed mid-write, always do `rm -rf .next` before the next build — incremental builds from a corrupted state produce corrupted output.
-
-### 6.15 Variable Shadowing in orchestrator.py Loop Vector-Graph Code
-
-**Symptom:** Memory Retrieval stuck on "processing" after Memory Retrieval code was refactored to compute vector embeddings and MDS-2D layouts. No error in logs. Same symptom as §6.17 (previously fixed) but in new code.
-
-**Root cause:** The fix in commit c5ab0ff renamed the inner loop variable in the original `_orchestrate()` function, but a parallel code path — the vector-graph similarity computation — had its own `for i, chunk in enumerate(top_chunks)` that was NOT caught by the original fix. Two independent shadowing sites in the same function.
-
-```python
-# orchestrator.py: line 626 (vector-graph section)
-for i in range(len(top_chunks)):    # BUG: shadows outer stage index i
-    ...
-    for j in range(len(top_chunks)):   # fine, j not used in outer scope
-        ...
-```
-
-After the inner `range(len(top_chunks))` loop, `i` held `len(top_chunks)-1` (typically 4 or 5) instead of the Memory Retrieval stage index (3). The subsequent `session.steps[i].status = "complete"` hit an `IndexError` because `session.steps[4]` didn't exist yet (Context Assembly is index 4 and hasn't been created).
-
-**Fix:** Renamed inner loop index to `vi`:
-```python
-for vi in range(len(top_chunks)):
-    ...
-    for vj in range(len(top_chunks)):
-```
-
-Also fixed the `j` → `vj` rename for consistency (though `j` is not used in the outer scope, it's good practice).
-
-**Lesson:** When fixing a variable-shadowing bug, search the ENTIRE function — not just the original site. The same bug pattern can exist in parallel code paths (vector-graph, similarity search, deduplication passes). Use distinct descriptive names (`stage_idx`, `chunk_idx`) instead of single-letter `i`/`j` to prevent recurrence.
-
-### 6.16 Next.js Silently Dies (OOM / Unhandled Rejection)
-
-**Symptom:** Frontend returns `Connection refused` or `000` HTTP status after having been running fine. The process is gone from `ps aux` with no error in the startup log — the log simply ends at `✓ Ready in Xms`. The most common trigger is a hard page reload (Ctrl+Shift+R) or a burst of concurrent requests after the server has been running for a while.
-
-**Diagnosis:**
-1. Check `ss -tlnp | grep 3001` — if empty, the process is dead.
-2. Check the startup log — if it ends abruptly with no stack trace, it was killed by the OOM killer or a segfault.
-3. Try `dmesg | grep -i oom` (requires sudo) to confirm OOM kill.
-4. If no OOM evidence, the likely cause is an unhandled promise rejection in a background handler that Node.js escalates to `process.exit` (default behaviour in Node 16+).
-
-**Root cause:** The Next.js 16 production server on a 15GB machine defaults to a Node.js heap limit of ~1.4GB. Under load — especially during production builds or when serving multiple concurrent requests — garbage collection can't keep up and the kernel OOM-kills the process. Additionally, unhandled promise rejections in async request handlers or WebSocket fallback code cause Node to terminate the process with an unhelpful error message that may be lost in `nohup` output.
-
-**Fix (two-part):**
-
-1. **Raise the Node.js heap limit:**
-   ```bash
-   NODE_OPTIONS='--max_old_space_size=4096' nohup npx next start -p 3001 -H 0.0.0.0 > /tmp/frontend.log 2>&1 &
-   ```
-   This gives the garbage collector 4GB of headroom instead of 1.4GB.
-
-2. **Catch unhandled rejections and errors:**
-   A `<ClientInit />` component mounted at the top of `<body>` in `layout.tsx` registers window-level handlers:
-   ```tsx
-   window.addEventListener("unhandledrejection", (event) => { console.error(event.reason); });
-   window.addEventListener("error", (event) => { console.error(event.message); });
-   ```
-   This prevents one-off promise rejections from crashing the process.
-
-3. **Use `setsid` to detach from shell:**
-   ```bash
-   setsid bash -c 'NODE_OPTIONS="--max_old_space_size=4096" exec npx next start -p 3001 -H 0.0.0.0 > /tmp/frontend.log 2>&1' &
-   ```
-   `setsid` creates a new session so the process survives shell exit. `exec` replaces the shell with the next process, keeping the PID stable.
-
-**Verification:**
-```bash
-ps -p $(ss -tlnp | grep 3001 | grep -oP 'pid=\K\d+') -o rss,pmem
-# Expected: ~120MB RSS, ~0.7% memory
-curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
-# Expected: 200
-```
-
-**Lesson:** Node.js on memory-constrained machines needs explicit heap sizing. The default V8 heap limit (~1.4GB on 64-bit) is dangerously close to what Next.js 16 needs under load. Always set `--max_old_space_size` to at least 4GB on machines with 16GB RAM or less. Additionally, `nohup` is not reliable for detaching — use `setsid` with `exec` for guaranteed detachment.
+`export VAR=value` in one shell command is not inherited by a process started in another. Use `env VAR=value uvicorn ...` as a single command, or hardcode sensible defaults with `os.environ.get("VAR", "default")`.
 
 ---
 
@@ -777,7 +427,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
 
 14. **Environment vars must be set in the same command as the process.** `env VAR=value uvicorn ...` or hardcoded defaults are reliable. `export` in a separate shell invocation is not inherited by background processes.
 
-15. **Small CPU-bound models are viable for orchestration.** The qwen2.5:3b on an i7-6700 takes ~40s per inference call (77s total trace), which is slow but acceptable for an observatory demo where the pacing makes the process visible. The ActivityFeed streaming live events during processing compensates for the wait time.
+15. **Small CPU-bound models are viable for orchestration.** A 3B model on a mid-range CPU takes ~40s per inference call (77s total trace), which is slow but acceptable for an observatory demo where the pacing makes the process visible. The ActivityFeed streaming live events during processing compensates for the wait time.
 
 16. **Guard nested fields in API responses, not just the top-level object.** A response can be truthy while its nested fields are still undefined — e.g. `telemetry` exists but `telemetry.cpu` hasn't populated yet. Always use optional chaining (`?.`) on every access path where the shape isn't guaranteed between mount and first data arrival.
 
@@ -797,55 +447,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3001
 
 24. **`traceSteps.duration_ms` can be `null` for pending/failed steps.** When passing trace steps as props, TypeScript will enforce the `null` union. The component must filter with `.find(s => s.duration_ms != null)` before using the value in calculations. (2026-06-06)
 
-### 6.17 Silent Background Task Crash Due to Variable Shadowing in `orchestrate()` Loop
 
-**Symptom:** Submitting a prompt returned a `trace_id` immediately, but the trace progressed through Intent Classification and Model Routing, then **stuck at Memory Retrieval indefinitely** ("processing" with no duration). The frontend polled `/api/traces/{id}` every 1.5s but the Memory Retrieval step never resolved. No error appeared in backend logs.
-
-The Memory Retrieval step's `metadata` showed `retrieved_chunks` (meaning the similarity search completed) but the step status remained "processing."
-
-**Root cause:** A **variable shadowing bug** in `orchestrator.py:_orchestrate()`. The outer loop uses `i` as the stage index:
-
-```python
-for i, stage in enumerate(STAGES):        # i = stage index (0-6)
-    ...
-    if stage_id == "step-4":
-        ...
-        for i, chunk in enumerate(top_chunks):  # BUG: shadows outer i!
-            chunk["used"] = ci == 0 or ...
-```
-
-The inner loop `for i, chunk in enumerate(top_chunks)` **reuses the same variable name** `i`, overwriting the outer loop's stage index. After the inner loop completes, `i` is `4` (the last chunk index, or `len(top_chunks)-1`) instead of `3` (Memory Retrieval's stage index). When the code reaches:
-
-```python
-session.steps[i].status = "complete"  # i=4, but steps only has 4 elements (0-3)
-```
-
-This raises `IndexError: list index out of range` because `session.steps[4]` doesn't exist yet — it would be created by the next iteration of the outer loop (Context Assembly, stage index 4). The `IndexError` crashes the `asyncio.create_task` background task silently (see Lesson #19), leaving Memory Retrieval frozen in "processing" forever.
-
-**Why it was silent:** Same mechanism as §6.13 — `asyncio.create_task` wraps the coroutine in a Task; unhandled exceptions are logged as `Task exception was never retrieved` but do not propagate to any caller. No middleware caught it.
-
-**Fix:** Rename the inner loop variable from `i` to `ci` (chunk index):
-
-```python
-for ci, chunk in enumerate(top_chunks):
-    chunk["used"] = ci == 0 or chunk["relevance"] >= threshold
-```
-
-**Secondary issue — missing try/except on embedding computation:** At line 656, `session.embedding = await _embed(session.prompt)` was **not** wrapped in a try/except block. If the Ollama embeddings endpoint timed out or returned an error, the exception propagated, the final `_persist(session)` at line 674 never ran, and the trace's embedding was **never written to disk**. This created a vicious cascade: every subsequent trace's Memory Retrieval stage had to recompute embeddings for all past sessions (each hitting Ollama's `/api/embeddings`), multiplying the latency. Fixed by wrapping the call:
-
-```python
-try:
-    session.embedding = await _embed(session.prompt)
-except Exception as e:
-    logger.warning("Embedding computation failed for %s: %s", trace_id, e)
-```
-
-**Lesson:**
-- **Never reuse loop variable names in nested `for` loops in Python.** The outer variable is silently overwritten. Use distinct names (`i`, `j`, `k` or descriptive names like `stage_idx`, `chunk_idx`).
-- **Any `await` call in a background task that is not wrapped in try/except is a crash risk.** If the call fails, the entire task dies and the session is left in an inconsistent state. Always protect fallible calls — especially HTTP/IO calls to external services (Ollama, Worker Node 1) — with `try/except` that logs the error and continues.
-- **A step's `metadata` being populated but its `status` still "processing" is a diagnostic signal** that the code between the metadata write and the status update crashed. Inspect the exact line range for unguarded operations. (2026-06-09)
-
----
 
 ## 8. Future Considerations
 
@@ -880,7 +482,7 @@ except Exception as e:
 - **[Frontend] ForkInTheRoad decision tree.** `ForkInTheRoad.tsx` — decision tree visualization for intent classification. Chosen path highlighted in teal with branch line + confidence bar + reasoning; rejected paths dimmed at 50% opacity with strikethrough labels. Shows during processing state. (2026-06-10)
 - **[Backend + Frontend] History tab blank crash fix.** Three bugs: (1) FastAPI route ordering — `/api/traces/profile` registered AFTER `/{trace_id}`, wildcard caught "profile" as trace ID; (2) `PersonalityProfile` called `.length` on `null` API response with no error boundary, unmounting entire React tree; (3) `next start` cached stale HTML from old build. (2026-06-10)
 - **[Frontend] Duplicate React key fixes.** `MemoryConstellation` edge keys used source dot index instead of map index; `CelestialDistribution` dot keys used `entry.id` (duplicate trace IDs). Fixed with composite keys (`c-${ci}-${idx}`, `${id}-${di}`). (2026-06-10)
-- **[Backend] Variable shadowing re-fix (vector graph code).** Second independent `for i in range(len(top_chunks))` in the vector-graph similarity computation was NOT caught by the original §6.17 fix. Renamed to `vi`/`vj` to avoid shadowing outer stage index `i`. (2026-06-10)
+- **[Backend] Variable shadowing re-fix (vector graph code).** Second independent `for i in range(len(top_chunks))` in the vector-graph similarity computation was NOT caught by the original fix. Renamed to `vi`/`vj` to avoid shadowing outer stage index `i`. (2026-06-10)
 - **[Backend] Intent classification prompt updated.** System prompt asks for `reasoning` per intent explaining why each path was chosen/rejected. (2026-06-10)
 - **[Tooling] restart.sh.** `~/mythic-ai-observatory/restart.sh` — kills both servers, rebuilds frontend, starts backend with `--reload` and frontend with `pnpm dev`. (2026-06-10)
 - **[Frontend] VectorDistanceGraph tooltip enhancement.** Replaced `useState` mouse tracking with `useRef` to avoid re-renders on every mouse move; richer tooltip content with color dot, trace ID, Used/Discarded status, relevance percentage. (2026-06-10)
@@ -952,21 +554,14 @@ Everything else (code, config, `machines.json`, docs) is tracked.
 ### First-time setup on a new machine
 
 ```bash
-git clone git@github.com:Greggar/Mythic_AI_Observatory.git
+git clone https://github.com/Greggar/Mythic_AI_Observatory.git
 cd Mythic_AI_Observatory
-
-# Backend
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt   # or pip install fastapi uvicorn httpx psutil
-
-# Frontend
-cd ../frontend
-pnpm install
+bash install.sh
 ```
 
-The SSH key for this machine (`primary-server`) is registered on GitHub for push access.
+Then edit `backend/.env` and `frontend/.env.local` to match your network, and run `bash restart.sh` to start both servers.
+
+See the [README](README.md) for more detailed instructions.
 
 ---
 
@@ -1028,84 +623,6 @@ The SSH key for this machine (`primary-server`) is registered on GitHub for push
 | `~/.openclaw/openclaw.json` | OpenClaw configuration (models, channels, skills) |
 | `~/.config/systemd/user/openclaw-gateway.service` | Systemd user service for OpenClaw |
 | `/var/snap/prometheus/current/prometheus.yml` | Prometheus Snap config (currently broken) |
-
----
-
-## Session 2026-06-18 — LLM-Powered Cognitive Synesthesia Classifier
-
-### Problem
-The Cognitive Synesthesia chord diagram relied on hand-tuned regex classifiers (`classifySynesthesiaPrompt`, `classifySynesthesiaResponse`, and the 6 grammar-ring classifiers). Every new prompt type required a regex patch, and edge cases kept slipping through.
-
-### Solution — Schema-Driven LLM Classification
-Replaced regex classification with a background agent that uses the local LLM to classify traces against a plain-language schema:
-
-1. **`synesthesia_schema.md`** — defines 5 input categories (Direct Command, Factual Question, Creative Request, Simple Query, Complex Inquiry) and 5 output categories (Concise List/Facts, Prose Explanation, Creative/Verse, Bulleted List, Technical/Code) with 10+ examples each. Edit this to change classification behavior — no code changes.
-
-2. **`classifier_agent.py`** — background task polls every 45 seconds, finds traces without synesth data, classifies them via `qwen2.5:1.5b` (local, fast for 1-2 new traces), stores results in `synesth_cache.json`.
-
-3. **`backfill_synesth.py`** — one-shot script using Worker Node 1 GPU (`qwen2.5:7b`) to classify all 93 existing traces in ~45 seconds.
-
-4. **`SynesthClassification` model** — `input_cat`/`output_cat` fields on `TraceSession`. Frontend reads `trace.synesth` when available, falls back to regex for unclassified traces.
-
-### Key Architectural Decisions
-- **Separate cache file** (`synesth_cache.json`) rather than modifying `traces.jsonl` — avoids rewriting the entire history file on each classification.
-- **Merge at API layer** — `api_list_traces` calls `merge_synesth()` which overlays cache data onto `TraceSession` objects before returning them. Backward-compatible: old traces without cache entries get `synesth: null`.
-- **Two-tier model strategy** — Worker Node 1 GPU for initial backfill (fast, parallel), local CPU model for ongoing (cheap, always available).
-
-### Frontend: 6-Ring Concentric Synesthesia Chart
-
-The RelationshipsPanel renders a 6-ring concentric SVG chart that visualizes the full prompt→response pipeline from a trace:
-
-- **Rings 1-3 (inner 35%)**: Depth (Interjection/Minor Sentence/Full Verb Phrase) → Mood (Imperative/Indicative/Interrogative/Conditional/Subjunctive) → Syntax (Simple/Compound/Complex)
-- **Rings 4-6 (outer 65%)**: Action Type (Direct Execution/Conversational Phatic/Refusal/Guardrail) → Pragmatic Tone (Informative/Instructional/Creative/Analytical/Corrective) → Output Form (Structured/Bulleted/Continuous Prose)
-
-#### Architecture
-
-1. **`buildSynesthTree()`** — aggregates each trace into a 6-level tree path. Each node carries a `moodIdx` for color propagation. `ensureChild()` creates parent-child hierarchy with mood-index inheritance for gradient-bleed coloring.
-
-2. **`layoutSunburst()`** — computes proportional angular spans per node. Each ring is divided among its parent node's children based on trace count. The inner 3 rings share the first 35% of radial space; outer 3 get the remaining 65%.
-
-3. **`nodeColor()`** — HSL-based color strategy: mood determines hue (0 red/217 blue/38 amber/258 purple/160 emerald), depth determines lightness/saturation. Special rules: Creative tone pops (+14 sat, +5 lit), Informative mutes (−8 sat), Refusal mutes (−12 sat, −3 lit).
-
-4. **Legend** — unified `"# RING"` legend with number + label per row, plus a separate mood color legend on the right.
-
-5. **Tooltip** — rendered via `createPortal` to `document.body` with `z-[100]` to escape parent stacking contexts (`overflow-hidden` on glass panels).
-
-6. **CSV export** — 6 columns: depth, mood, syntax, action, tone, form.
-
-#### Bugfixes
-- **moodIdx inheritance** — `buildSynesthTree` was inheriting `moodIdx` from the depth parent at Ring 2 instead of using the actual mood category (`d <= 1 ? catIdx : node.moodIdx`). Conditional/Subjunctive traces were colored amber (from parent depth) instead of purple/emerald.
-- **Depth ring invisible** — center circle radius (`r=18`) exactly overlapped the Depth ring arcs (inner=0, outer=18). Fixed: center `r=14`, Depth shifted to `inner=16, outer=32`.
-- **Duplicate React keys** — `r5-Continuous Prose` appeared twice (same label under different parent Tone nodes). Keys now include `startAngle`: `r${ring}-${label}-${sa.toFixed(4)}`.
-- **Off-by-one in collectLevelNodes** — depthLevel=0 returned root instead of Depth children. Rewrote to start at `root.children` at d=0.
-
-### Problems Encountered & Fixes
-
-| Problem | Fix |
-|---------|-----|
-| `qwen2.5:3b` too slow on CPU (120s+ per trace) | Switched to `qwen2.5:1.5b` for the background agent |
-| Worker Node 1 `qwen2.5:7b` returned 500 errors with concurrency=4 | Reduced `CONCURRENCY` to 1 — model can't handle parallel requests |
-| `synesth: null` in API responses after backfill | Server's `_cache` module variable was stale — restart picked up the cache file |
-| Analysis model settings showed "qwen2.5:3b" with worker provider (404 error) | Race condition between `fetchModels` and `fetchNetworkSources` in SettingsModal; auto-selection effect was not updating `analysisModel` state; `handleSave` used stale model name |
-| Settings modal didn't load network sources until Models tab opened | Added `fetchNetworkSources()` to the modal mount effect |
-
-### Lessons Learned
-- **Schema-driven classification works** — the LLM correctly interpreted the plain-language schema, classifying traces with nuanced understanding that regex couldn't match.
-- **Worker Node 1 GPU is ~100x faster** — qwen2.5:7b classified traces in 1.2s each vs 120s+ for qwen2.5:3b on CPU. But it can't handle >1 concurrent request without crashing.
-- **State sync is the hardest part** — React state + concurrent API calls + async effects create race conditions that are invisible until the wrong value persists across a save. Always test the "open settings → save without touching anything" path.
-- **Separate cache from source of truth** — storing classifications in a separate file (`synesth_cache.json`) avoided coupling to the trace persistence layer and made backfill trivially idempotent.
-
-### Relevant Files
-- `backend/services/synesthesia_schema.md` — editable classification schema
-- `backend/services/classifier_agent.py` — background classifier agent + cache management
-- `backend/models/trace.py` — `SynesthClassification` Pydantic model
-- `backend/main.py` — `merge_synesth` in `api_list_traces`, background task startup, manual classify endpoint
-- `frontend/src/components/RelationshipsPanel.tsx` — `synInputCat`/`synOutputCat` helpers with LLM-first, regex-fallback
-- `frontend/src/components/SettingsModal.tsx` — analysis model save fix (race condition, stale state)
-- `frontend/src/types/trace.ts` — `SynesthClassification` TypeScript interface
-- `tools/backfill_synesth.py` — backfill script using Worker Node 1 GPU
-- `frontend/src/components/RelationshipsPanel.tsx` — `buildSynesthTree()`, `layoutSunburst()`, `nodeColor()` for 6-ring concentric chart
-- `frontend/src/components/RelationshipsPanel.tsx` — `classifyDepth()`, `classifyMood5()`, `classifyActionType()`, `classifyPragmaticTone()`, `classifyOutputForm()` client-side classifiers
 
 ---
 
