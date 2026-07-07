@@ -35,4 +35,5 @@ build/
 
 # Logs
 *.log
+backend/logs/
 /tmp/

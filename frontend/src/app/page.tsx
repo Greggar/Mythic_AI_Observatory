@@ -34,6 +34,7 @@ import LogTerminal from "@/components/LogTerminal";
 import ModelSwitcher from "@/components/ModelSwitcher";
 import ComparativeRadarPanel from "@/components/ComparativeRadarPanel";
 import SetupWizard from "@/components/SetupWizard";
+import Galaxy3D from "@/components/Galaxy3D";
 import type { Probe, ModelOption, TraceSession } from "@/types/trace";
 import { DEFAULT_CHART } from "@/data/chartOptions";
 
@@ -405,20 +406,30 @@ export default function Home() {
                   >
                     <option value="constellation">Constellation</option>
                     <option value="sunburst">Sunburst</option>
+                    <option value="galaxy">3D Galaxy</option>
                   </select>
                 </div>
               </div>
-              <HoverProvider>
+              {visualizationType === "galaxy" ? (
                 <ErrorBoundary>
-                  <MemoryConstellation
+                  <Galaxy3D
                     onSelect={handleHistorySelect}
-                    onCompare={handleCompare}
                     refreshTrigger={historyRefresh}
-                    grouping={groupingMethod}
-                    visualization={visualizationType}
                   />
                 </ErrorBoundary>
-              </HoverProvider>
+              ) : (
+                <HoverProvider>
+                  <ErrorBoundary>
+                    <MemoryConstellation
+                      onSelect={handleHistorySelect}
+                      onCompare={handleCompare}
+                      refreshTrigger={historyRefresh}
+                      grouping={groupingMethod}
+                      visualization={visualizationType}
+                    />
+                  </ErrorBoundary>
+                </HoverProvider>
+              )}
               {compareTraces.length >= 2 && (
                 <ComparativeRadarPanel
                   traces={compareTraces}
