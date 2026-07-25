@@ -51,9 +51,9 @@ All animations use fade+scale transitions (no blinking). Custom scrollbar stylin
 ## Current Architecture
 
 ```
-User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ Worker Node 1 qwen2.5:7b (:12434)
+User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ Worker Node (configured model)
                           ↑
-                    Prometheus (:9090) + Node Exporter (:9100)
+                    Prometheus + Node Exporter (optional)
 
 Persistence:
   backend/data/traces.jsonl  — 500 most recent orchestration traces
@@ -93,7 +93,7 @@ Persistence:
 
 ## What Works
 
-- 7-stage orchestration pipeline with real LLM calls to Worker Node 1 `qwen2.5:7b`
+- 7-stage orchestration pipeline with real LLM calls to configured model
 - Telemetry polling (CPU, memory, GPU, Ollama, OpenClaw, remotes) every 1.5s
 - Solar Nexus visualisation with sacred geometry, breathing core, orbiting nodes, flowing energy paths
 - Trace replay with 600ms minimum step delay
@@ -104,7 +104,7 @@ Persistence:
 - Trend Charts (last ~90 seconds of CPU and Memory)
 - Audio event hooks (no sound yet)
 - CSS state system
-- Prometheus active on :9090, node-exporter on :9100
+- Prometheus and node-exporter (optional, configurable)
 - systemd user services for both backend and frontend, auto-start at boot
 
 ## Notable Constraints & Issues
@@ -124,11 +124,10 @@ All SVG path coordinates built from `Math.cos`/`Math.sin` use `.toFixed(4)` to a
 ### No Auth
 Fully open. Anyone on the LAN can view the interface and submit orchestration prompts.
 
-### Hardcoded URLs
-- Telemetry poll URL is hardcoded to `http://192.168.1.1:8001/api/telemetry` in `useWebSocket.ts`
-- API base is `process.env.NEXT_PUBLIC_API_URL` (falls back to `http://localhost:8001`)
-- Worker Node 1 URL hardcoded in `orchestrator.py`
-- Worker Node 1 model name hardcoded as `qwen2.5:7b`
+### Network Configuration
+- All service addresses are configurable via `backend/data/network.json` and `.env` files
+- API base: `NEXT_PUBLIC_API_URL` env var (defaults to `http://localhost:8001`)
+- No hardcoded IPs or hostnames in committed code
 
 ### No Database
 All state (traces, telemetry) is in-memory or flat-file. No session persistence beyond the trace list.
@@ -164,14 +163,14 @@ The history panel uses a custom thin scrollbar. It's styled via `scrollbar-thin`
 - **Memory Retrieval stuck on "processing"** — Inner loop variable `i` in `orchestrator.py:596` shadowed the outer stage index, causing `IndexError` in the background task after Memory Retrieval completed its similarity search. The step's metadata was populated but its status never flipped to "complete." Also fixed missing try/except around embedding computation that prevented embeddings from being persisted, creating a cascade where every subsequent trace recomputed all past embeddings.
 
 ### Foreseen
-- **Post-complete section is slow** — 3 sequential LLM calls (insights, rationale, explanation) using qwen2.5:3b on CPU, each taking 30-60s. Embedding persists and final `traces.jsonl` write are blocked until all finish. Consider `asyncio.gather()` or separate fire-and-forget tasks.
+- **Post-complete section is slow** — 3 sequential LLM calls (insights, rationale, explanation), each taking 30-60s on CPU. Embedding persists and final `traces.jsonl` write are blocked until all finish. Consider `asyncio.gather()` or separate fire-and-forget tasks.
 - **JSONL deduplication** — `_persist()` appends the full session on every call (multiple persists per trace), inflating `load_history()` with duplicate entries that skew Memory Retrieval similarity search.
 
 ## Next-Sprint Candidates
 
 1. **Make confidence dynamic** — derive from trace quality or model output metrics
 2. **Add database** — SQLite for proper history querying, search, filtering
-3. **Un-hardcode URLs** — move to environment variables throughout
+3. ~~Un-hardcode URLs~~ — done (env vars + `network.json`)
 4. **Design the trace history view** — what does browsing 500 past orchestrations look like?
 5. **Audio assets** — wire actual ambient tones to the audio service events
 6. **Responsive layout** — currently optimized for ~1920px wide; breaks at <1280px
