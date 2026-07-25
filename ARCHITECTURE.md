@@ -532,7 +532,7 @@ A response object can be truthy while its nested fields are still undefined (e.g
 
 - **The CORS middleware currently allows all origins.** In production, restrict to specific frontend URLs.
 - **The Prometheus snap binds to `0.0.0.0:9090`** with no authentication. Consider adding a reverse proxy with basic auth if exposing beyond the LAN.
-- **OpenClaw's gateway token** (`f3daf902...`) is stored in plaintext in `openclaw.json`. Ensure this file has restricted permissions (`chmod 600`).
+- **OpenClaw's gateway token** is stored in plaintext in `openclaw.json`. Ensure this file has restricted permissions (`chmod 600`).
 
 ---
 

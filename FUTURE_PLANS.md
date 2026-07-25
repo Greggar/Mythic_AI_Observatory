@@ -20,23 +20,9 @@ We are a long way toward health + function transparency. The items below extend 
 
 ## Phase 0 — Open-Source Readiness (★☆☆–★★★)
 
-*Critical path items to ship the project to the public. Must be completed before any public release.*
+## Phase 0 — Open-Source Scrub ✓ *(completed)*
 
-| # | Item | Effort | Est. Time |
-|---|------|--------|-----------|
-| 1 | **Replace `backend/data/*.json` with template defaults** — `network.json`, `machines.json`, `services.json` currently ship with hardcoded machine-specific configurations (personal hostnames, local IPs, specific model tags). Replace with all-`127.0.0.1` defaults and a `TEMPLATE.md` explaining how to configure for a real network. | ★★☆ | 1 h |
-| 2 | **Frontend machine names data-driven** — `ResourceConstellation.tsx` has `Gingerlong`, `BackOffice`, `LoungeRoom` as hardcoded string constants. Make it read machine/service data from the API so any network topology is rendered automatically. | ★★☆ | 1.5 h |
-| 3 | **`frontend/next.config.ts` cleanup** — `allowedDevOrigins` contains 3 LAN IPs; rewrite proxy hardcodes `localhost:8001`. Both should be driven by `NEXT_PUBLIC_API_URL` or removed. | ★☆☆ | 20 min |
-| 4 | **`backend/services/ddc_embeddings.py` / `lcc_embeddings.py` — use config_manager** — both hardcode `OLLAMA_URL = "http://127.0.0.1:11434"` instead of reading from `config_manager.get_ollama_url()`. | ★☆☆ | 15 min |
-| 5 | **`backend/services/config_manager.py` — remove hardcoded model fallback** — line 71 defaults to `docker.io/ai/qwen3.5:9B-UD-Q4_K_XL` which is a personal model tag. Replace with `qwen2.5:3b`. | ★☆☆ | 5 min |
-| 6 | **`PerformanceInsights.tsx` — data-driven profiles** — contains hardcoded profiles for `qwen2.5:3b` with specific latency thresholds. Should be computed from actual trace data. | ★★☆ | 1 h |
-| 7 | **`frontend/.env.example` scrub** — remove references to `192.168.0.237`, primary-server. Default to `http://localhost:8001`. Uncomment the default. | ★☆☆ | 10 min |
-| 8 | **Scrub docs of personal infrastructure** — `ARCHITECTURE.md`, `DEVELOPMENT.md`, `STATUS.md`, `METRICS-AND-GRAFANA.md` contain IPs, hostnames, usernames, and absolute paths. Replace with generic examples or templated variables. | ★★☆ | 45 min |
-| 9 | **Add first-run / setup state** — detect that `network.json` is still using defaults and show a setup prompt or onboarding flow in the Settings modal. | ★★☆ | 1.5 h |
-| 10 | **`tools/latency_monitor.py` — read API_BASE from env** — currently hardcodes `http://127.0.0.1:8001`. Should use `LATENCY_API_URL` env var with that as default. | ★☆☆ | 5 min |
-| 11 | **`/tmp/` cache paths configurable** — `ddc_embeddings.py` and `lcc_embeddings.py` write to `/tmp/ddc_category_embeddings.json`. Should use a configurable cache directory via env var or `tempfile`. | ★☆☆ | 10 min |
-| 12 | **`restart.sh` — detect venv** — currently hardcodes `.venv/bin/uvicorn`. Should detect or allow override. | ★☆☆ | 10 min |
-| 13 | **Replace `phi4-mini` default in SettingsModal** — frontend default model name is `phi4-mini` (line 51). Should default to what the backend returns. | ★☆☆ | 5 min |
+All personal infrastructure, IPs, hostnames, model tags, and credentials have been removed. Config templates use `0.0.0.0` / `127.0.0.1` defaults. `install.sh` auto-detects Ollama models. Docs use RFC 5737 documentation IPs where needed.
 
 ## Licensing & Attribution
 
@@ -268,16 +254,16 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 ## Session summary — 2026-06-18 (LLM-Powered Cognitive Synesthesia Classifier)
 
 - **Schema-driven synesthesia classification** — replaced hand-tuned regex (`classifySynesthesiaPrompt`, `classifySynesthesiaResponse`, and 6 grammar-ring classifiers) with a background agent using the local LLM to classify traces against a plain-language schema (`synesthesia_schema.md`). 5 input categories + 5 output categories with 10+ examples each. Editing the schema changes classification behavior — no code changes.
-- **Two-tier model strategy** — `qwen2.5:1.5b` (local CPU) for ongoing background polling every 45s; `gpt-oss:20B` on backoffice GPU for bulk backfill (93 traces in ~45s, CONCURRENCY=1 to avoid crashes)
+- **Two-tier model strategy** — `qwen2.5:1.5b` (local CPU) for ongoing background polling every 45s; `gpt-oss:20B` on worker GPU for bulk backfill (93 traces in ~45s, CONCURRENCY=1 to avoid crashes)
 - **Separate cache file** — `synesth_cache.json` stores classifications independently of `traces.jsonl`; merged at API layer via `merge_synesth()` in `api_list_traces`. Backward-compatible: old traces get `synesth: null`.
 - **`synesth_domain` field** — added to `TraceSession` model for domain-level aggregation (instruction-following, world-knowledge, creative-writing, technical-analysis, conversational)
-- **Backfill complete** — `tools/backfill_synesth.py` classified 93/93 existing traces using backoffice GPU
+- **Backfill complete** — `tools/backfill_synesth.py` classified 93/93 existing traces using worker GPU
 - **Settings race condition fixed** — `fetchNetworkSources()` added to modal mount effect to fix stale model name in `handleSave` caused by race between `fetchModels` and `fetchNetworkSources`
 - **Architecture documented** — added "Session 2026-06-18 — LLM-Powered Cognitive Synesthesia Classifier" section to ARCHITECTURE.md with problem statement, solution architecture, key decisions, problems table, and lessons learned.
 
 ### Lessons Learned
 - **Schema-driven classification works** — the LLM correctly interpreted the plain-language schema, classifying traces with nuanced understanding that regex couldn't match.
-- **Backoffice GPU is ~100x faster** — gpt-oss:20B classified traces in 1.2s each vs 120s+ for qwen2.5:3b on CPU. But it can't handle >1 concurrent request without crashing.
+- **Worker GPU is ~100x faster** — gpt-oss:20B classified traces in 1.2s each vs 120s+ for qwen2.5:3b on CPU. But it can't handle >1 concurrent request without crashing.
 - **State sync is the hardest part** — React state + concurrent API calls + async effects create race conditions that are invisible until the wrong value persists across a save. Always test the "open settings → save without touching anything" path.
 - **Separate cache from source of truth** — storing classifications in a separate file (`synesth_cache.json`) avoided coupling to the trace persistence layer and made backfill trivially idempotent.
 
@@ -299,7 +285,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 ## Session summary — 2026-06-11
 
 - **#13 Service health sparkline** — `EngineStatusPanel.tsx`: rolling 30-sample history of ok/err/off proportions rendered as a stacked SVG bar chart inside the Issues tooltip. Each 3px-wide column = one telemetry poll (~1.5s), green (ok) / red (error) / amber (stopped/disabled) stacked vertically. Visible on hover of the Issues count regardless of whether problems exist.
-- **Machine prefix in Issues tooltip** — `main.py:collect_telemetry()` builds a `service_id → machine_name` reverse-lookup from `network.json:machines` and injects it as a `machine` field on each remote telemetry entry. Frontend displays `BackOffice–hermes` instead of bare `hermes`.
+- **Machine prefix in Issues tooltip** — `main.py:collect_telemetry()` builds a `service_id → machine_name` reverse-lookup from `network.json:machines` and injects it as a `machine` field on each remote telemetry entry. Frontend displays machine-prefixed service names instead of bare service IDs.
 - **Sparkline tally fix** — the health sparkline's status tally now checks `detail: "connection_refused"` (maps to amber, not red), matching the existing Issues tooltip logic.
 - **#33 Confidence Filter Gauge** — `IntelligencePanel.tsx`: SVG donut chart inside the Memory Retrieval completed-state card showing used/total chunks ratio. Red arc when <50% relevant, teal otherwise. Label shows `{used}/{total} relevant` with `— low confidence` warning when most chunks are discarded. Placed between ChunkDisplay and VectorDistanceGraph.
 - **Context Assembly keyword highlighting** — `IntelligencePanel.tsx`: new `highlightKeyWords()` helper extracts significant words from `trace.prompt` (≥4 chars, excluding ~30 stopwords), cross-references them against step outputs, and wraps matches in teal bold `<span>`. Applied to the processing-state current stage output display. Lets the user see which of their query words the system latched onto during context assembly.
@@ -422,7 +408,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 |---|------|--------|-----------|-------|
 | 1 | **Abstract agent interface** — define a protocol/interface for agent operations: send message, receive response, query status, stream logs, subscribe to events. Model it after a minimal subset of OpenClaw's gateway contract plus Hermes's REST API. | ★★☆ | 2 h | Foundation |
 | 2 | **Adapter for OpenClaw** — implement the interface against OpenClaw's WebSocket gateway + admin HTTP RPC. The adapter wraps OpenClaw-specific auth, message formatting, and event subscription into the generic contract. | ★★☆ | 2 h | After phase 15 |
-| 3 | **Adapter for Hermes** — implement the interface against Hermes's REST API (BackOffice). Covers the existing hermes-bridge use case. | ★★☆ | 1.5 h | Parallel with above |
+| 3 | **Adapter for Hermes** — implement the interface against Hermes's REST API. Covers the existing hermes-bridge use case. | ★★☆ | 1.5 h | Parallel with above |
 | 4 | **Adapter for generic LLM backends** — implement the interface for bare Ollama, OpenAI-compatible, or custom backends without an agent layer. This is the fallback — the Observatory can at minimum submit prompts and collect traces from any LLM endpoint. | ★★☆ | 1.5 h | Useful standalone |
 | 5 | **Plugin system** — external adapter packages (npm/Python) that self-register with the Observatory. Third parties can write an adapter for their agent system without modifying core code. | ★★★ | 4-5 h | Advanced |
 | 6 | **Unified trace view** — trace sessions from any agent source appear in the same History tab, MemoryConstellation, and IntelligencePanel. The source/agent is a property on the trace, not a different UI. | ★★☆ | 2 h | Once adapters exist |

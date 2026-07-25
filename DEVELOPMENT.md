@@ -167,7 +167,7 @@ Visit `http://localhost:3001` on the server and verify with the user:
 - [ ] **Activity feed populates** — Events appear during orchestration
 - [ ] **Memory Retrieval** traces appear in the constellation view
 - [ ] **Network Settings** — Open the settings modal, edit a service host, save, verify telemetry reflects the change
-- [ ] **Model Switcher** — Settings → Models tab, switch from local → backoffice → local, verify model changes
+- [ ] **Model Switcher** — Settings → Models tab, switch from local → worker → local, verify model changes
 - [ ] **Context pane** — Click a model-calling step node in SolarNexus, confirm the split-pane shows system prompt + assembled context + token meter
 - [ ] **Build passes** — `pnpm build` exits 0 with no warnings
 
@@ -262,16 +262,16 @@ NEXT_PUBLIC_API_URL=http://198.51.100.1:8001
 
 ## 7. Model Provider API
 
-Switch between local and backoffice LLM inference at runtime without restarting the backend:
+Switch between local and worker LLM inference at runtime without restarting the backend:
 
 ```bash
 # Check current provider
 curl http://localhost:8001/api/config/model
 
-# Switch to backoffice
+# Switch to worker
 curl -X POST http://localhost:8001/api/config/model \
   -H "Content-Type: application/json" \
-  -d '{"provider": "backoffice"}'
+  -d '{"provider": "worker"}'
 
 # Switch back to local
 curl -X POST http://localhost:8001/api/config/model \

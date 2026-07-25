@@ -64,7 +64,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [networkSources, setNetworkSources] = useState<{ id: string; label: string; host: string; port: number; configured_model: string; models: string[]; error: string | null }[]>([]);
   const [networkSourceId, setNetworkSourceId] = useState("");
   const [networkModelName, setNetworkModelName] = useState("");
-  const [savedBackofficeModel, setSavedBackofficeModel] = useState("");
+  const [savedWorkerModel, setSavedWorkerModel] = useState("");
   const [networkSourcesLoading, setNetworkSourcesLoading] = useState(false);
   const [netModelSaved, setNetModelSaved] = useState(false);
   const [deleteTabReady, setDeleteTabReady] = useState(false);
@@ -107,7 +107,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
       if (data.provider === "local" && data.model) {
         setCurrentModel(data.model);
       } else if (data.provider === "worker" && data.model) {
-        setSavedBackofficeModel(data.model);
+        setSavedWorkerModel(data.model);
       }
     } catch {
       // silently fail
@@ -210,21 +210,21 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   // Restore saved worker model selection after network sources load
   useEffect(() => {
-    if (!savedBackofficeModel || networkSources.length === 0) return;
+    if (!savedWorkerModel || networkSources.length === 0) return;
     let found = false;
     for (const src of networkSources) {
-      if (src.models.includes(savedBackofficeModel) || src.configured_model === savedBackofficeModel) {
+      if (src.models.includes(savedWorkerModel) || src.configured_model === savedWorkerModel) {
         setNetworkSourceId(src.id);
-        setNetworkModelName(savedBackofficeModel);
+        setNetworkModelName(savedWorkerModel);
         found = true;
         break;
       }
     }
     if (!found) {
-      setNetworkModelName(savedBackofficeModel);
+      setNetworkModelName(savedWorkerModel);
     }
-    setSavedBackofficeModel("");
-  }, [savedBackofficeModel, networkSources]);
+    setSavedWorkerModel("");
+  }, [savedWorkerModel, networkSources]);
 
   useEffect(() => {
     if (networkSources.length === 0 || analysisNetworkSourceId) return;

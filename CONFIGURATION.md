@@ -52,17 +52,15 @@ Located at `backend/data/network.json`. Editable through **Settings → Services
       "port": 11434,
       "enabled": true
     },
-    "backoffice_llm": {
-      "label": "Worker Node 1 LLM",
-      "host": "198.51.100.2",
+    "worker_llm": {
+      "label": "Worker LLM",
+      "host": "0.0.0.0",
       "port": 12434,
       "model": "qwen2.5:7b",
-      "enabled": true
+      "enabled": false
     },
     "openclaw": { ... },
-    "prometheus": { ... },
-    "hermes": { ... },
-    "comfyui": { ... }
+    "prometheus": { ... }
   }
 }
 ```
@@ -96,7 +94,7 @@ Each service has:
 {
   "analysis": {
     "model": "qwen2.5:7b",
-    "provider": "backoffice"
+    "provider": "worker"
   }
 }
 ```
