@@ -1,34 +1,26 @@
-# Metrics, Prometheus & Grafana — Integration Guide
+# Monitoring, Prometheus & Grafana
 
-This document explains how the Mythic AI Observatory's monitoring stack works and how a future OpenCode session can extend it.
+This document explains how the Observatory's monitoring stack works and how to integrate it with Prometheus and Grafana on your own network.
 
-## Current Topology
+## Architecture Overview
+
+The Observatory exposes telemetry via two channels:
+
+1. **Internal telemetry API** — `GET /api/telemetry` returns structured JSON (CPU, memory, GPU, remotes) polled by the frontend every 1.5s
+2. **Prometheus metrics** — `GET /metrics` returns Prometheus-compatible metrics for external monitoring
 
 ```
-Worker Node 1 (198.51.100.100)                    primary-server (198.51.100.1)
-┌──────────────────────────────┐               ┌──────────────────────────────────┐
-│  Prometheus :9090 (Snap)     │               │  Grafana :3030                   │
-│  Node Exporter :9100         │◄──Tailscale──►│  Node Exporter :9100             │
-│  Docker Model Runner :12434  │               │  FastAPI :8001 (Conductor)       │
-│  HTTP File Server :9999      │               │    └── /metrics (Prometheus)     │
-└──────────────────────────────┘               │  Next.js :3001 (Solar Interface) │
-                                               └──────────────────────────────────┘
+Frontend (:3001) ──polls──► Backend (:8001) ──scraped by──► Prometheus ──queried by──► Grafana
+                                        │
+                                        └── /api/telemetry (JSON, for frontend)
+                                        └── /metrics        (Prometheus exposition format)
 ```
 
-## Grafana
+The frontend does **not** query Prometheus directly. It uses the internal `/api/telemetry` JSON endpoint for its visualisations (ResourceConstellation, TrendChart, SystemVitals).
 
-- **URL:** http://localhost:3030 (login: `admin`/`admin`)
-- **Data source:** Prometheus at `http://198.51.100.100:9090`
-- **Dashboard imported:** "Multi-PC Resource Monitor" (UID: `multi-pc-monitor`)
+## Custom Prometheus Metrics
 
-The dashboard has three sections:
-1. **Overview** — CPU/RAM/GPU/VRAM stat panels averaged across all node-exporter instances
-2. **Per-PC Status** — colour-coded table by instance
-3. **Time Series** — CPU & Memory, GPU & VRAM over time
-
-## Backend Prometheus Endpoint
-
-The FastAPI server already exposes `/metrics` at `http://localhost:8001/metrics` with these custom metrics:
+The backend exposes these metrics at `GET /metrics`:
 
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -39,101 +31,148 @@ The FastAPI server already exposes `/metrics` at `http://localhost:8001/metrics`
 | `ollama_models_count` | Gauge | Number of Ollama models available |
 | `openclaw_uptime_seconds` | Gauge | OpenClaw gateway uptime (seconds) |
 
-**These metrics are NOT currently scraped by Prometheus.** To add them:
+Verify the endpoint is working:
 
-1. SSH into Worker Node 1 or edit its Prometheus config directly
-2. Add a scrape target to `/var/snap/prometheus/current/prometheus.yml`:
-   ```yaml
-   - job_name: "conductor"
-     static_configs:
-       - targets: ["198.51.100.1:8001"]   # primary-server Tailscale IP
-   ```
-3. Restart Prometheus: `sudo snap restart prometheus`
-
-## What the Frontend Uses
-
-The frontend (`useWebSocket.ts`) currently polls `http://198.51.100.1:8001/api/telemetry` every 1.5s — this is the backend's structured JSON telemetry (CPU, memory, GPU, remotes, etc.). It does **not** query Prometheus directly.
-
-The frontend visualises telemetry via:
-- `ResourceConstellation.tsx` — SVG celestial bodies for CPU/Memory/GPU/Network
-- `TrendChart.tsx` — SVG bezier trend lines over ~90s window
-- `SystemVitals.tsx` — gauge bars
-
-## Next Steps for Future Sessions
-
-### 1. Add Conductor to Prometheus Scrape Targets
-Add the backend's `/metrics` endpoint to Prometheus so Grafana can show Conductor-specific metrics alongside node-exporter data.
-
-### 2. Create a Grafana Dashboard for Conductor
-Import or create a new dashboard showing `system_cpu_percent`, `ollama_models_count`, trace latency, etc. — metrics only the Conductor exposes.
-
-### 3. Use Prometheus Data in the Frontend
-Add a new frontend hook (`usePromQL`) that queries Prometheus's HTTP API:
-```
-GET http://198.51.100.100:9090/api/v1/query?query=node_cpu_seconds_total
-```
-This would give the frontend richer historical data than the 90-second telemetry window.
-
-### 4. Grafana Embedding
-Grafana supports panel embedding via `<iframe>` or direct image rendering. Could embed Grafana panels directly in the Solar Interface.
-
-### 5. Alerting
-Grafana has built-in alerting. Could trigger notifications when CPU > 90%, Worker Node 1 unreachable, or Ollama model count drops to zero.
-
-## Credentials
-- Grafana: `admin` / `admin` (http://localhost:3030)
-- Prometheus: no auth (LAN only — Worker Node 1 at 198.51.100.100:9090)
-- SSH to Worker Node 1: `ssh user@198.51.100.100`
-
-## Config File Locations
-- Prometheus: `/var/snap/prometheus/current/prometheus.yml` (Worker Node 1)
-- Grafana: `/etc/grafana/grafana.ini` (primary-server)
-- Dashboard JSON: `/home/loki/monitoring-system/grafana-dashboard.json`
-
-## Gotchas & Unwritten Knowledge
-
-### 1. Prometheus Scrape Targets May Be Incomplete
-The Prometheus instance runs on Worker Node 1 (`198.51.100.100:9090`) as a Snap package. Its config likely only scrapes localhost. **It may NOT be scraping:**
-- `primary-server`'s node-exporter at `198.51.100.1:9100` (Tailscale IP)
-- The Conductor's `/metrics` at `198.51.100.1:8001`
-
-Verify with `curl http://198.51.100.100:9090/api/v1/targets` before assuming data is flowing.
-
-### 2. Grafana v13 CLI Syntax Change
-The old `grafana-cli` binary is deprecated. All admin commands use the new syntax:
-```bash
-sudo grafana cli --homepath /usr/share/grafana admin reset-admin-password <pw>
-```
-Running the old `grafana-cli` without `--homepath` will fail with "Could not find config defaults".
-
-### 3. Worker Node 1 Has an HTTP File Server on Port 9999
-Worker Node 1 runs a simple HTTP file server on port 9999 (not SSH, not documented elsewhere). Files can be fetched from it:
-```bash
-curl -O http://198.51.100.100:9999/<filename>
-```
-SSH to Worker Node 1 is not available (no sshd running). Use this HTTP server or Tailscale for file transfers.
-
-### 4. Verify the Conductor's `/metrics` Route
-The backend imports `generate_latest` and `REGISTRY` from `prometheus_client` in `backend/main.py`, but the FastAPI route `GET /metrics` needs to be verified as registered. Test it:
 ```bash
 curl http://localhost:8001/metrics
 ```
-If it returns a 404, a route decorator needs to be added to `main.py`.
 
-### 5. Port Conflicts
-Several services occupy non-standard ports due to past conflicts:
-| Port | Service | Why not standard |
-|------|---------|-----------------|
-| 3000 | RocketChat | Pre-installed, blocks default Grafana/Next.js |
-| 3001 | Next.js (Solar Interface) | Moved from 3000 due to RocketChat |
-| 3030 | Grafana | Moved from 3000 due to RocketChat |
-| 8001 | FastAPI Conductor | Standard 8000 avoided if conflicted |
+If it returns a 404, the Prometheus route may not be registered. Check `backend/main.py` for the `/metrics` route decorator.
 
-Always check `ss -tlnp` before adding new services.
+## Configuring Prometheus Scrape Targets
 
-### 6. Tailscale IPs Are Stable
-- primary-server: `198.51.100.1`
-- Worker Node 1: `198.51.100.100`
-- Worker Node 2: `198.51.100.101`
+Add the Observatory backend as a Prometheus scrape target so Grafana can query its metrics alongside node-exporter data.
 
-Use Tailscale IPs for cross-machine communication — they're stable and encrypted. LAN IPs (`192.168.0.x`) may change depending on DHCP. Tailscale is authenticated and active.
+Edit your Prometheus config (`prometheus.yml`):
+
+```yaml
+scrape_configs:
+  # Node Exporter (one per machine you want to monitor)
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["your-server-ip:9100"]
+
+  # Observatory Backend
+  - job_name: "observatory"
+    static_configs:
+      - targets: ["your-server-ip:8001"]
+```
+
+Restart Prometheus after changes:
+
+```bash
+# Snap
+sudo snap restart prometheus
+
+# Docker
+docker restart prometheus
+
+# Systemd
+sudo systemctl restart prometheus
+```
+
+Verify targets are being scraped:
+
+```bash
+curl http://your-prometheus-ip:9090/api/v1/targets
+```
+
+## Querying the Prometheus API
+
+The Prometheus HTTP API lets you query metrics programmatically:
+
+```bash
+# Instant query — current value
+curl 'http://your-prometheus-ip:9090/api/v1/query?query=system_cpu_percent'
+
+# Range query — over time
+curl 'http://your-prometheus-ip:9090/api/v1/query_range?query=system_cpu_percent&start=2026-01-01T00:00:00Z&end=2026-01-01T01:00:00Z&step=60'
+
+# List all available metrics
+curl 'http://your-prometheus-ip:9090/api/v1/label/__name__/values'
+```
+
+This could be used to give the frontend richer historical data than the 90-second telemetry window — see "Next Steps" below.
+
+## Grafana Setup
+
+### Installation
+
+Follow the [official Grafana installation guide](https://grafana.com/docs/grafana/latest/setup/install/) for your platform.
+
+### Adding Prometheus as a Data Source
+
+1. Open Grafana (`http://your-grafana-ip:3000`)
+2. Go to **Connections → Data Sources → Add data source**
+3. Select **Prometheus**
+4. Set the URL to `http://your-prometheus-ip:9090`
+5. Click **Save & Test**
+
+### Creating a Dashboard
+
+1. Go to **Dashboards → New Dashboard**
+2. Add panels and use PromQL queries against your metrics:
+   - `system_cpu_percent` — CPU usage over time
+   - `system_memory_percent` — Memory usage over time
+   - `gpu_util_percent` — GPU utilization (if NVIDIA GPU present)
+   - `ollama_models_count` — Number of available models
+
+### Embedding Grafana in the Frontend
+
+Grafana supports panel embedding via `<iframe>` or direct image rendering. You could embed specific panels directly in the Observatory interface for a unified view.
+
+### Alerting
+
+Grafana has built-in alerting. Common alerts for the Observatory:
+
+- CPU > 90% for 5 minutes
+- Backend unreachable (metric scrape failing)
+- Ollama model count drops to zero
+- GPU memory > 95%
+
+## Next Steps
+
+### Use Prometheus Data in the Frontend
+
+Add a new frontend hook (e.g. `usePromQL`) that queries the Prometheus HTTP API directly:
+
+```typescript
+const response = await fetch(
+  `http://your-prometheus-ip:9090/api/v1/query?query=system_cpu_percent`
+);
+const data = await response.json();
+```
+
+This would give the frontend access to historical data beyond the 90-second telemetry window.
+
+### Conductor Metrics in Grafana
+
+Create a dedicated Grafana dashboard for Observatory-specific metrics (`system_cpu_percent`, `ollama_models_count`, etc.) to monitor model health and system load over time.
+
+### Cross-Machine Monitoring
+
+If running Prometheus on a separate machine from the Observatory, use stable network addresses (e.g. Tailscale IPs, static LAN IPs, or DNS names) for scrape targets. Avoid DHCP-assigned addresses that may change.
+
+## Gotchas
+
+### Prometheus Scrape Targets May Be Incomplete
+
+A default Prometheus installation often only scrapes `localhost`. If your Observatory runs on a different machine than Prometheus, you must explicitly add its address to `scrape_targets`. Verify with the `/api/v1/targets` endpoint.
+
+### Port Conflicts
+
+Check for existing services before assigning ports:
+
+```bash
+ss -tlnp
+```
+
+Common conflicts: port 3000 (often occupied by other tools), port 8000 (common default for Python servers).
+
+### No Auth on Prometheus
+
+Prometheus typically runs without authentication. If exposed beyond localhost, ensure it's only accessible on a trusted network or behind a reverse proxy with auth.
+
+### GPU Metrics Require nvidia-smi
+
+GPU metrics (`gpu_memory_percent`, `gpu_util_percent`) require `nvidia-smi` to be installed and working. On systems without NVIDIA GPUs, these metrics return 0.
