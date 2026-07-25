@@ -10,7 +10,7 @@
 #   API_BASE         — Observatory backend URL (default: http://127.0.0.1:8001)
 set -euo pipefail
 
-CONFIG_FILE="${HOME}/.config/mythic/log_alerter.env"
+CONFIG_FILE="${LOG_ALERTER_CONFIG:-${HOME}/.config/mythic/log_alerter.env}"
 if [ -f "$CONFIG_FILE" ]; then
   set -a; source "$CONFIG_FILE"; set +a
 fi

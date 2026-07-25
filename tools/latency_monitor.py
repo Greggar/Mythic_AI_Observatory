@@ -170,6 +170,7 @@ def analyze_and_visualize(traces: List[Dict], title_suffix: str = "", terminal: 
 
 def main():
     parser = argparse.ArgumentParser(description="Agentic Step-Level Latency Monitor")
+    parser.add_argument("--api-base", help="API base URL (default: $LATENCY_API_URL or http://127.0.0.1:8001)")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--trace", "-t", nargs="+", help="Fetch specific trace ID(s)")
     group.add_argument("--recent", "-r", type=int, nargs="?", const=10,
@@ -184,6 +185,9 @@ def main():
     parser.add_argument("--terminal", "-T", action="store_true",
                         help="Render ASCII bar chart in terminal (no matplotlib window)")
     args = parser.parse_args()
+
+    if args.api_base:
+        API_BASE = args.api_base
 
     if args.clear_cache:
         if os.path.exists(DATA_FILE):

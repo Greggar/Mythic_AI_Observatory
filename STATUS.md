@@ -1,14 +1,14 @@
 # Mythic AI Observatory — Development Status
 
 ## What It Is
-A distributed agentic AI monitoring and orchestration platform. Users submit prompts that flow through a 7-stage pipeline (intent classification via all-minilm embedding, context assembly, and LLM response generation via `qwen2.5:3b`). The system telemetry and trace data are visualised in a calm, sacred, luxurious single-page interface.
+A distributed agentic AI monitoring and orchestration platform. Users submit prompts that flow through a 7-stage pipeline (intent classification via embedding similarity, context assembly, and LLM response generation). The system telemetry and trace data are visualised in a calm, sacred, luxurious single-page interface.
 
 ## Architecture
 
 ```
-User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ qwen2.5:3b (Ollama :11434)
-                          ↑
-                    Prometheus (:9090) + Node Exporter (:9100)
+User ←→ Next.js (:3001) ←→ FastAPI (:8001) ←→ Ollama (:11434)
+                           ↑
+                     Prometheus (:9090) + Node Exporter (:9100)
 ```
 
 - **Backend** — FastAPI serving telemetry (CPU/mem/disk/network via psutil, 1.5s polling), orchestration pipeline, trace storage in memory. Python 3.12, venv-isolated.

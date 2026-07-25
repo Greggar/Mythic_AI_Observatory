@@ -143,10 +143,10 @@ Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and also **hot-sw
 
 | Value | Base URL | Model | Suitable for |
 |---|---|---|---|
-| `local` | `http://127.0.0.1:11434` (Ollama) | `qwen2.5:3b` | CPU inference on primary server (moderate quality, slow) |
+| `local` | `http://127.0.0.1:11434` (Ollama) | Auto-detected (see §5) | CPU inference on primary server |
 | `worker` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen2.5:7b` | GPU inference on Worker Node 1 (high quality, fast) |
 
-When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the 3B model's context window. When `worker`, the context limit is handled by the remote server.
+When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the configured model's context window. When `worker`, the context limit is handled by the remote server.
 
 **Runtime hot-swap** — implemented as a mutable module-level global `_MODEL_PROVIDER` with `get_model_provider()` / `set_model_provider()` accessors. Two REST endpoints expose this:
 
@@ -241,14 +241,36 @@ States are derived from telemetry thresholds (CPU >80% = heavy load, >50% = proc
 
 ## 5. Complete Setup Guide
 
-### Prerequisites (already installed)
+### Quick Start
 
+```bash
+git clone https://github.com/Greggar/Mythic_AI_Observatory.git
+cd Mythic_AI_Observatory
+bash install.sh
 ```
-Node.js  v22.22.2
-pnpm     v10.33.2
-Python   3.12.3
-OpenClaw 2026.5.20
-```
+
+The install script checks for available Ollama models and picks sensible defaults (see Model Selection below). Edit `backend/.env` if you want to override. Then start both servers with `bash restart.sh`.
+
+### Prerequisites
+
+- **Python 3.12+** and **pip3**
+- **Node.js 22+** and **pnpm** (or npm with corepack)
+- **Ollama** — install from [ollama.com](https://ollama.com) and pull at least one chat model:
+  ```bash
+  ollama pull qwen2.5:3b    # or any model that fits your hardware
+  ```
+
+### Model Selection
+
+The `install.sh` script auto-detects installed Ollama models and picks sensible defaults:
+
+| Role | Selection logic | Fallback |
+|---|---|---|
+| **Main model** (`OLLAMA_MODEL`) | First `qwen2.5` in 3–7B range, then any `qwen2.5`, then any available model | `qwen2.5:3b` |
+| **Classifier** (`CLASSIFIER_MODEL`) | `qwen2.5:1.5b` if available, then smallest `qwen2.5` | `qwen2.5:1.5b` |
+| **Embeddings** (`EMBEDDING_MODEL`) | `all-minilm:22m` if available | `all-minilm:22m` |
+
+Edit `backend/.env` to override, or use the Settings → Models tab after launch.
 
 ### Start the Backend
 

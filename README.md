@@ -60,9 +60,9 @@ Three-layer fallback: **env vars → `network.json` → source defaults**.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `CONDUCTOR_PORT` | `8001` | Backend port |
-| `OLLAMA_MODEL` | `qwen2.5:3b` | Local inference model |
-| `ORCHESTRATOR_MODEL` | `local` | Provider (`local`/`backoffice`) |
-| `CLASSIFIER_MODEL` | `qwen2.5:1.5b` | Background classifier model |
+| `OLLAMA_MODEL` | Auto-detected (`qwen2.5:3b` fallback) | Local inference model |
+| `ORCHESTRATOR_MODEL` | `local` | Provider (`local`/`worker`) |
+| `CLASSIFIER_MODEL` | Auto-detected (`qwen2.5:1.5b` fallback) | Background classifier model |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8001` | Backend URL from browser |
 
 See [CONFIGURATION.md](CONFIGURATION.md) for the full reference.

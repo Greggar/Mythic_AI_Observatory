@@ -20,11 +20,11 @@ No code changes are needed to reconfigure the system for a new network.
 |---|---|---|
 | `CONDUCTOR_HOST` | `127.0.0.1` | IP to bind the FastAPI server |
 | `CONDUCTOR_PORT` | `8001` | Port for the FastAPI server |
-| `OLLAMA_MODEL` | `qwen2.5:3b` | Local (CPU) inference model |
-| `ORCHESTRATOR_MODEL` | `local` | Provider: `local` or `backoffice` |
-| `CLASSIFIER_MODEL` | `qwen2.5:1.5b` | Model for background synesthesia classifier |
+| `OLLAMA_MODEL` | Auto-detected by `install.sh` (`qwen2.5:3b` fallback) | Local (CPU) inference model |
+| `ORCHESTRATOR_MODEL` | `local` | Provider: `local` or `worker` |
+| `CLASSIFIER_MODEL` | Auto-detected (`qwen2.5:1.5b` fallback) | Model for background synesthesia classifier |
 | `CLASSIFIER_POLL_INTERVAL` | `45` | Seconds between classifier agent cycles |
-| `EMBEDDING_MODEL` | `all-minilm:22m` | Model for DDC/LCC embedding similarity |
+| `EMBEDDING_MODEL` | Auto-detected (`all-minilm:22m` fallback) | Model for DDC/LCC embedding similarity |
 | `MODEL_PROFILES_DIR` | `backend/data/model_profiles` | Directory for diagnostic probe profiles (per-model) |
 
 ### Frontend (`frontend/.env`)
