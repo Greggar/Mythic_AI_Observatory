@@ -26,12 +26,12 @@ interface NetworkConfig {
   mask_ips?: boolean;
   analysis?: { model?: string; provider?: string };
   classifier?: { model?: string; poll_interval?: number };
-  embeddings?: { model?: string; cache_dir?: string };
+  embeddings?: { model?: string; cache_dir?: string; url?: string };
   model_provider?: { provider?: string; model?: string };
 }
 
 interface DiscoveredService {
-  type: "ollama" | "observatory";
+  type: "ollama" | "docker_model_runner" | "observatory";
   port: number;
   models?: string[];
   info?: Record<string, string>;
@@ -353,7 +353,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const addMachineFromDiscovery = (machine: DiscoveredMachine) => {
     if (!config) return;
     const id = `machine-${Date.now()}`;
-    const ollamaSvc = machine.services.find((s) => s.type === "ollama");
+    const ollamaSvc = machine.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
     const obsSvc = machine.services.find((s) => s.type === "observatory");
     const svcIds: string[] = [];
     if (ollamaSvc) svcIds.push("worker_llm");
@@ -633,7 +633,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
                       {discoveredMachines.map((m) => {
                         const alreadyAdded = config?.machines && Object.values(config.machines).some((mc) => mc.host === m.ip);
-                        const svc = m.services.find((s) => s.type === "ollama");
+                        const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
                         return (
                           <button
                             key={m.ip}
@@ -1081,6 +1081,25 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                         });
                       }}
                       placeholder="all-minilm:22m"
+                      className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors font-mono"
+                    />
+                    <label className="text-[10px] text-zinc-600 uppercase tracking-wider block mt-3 mb-1.5">
+                      Embedding Service URL
+                    </label>
+                    <p className="text-[10px] text-zinc-600 mb-2">
+                      Leave blank to use the same service as the orchestrator model. Set if using Docker Model Runner (which doesn't serve embeddings).
+                    </p>
+                    <input
+                      type="text"
+                      value={config?.embeddings?.url || ""}
+                      onChange={(e) => {
+                        if (!config) return;
+                        setConfig({
+                          ...config,
+                          embeddings: { ...config.embeddings, url: e.target.value },
+                        });
+                      }}
+                      placeholder="http://127.0.0.1:11434"
                       className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors font-mono"
                     />
                   </div>

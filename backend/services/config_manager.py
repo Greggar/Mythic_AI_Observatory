@@ -141,6 +141,18 @@ def get_embeddings_config() -> dict[str, Any]:
         "cache_dir": ec.get("cache_dir", "/tmp"),
     }
 
+
+def get_embedding_url() -> str:
+    """URL for embedding API. Separate from ollama because Docker Model Runner
+    doesn't serve embeddings — users may need Ollama running alongside DMR."""
+    cfg = _load()
+    ec = cfg.get("embeddings", {})
+    url = ec.get("url")
+    if url:
+        return url
+    # Fall back to ollama service
+    return get_ollama_url()
+
 def get_model_provider_config() -> dict[str, str]:
     cfg = _load()
     mc = cfg.get("model_provider", {})

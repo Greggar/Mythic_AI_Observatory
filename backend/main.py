@@ -364,6 +364,7 @@ async def scan_network() -> dict[str, Any]:
         return {"error": f"Subnet too large ({network.num_addresses} hosts). Scan limited to /24.", "machines": []}
 
     OLLAMA_PORT = 11434
+    DMR_PORT = 12434  # Docker Model Runner (Ollama-compatible)
     OBSERVATORY_PORT = 8001
     TIMEOUT = 1.0  # seconds per host
 
@@ -395,6 +396,32 @@ async def scan_network() -> dict[str, Any]:
             services.append({
                 "type": "ollama",
                 "port": OLLAMA_PORT,
+                "models": models,
+            })
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            pass
+
+        # Probe Docker Model Runner (Ollama-compatible API on port 12434)
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip_str, DMR_PORT), timeout=TIMEOUT
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            models = []
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    resp = await client.get(f"http://{ip_str}:{DMR_PORT}/api/tags")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        models = [m["name"] for m in data.get("models", [])]
+            except Exception:
+                pass
+
+            services.append({
+                "type": "docker_model_runner",
+                "port": DMR_PORT,
                 "models": models,
             })
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):

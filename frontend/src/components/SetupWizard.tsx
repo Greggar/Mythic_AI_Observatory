@@ -6,7 +6,7 @@ import { Check, ChevronRight, Server, Wifi, Cpu, Plus, Trash2, Sparkles, Search,
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface DiscoveredService {
-  type: "ollama" | "observatory";
+  type: "ollama" | "docker_model_runner" | "observatory";
   port: number;
   models?: string[];
   info?: Record<string, string>;
@@ -66,14 +66,14 @@ export default function SetupWizard({ onComplete }: Props) {
   }, []);
 
   const ollamaDiscoveries = discovered.filter((m) =>
-    m.services.some((s) => s.type === "ollama")
+    m.services.some((s) => s.type === "ollama" || s.type === "docker_model_runner")
   );
   const workerDiscoveries = discovered.filter((m) =>
-    m.services.some((s) => s.type === "ollama" || s.type === "observatory")
+    m.services.some((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "observatory")
   );
 
   const addWorkerFromDiscovery = (machine: DiscoveredMachine) => {
-    const ollamaSvc = machine.services.find((s) => s.type === "ollama");
+    const ollamaSvc = machine.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
     const obsSvc = machine.services.find((s) => s.type === "observatory");
     const services: string[] = [];
     if (ollamaSvc) services.push("worker_llm");
@@ -176,7 +176,7 @@ export default function SetupWizard({ onComplete }: Props) {
         </div>
         <div>
           <h2 className="text-lg font-semibold text-white">Local AI Engine</h2>
-          <p className="text-sm text-zinc-400">Where is Ollama running?</p>
+          <p className="text-sm text-zinc-400">Where is your model runner? (Ollama or Docker Model Runner)</p>
         </div>
       </div>
       <div className="grid grid-cols-[1fr_100px] gap-3">
@@ -210,7 +210,7 @@ export default function SetupWizard({ onComplete }: Props) {
         <div className="space-y-1.5">
           <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
           {ollamaDiscoveries.map((m) => {
-            const svc = m.services.find((s) => s.type === "ollama")!;
+            const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner")!;
             const isSelected = ollamaHost === m.ip;
             return (
               <button
@@ -265,7 +265,7 @@ export default function SetupWizard({ onComplete }: Props) {
           <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
           {workerDiscoveries.map((m) => {
             const alreadyAdded = workers.some((w) => w.host === m.ip);
-            const svc = m.services.find((s) => s.type === "ollama");
+            const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
             return (
               <button
                 key={m.ip}

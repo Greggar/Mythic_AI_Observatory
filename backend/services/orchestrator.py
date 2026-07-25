@@ -630,7 +630,7 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 async def _embed(text: str) -> list[float]:
     if text in _embed_cache:
         return _embed_cache[text]
-    base_url = config_manager.get_ollama_url()
+    base_url = config_manager.get_embedding_url()
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{base_url}/api/embeddings",

@@ -96,7 +96,7 @@ _output_emb_cache: dict[str, list[float]] | None = None
 
 
 async def _compute_embedding(text: str) -> list[float]:
-    base_url = config_manager.get_ollama_url() or "http://127.0.0.1:11434"
+    base_url = config_manager.get_embedding_url()
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{base_url}/api/embeddings",

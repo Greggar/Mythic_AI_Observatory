@@ -107,12 +107,15 @@ Set independently of the execution model. Can be a larger/remote model while the
 {
   "embeddings": {
     "model": "all-minilm:22m",
-    "cache_dir": "/tmp"
+    "cache_dir": "/tmp",
+    "url": "http://127.0.0.1:11434"
   }
 }
 ```
 
 Used by DDC and LCC embedding classifiers. The model must support the `/api/embeddings` endpoint.
+
+**Docker Model Runner users:** DMR doesn't serve embeddings. If your primary model runner is DMR, set `embeddings.url` to an Ollama instance (can be on the same machine or another machine on your network) that has `all-minilm:22m` pulled.
 
 ### Classifier Model (`Settings > Models tab — new`)
 

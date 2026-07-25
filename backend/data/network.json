@@ -55,5 +55,10 @@
     "provider": "local",
     "model": ""
   },
-  "_configured": false
+  "embeddings": {
+    "model": "all-minilm:22m",
+    "cache_dir": "/tmp",
+    "url": ""
+  },
+  "_configured": true
 }
