@@ -2,6 +2,8 @@
 set -e
 PROJECT="$(cd "$(dirname "$0")" && pwd)"
 
+mkdir -p "$PROJECT/logs"
+
 pkill -f "next-server" 2>/dev/null || true
 pkill -f "uvicorn" 2>/dev/null || true
 sleep 1

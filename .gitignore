@@ -28,6 +28,8 @@ Thumbs.db
 # Runtime data (trace history, etc.)
 backend/data/traces.jsonl
 backend/data/synesth_cache.json
+backend/data/annotations.jsonl
+backend/data/model_profiles/
 
 # Build artifacts
 dist/
