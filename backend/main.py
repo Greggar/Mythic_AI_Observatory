@@ -332,6 +332,133 @@ async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
             config_manager.set_worker_model(mp["model"])
     return result
 
+# ── Network scan ──────────────────────────────────────────────────
+@app.post("/api/network/scan")
+async def scan_network() -> dict[str, Any]:
+    """Scan the local subnet for Ollama and Observatory instances."""
+    import socket
+    import ipaddress
+
+    # Detect local subnet
+    local_ip = None
+    netmask = None
+    for iface_addrs in psutil.net_if_addrs().values():
+        for addr in iface_addrs:
+            if addr.family == socket.AF_INET and not addr.address.startswith("127."):
+                local_ip = addr.address
+                netmask = addr.netmask
+                break
+        if local_ip:
+            break
+
+    if not local_ip or not netmask:
+        return {"error": "Could not detect local network interface", "machines": []}
+
+    try:
+        network = ipaddress.IPv4Network(f"{local_ip}/{netmask}", strict=False)
+    except ValueError:
+        return {"error": f"Invalid network: {local_ip}/{netmask}", "machines": []}
+
+    # Skip very large subnets (>512 hosts) to avoid long scans
+    if network.num_addresses > 512:
+        return {"error": f"Subnet too large ({network.num_addresses} hosts). Scan limited to /24.", "machines": []}
+
+    OLLAMA_PORT = 11434
+    OBSERVATORY_PORT = 8001
+    TIMEOUT = 1.0  # seconds per host
+
+    discovered = []
+
+    async def probe_host(ip_str: str):
+        """Try connecting to Ollama and Observatory ports on this IP."""
+        services = []
+
+        # Probe Ollama
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip_str, OLLAMA_PORT), timeout=TIMEOUT
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            # Try to get model list
+            models = []
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    resp = await client.get(f"http://{ip_str}:{OLLAMA_PORT}/api/tags")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        models = [m["name"] for m in data.get("models", [])]
+            except Exception:
+                pass
+
+            services.append({
+                "type": "ollama",
+                "port": OLLAMA_PORT,
+                "models": models,
+            })
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            pass
+
+        # Probe Observatory
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip_str, OBSERVATORY_PORT), timeout=TIMEOUT
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            # Try to get health info
+            info = {}
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    resp = await client.get(f"http://{ip_str}:{OBSERVATORY_PORT}/health")
+                    if resp.status_code == 200:
+                        info = resp.json()
+            except Exception:
+                pass
+
+            services.append({
+                "type": "observatory",
+                "port": OBSERVATORY_PORT,
+                "info": info,
+            })
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            pass
+
+        if services:
+            # Try to get hostname via reverse DNS
+            hostname = None
+            try:
+                hostname = socket.gethostbyaddr(ip_str)[0]
+            except (socket.herror, socket.gaierror, OSError):
+                pass
+
+            discovered.append({
+                "ip": ip_str,
+                "hostname": hostname,
+                "services": services,
+            })
+
+    # Scan all hosts in parallel (max 64 concurrent)
+    hosts = [str(ip) for ip in network.hosts()]
+    sem = asyncio.Semaphore(64)
+
+    async def bounded_probe(ip_str):
+        async with sem:
+            await probe_host(ip_str)
+
+    await asyncio.gather(*(bounded_probe(ip) for ip in hosts))
+
+    # Sort by IP for consistent ordering
+    discovered.sort(key=lambda m: tuple(int(p) for p in m["ip"].split(".")))
+
+    return {
+        "subnet": str(network),
+        "local_ip": local_ip,
+        "machines": discovered,
+    }
+
 class ModelConfigBody(BaseModel):
     provider: str  # "local" or "worker"
     model: str | None = None

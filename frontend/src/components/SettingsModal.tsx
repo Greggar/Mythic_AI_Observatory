@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check, AlertTriangle, FileText } from "lucide-react";
+import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check, AlertTriangle, FileText, Search } from "lucide-react";
 
 interface ServiceConfig {
   label: string;
@@ -28,6 +28,19 @@ interface NetworkConfig {
   classifier?: { model?: string; poll_interval?: number };
   embeddings?: { model?: string; cache_dir?: string };
   model_provider?: { provider?: string; model?: string };
+}
+
+interface DiscoveredService {
+  type: "ollama" | "observatory";
+  port: number;
+  models?: string[];
+  info?: Record<string, string>;
+}
+
+interface DiscoveredMachine {
+  ip: string;
+  hostname: string | null;
+  services: DiscoveredService[];
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -80,6 +93,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaSaved, setSchemaSaved] = useState(false);
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [discoveredMachines, setDiscoveredMachines] = useState<DiscoveredMachine[]>([]);
+  const [scanningNetwork, setScanningNetwork] = useState(false);
+  const [scanError, setScanError] = useState("");
   const delModels = useMemo(() => {
     const s = new Set<string>();
     for (const t of allTraceMeta) if (t.model_used) s.add(t.model_used);
@@ -317,6 +333,47 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     const next = { ...config.machines };
     delete next[id];
     setConfig({ ...config, machines: next });
+  };
+
+  const scanNetwork = useCallback(async () => {
+    setScanningNetwork(true);
+    setScanError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/network/scan`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) setScanError(data.error);
+      setDiscoveredMachines(data.machines || []);
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : "Scan failed");
+    } finally {
+      setScanningNetwork(false);
+    }
+  }, []);
+
+  const addMachineFromDiscovery = (machine: DiscoveredMachine) => {
+    if (!config) return;
+    const id = `machine-${Date.now()}`;
+    const ollamaSvc = machine.services.find((s) => s.type === "ollama");
+    const obsSvc = machine.services.find((s) => s.type === "observatory");
+    const svcIds: string[] = [];
+    if (ollamaSvc) svcIds.push("worker_llm");
+    if (obsSvc) svcIds.push("openclaw");
+
+    setConfig({
+      ...config,
+      machines: {
+        ...config.machines,
+        [id]: {
+          name: machine.hostname || machine.ip,
+          host: machine.ip,
+          desc: ollamaSvc
+            ? `Ollama${ollamaSvc.models?.length ? ` (${ollamaSvc.models.length} models)` : ""}`
+            : "Observatory instance",
+          insight: "",
+          services: svcIds,
+        },
+      },
+    });
   };
 
   const handleSave = async () => {
@@ -570,13 +627,61 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       </div>
                     </div>
                   ))}
-                  <button
-                    onClick={addMachine}
-                    className="w-full py-2.5 border border-dashed border-white/[0.08] rounded-xl text-sm text-zinc-500 hover:text-teal-mystic hover:border-teal-mystic/30 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Machine
-                  </button>
+                  {/* Discovered machines */}
+                  {discoveredMachines.length > 0 && (
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
+                      {discoveredMachines.map((m) => {
+                        const alreadyAdded = config?.machines && Object.values(config.machines).some((mc) => mc.host === m.ip);
+                        const svc = m.services.find((s) => s.type === "ollama");
+                        return (
+                          <button
+                            key={m.ip}
+                            onClick={() => !alreadyAdded && addMachineFromDiscovery(m)}
+                            disabled={alreadyAdded}
+                            className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-colors flex items-center justify-between ${
+                              alreadyAdded
+                                ? "bg-teal-mystic/10 border-teal-mystic/20 text-teal-mystic/60"
+                                : "bg-black/20 border-white/[0.06] text-zinc-400 hover:border-teal-mystic/30 hover:text-teal-mystic"
+                            }`}
+                          >
+                            <span>
+                              <span className="font-mono">{m.ip}</span>
+                              {m.hostname && <span className="text-zinc-600 ml-1.5">({m.hostname})</span>}
+                            </span>
+                            <span className="text-[10px] text-zinc-600">
+                              {alreadyAdded ? "added" : svc ? `${svc.models?.length || 0} models` : "observatory"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    {discoveredMachines.length === 0 && !scanningNetwork && (
+                      <button
+                        onClick={scanNetwork}
+                        className="flex-1 py-2.5 border border-dashed border-white/[0.08] rounded-xl text-sm text-zinc-500 hover:text-teal-mystic hover:border-teal-mystic/30 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Search className="w-4 h-4" />
+                        Scan Network
+                      </button>
+                    )}
+                    <button
+                      onClick={addMachine}
+                      className={`${discoveredMachines.length === 0 && !scanningNetwork ? "flex-1" : "w-full"} py-2.5 border border-dashed border-white/[0.08] rounded-xl text-sm text-zinc-500 hover:text-teal-mystic hover:border-teal-mystic/30 transition-colors flex items-center justify-center gap-2`}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add Manually
+                    </button>
+                  </div>
+                  {scanningNetwork && (
+                    <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 py-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Scanning subnet...
+                    </div>
+                  )}
+                  {scanError && <p className="text-[10px] text-red-400/80">{scanError}</p>}
                 </div>
               )}
 

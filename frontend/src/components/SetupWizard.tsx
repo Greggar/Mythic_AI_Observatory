@@ -1,9 +1,22 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronRight, Server, Wifi, Cpu, Plus, Trash2, Sparkles } from "lucide-react";
+import { Check, ChevronRight, Server, Wifi, Cpu, Plus, Trash2, Sparkles, Search, Loader2 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
+interface DiscoveredService {
+  type: "ollama" | "observatory";
+  port: number;
+  models?: string[];
+  info?: Record<string, string>;
+}
+
+interface DiscoveredMachine {
+  ip: string;
+  hostname: string | null;
+  services: DiscoveredService[];
+}
 
 interface WorkerEntry {
   id: string;
@@ -26,11 +39,59 @@ export default function SetupWizard({ onComplete }: Props) {
   const [ollamaHost, setOllamaHost] = useState("127.0.0.1");
   const [ollamaPort, setOllamaPort] = useState("11434");
   const [workers, setWorkers] = useState<WorkerEntry[]>([]);
+  const [discovered, setDiscovered] = useState<DiscoveredMachine[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (inputRef.current) inputRef.current.focus();
   }, [step]);
+
+  const scanNetwork = useCallback(async () => {
+    setScanning(true);
+    setScanError("");
+    try {
+      const res = await fetch(`${API_BASE}/api/network/scan`, { method: "POST" });
+      const data = await res.json();
+      if (data.error) {
+        setScanError(data.error);
+      }
+      setDiscovered(data.machines || []);
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : "Scan failed");
+    } finally {
+      setScanning(false);
+    }
+  }, []);
+
+  const ollamaDiscoveries = discovered.filter((m) =>
+    m.services.some((s) => s.type === "ollama")
+  );
+  const workerDiscoveries = discovered.filter((m) =>
+    m.services.some((s) => s.type === "ollama" || s.type === "observatory")
+  );
+
+  const addWorkerFromDiscovery = (machine: DiscoveredMachine) => {
+    const ollamaSvc = machine.services.find((s) => s.type === "ollama");
+    const obsSvc = machine.services.find((s) => s.type === "observatory");
+    const services: string[] = [];
+    if (ollamaSvc) services.push("worker_llm");
+    if (obsSvc) services.push("openclaw");
+
+    setWorkers((prev) => [
+      ...prev,
+      {
+        id: `worker-${Date.now()}`,
+        name: machine.hostname || machine.ip,
+        host: machine.ip,
+        desc: ollamaSvc
+          ? `Ollama${ollamaSvc.models?.length ? ` (${ollamaSvc.models.length} models)` : ""}`
+          : "Observatory instance",
+        services,
+      },
+    ]);
+  };
 
   const addWorker = () => {
     setWorkers((prev) => [
@@ -144,6 +205,47 @@ export default function SetupWizard({ onComplete }: Props) {
         </div>
       </div>
       <p className="text-[10px] text-zinc-600">Ollama can be on this machine (127.0.0.1) or another machine on your network.</p>
+      {/* Discovered Ollama instances */}
+      {ollamaDiscoveries.length > 0 && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
+          {ollamaDiscoveries.map((m) => {
+            const svc = m.services.find((s) => s.type === "ollama")!;
+            const isSelected = ollamaHost === m.ip;
+            return (
+              <button
+                key={m.ip}
+                onClick={() => { setOllamaHost(m.ip); setOllamaPort(String(svc.port)); }}
+                className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-colors flex items-center justify-between ${
+                  isSelected
+                    ? "bg-violet-500/15 border-violet-500/30 text-violet-300"
+                    : "bg-black/20 border-white/[0.06] text-zinc-400 hover:border-white/[0.12]"
+                }`}
+              >
+                <span className="font-mono">{m.ip}{m.hostname ? ` (${m.hostname})` : ""}</span>
+                <span className="text-[10px] text-zinc-600">{svc.models?.length || 0} models</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {/* Scan button */}
+      {ollamaDiscoveries.length === 0 && !scanning && (
+        <button
+          onClick={scanNetwork}
+          className="w-full py-2 border border-dashed border-white/[0.08] rounded-xl text-xs text-zinc-500 hover:text-violet-400 hover:border-violet-500/30 transition-colors flex items-center justify-center gap-1.5"
+        >
+          <Search className="w-3.5 h-3.5" />
+          Scan network for Ollama
+        </button>
+      )}
+      {scanning && (
+        <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 py-2">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Scanning subnet...
+        </div>
+      )}
+      {scanError && <p className="text-[10px] text-red-400/80">{scanError}</p>}
     </div>,
 
     // Step 2: Workers (optional)
@@ -157,6 +259,36 @@ export default function SetupWizard({ onComplete }: Props) {
           <p className="text-sm text-zinc-400">Any remote AI nodes on your network? (optional)</p>
         </div>
       </div>
+      {/* Discovered machines */}
+      {workerDiscoveries.length > 0 && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
+          {workerDiscoveries.map((m) => {
+            const alreadyAdded = workers.some((w) => w.host === m.ip);
+            const svc = m.services.find((s) => s.type === "ollama");
+            return (
+              <button
+                key={m.ip}
+                onClick={() => !alreadyAdded && addWorkerFromDiscovery(m)}
+                disabled={alreadyAdded}
+                className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-colors flex items-center justify-between ${
+                  alreadyAdded
+                    ? "bg-teal-mystic/10 border-teal-mystic/20 text-teal-mystic/60"
+                    : "bg-black/20 border-white/[0.06] text-zinc-400 hover:border-amber-500/30 hover:text-amber-300"
+                }`}
+              >
+                <span>
+                  <span className="font-mono">{m.ip}</span>
+                  {m.hostname && <span className="text-zinc-600 ml-1.5">({m.hostname})</span>}
+                </span>
+                <span className="text-[10px] text-zinc-600">
+                  {alreadyAdded ? "added" : svc ? `${svc.models?.length || 0} models` : "observatory"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="space-y-2">
         {workers.map((w) => (
           <div key={w.id} className="glass-panel !rounded-xl p-3 space-y-2 relative">
@@ -200,13 +332,30 @@ export default function SetupWizard({ onComplete }: Props) {
             </div>
           </div>
         ))}
-        <button
-          onClick={addWorker}
-          className="w-full py-2 border border-dashed border-white/[0.08] rounded-xl text-xs text-zinc-500 hover:text-teal-mystic hover:border-teal-mystic/30 transition-colors flex items-center justify-center gap-1.5"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add Worker
-        </button>
+        <div className="flex gap-2">
+          {workerDiscoveries.length === 0 && !scanning && (
+            <button
+              onClick={scanNetwork}
+              className="flex-1 py-2 border border-dashed border-white/[0.08] rounded-xl text-xs text-zinc-500 hover:text-amber-400 hover:border-amber-500/30 transition-colors flex items-center justify-center gap-1.5"
+            >
+              <Search className="w-3.5 h-3.5" />
+              Scan network
+            </button>
+          )}
+          <button
+            onClick={addWorker}
+            className={`${workerDiscoveries.length === 0 ? "flex-1" : "w-full"} py-2 border border-dashed border-white/[0.08] rounded-xl text-xs text-zinc-500 hover:text-teal-mystic hover:border-teal-mystic/30 transition-colors flex items-center justify-center gap-1.5`}
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add manually
+          </button>
+        </div>
+        {scanning && (
+          <div className="flex items-center justify-center gap-2 text-xs text-zinc-500 py-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Scanning subnet...
+          </div>
+        )}
       </div>
     </div>,
 
