@@ -24,7 +24,7 @@ We are a long way toward health + function transparency. The items below extend 
 
 | # | Item | Effort | Est. Time |
 |---|------|--------|-----------|
-| 1 | **Replace `backend/data/*.json` with template defaults** — `network.json`, `machines.json`, `services.json` currently ship with Gregory Long's network (primary-server, BackOffice, LoungeRoom, Tailscale IPs, specific model tags). Replace with all-`127.0.0.1` defaults and a `TEMPLATE.md` explaining how to configure for a real network. | ★★☆ | 1 h |
+| 1 | **Replace `backend/data/*.json` with template defaults** — `network.json`, `machines.json`, `services.json` currently ship with hardcoded machine-specific configurations (personal hostnames, local IPs, specific model tags). Replace with all-`127.0.0.1` defaults and a `TEMPLATE.md` explaining how to configure for a real network. | ★★☆ | 1 h |
 | 2 | **Frontend machine names data-driven** — `ResourceConstellation.tsx` has `Gingerlong`, `BackOffice`, `LoungeRoom` as hardcoded string constants. Make it read machine/service data from the API so any network topology is rendered automatically. | ★★☆ | 1.5 h |
 | 3 | **`frontend/next.config.ts` cleanup** — `allowedDevOrigins` contains 3 LAN IPs; rewrite proxy hardcodes `localhost:8001`. Both should be driven by `NEXT_PUBLIC_API_URL` or removed. | ★☆☆ | 20 min |
 | 4 | **`backend/services/ddc_embeddings.py` / `lcc_embeddings.py` — use config_manager** — both hardcode `OLLAMA_URL = "http://127.0.0.1:11434"` instead of reading from `config_manager.get_ollama_url()`. | ★☆☆ | 15 min |
@@ -287,7 +287,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 - **"Analyze with AI" button** — new `POST /api/traces/analyze` endpoint with per-type analysis prompts (cross, synesthesia, mood-intent, intonation, grammar). Frontend shows loading/error/result states per relationship type.
 - **Analysis model persistence** — config_manager.py reads/writes analysis model config to `network.json` under `"analysis"` key. Survives server restarts.
 - **Open-source readiness** — Phase 0 checklist (13 items) added covering IP/hostname removal, config defaults, env vars, and docs scrubbing.
-- **LICENSE file** — custom MIT License prohibiting standalone reselling, requiring attribution to Gregory Long.
+- **LICENSE file** — updated to standard MIT License.
 
 ## Session summary — 2026-06-12
 
