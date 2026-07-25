@@ -30,21 +30,119 @@ echo "  pip3: $(pip3 --version)"
 echo "  $PKG_MGR: $($PKG_MGR --version)"
 echo ""
 
+# ----- Detect Ollama models -----
+echo "--- Detecting Ollama models ---"
+OLLAMA_FOUND=""
+OLLAMA_MODELS=""
+
+if command -v ollama >/dev/null 2>&1 && ollama list >/dev/null 2>&1; then
+  OLLAMA_FOUND=true
+  OLLAMA_MODELS=$(ollama list 2>/dev/null | tail -n +2 | awk '{print $1}')
+  echo "  Available models:"
+  echo "$OLLAMA_MODELS" | sed 's/^/    /'
+  echo ""
+else
+  echo "  Ollama not running or not installed — will use default model names."
+  echo "  After install, run: ollama pull qwen2.5:3b"
+  echo ""
+fi
+
+# Pick main model: prefer qwen2.5 3-7B, then any qwen2.5, then first available
+pick_main_model() {
+  if [ -z "$OLLAMA_FOUND" ]; then
+    echo "qwen2.5:3b"
+    return
+  fi
+  # Prefer qwen2.5 variants in 3-7B range
+  local candidate
+  candidate=$(echo "$OLLAMA_MODELS" | grep -E '^qwen2\.5:(3b|7b|14b)' | head -1)
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return
+  fi
+  # Any qwen2.5 model
+  candidate=$(echo "$OLLAMA_MODELS" | grep '^qwen2.5' | head -1)
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return
+  fi
+  # Any chat model (avoid embedding/classification-only models)
+  candidate=$(echo "$OLLAMA_MODELS" | grep -vE '^all-minilm' | head -1)
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return
+  fi
+  echo "qwen2.5:3b"
+}
+
+# Pick classifier: prefer 1.5b, then smallest qwen, then smallest model
+pick_classifier_model() {
+  if [ -z "$OLLAMA_FOUND" ]; then
+    echo "qwen2.5:1.5b"
+    return
+  fi
+  local candidate
+  candidate=$(echo "$OLLAMA_MODELS" | grep '^qwen2.5:1\.5b' | head -1)
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return
+  fi
+  candidate=$(echo "$OLLAMA_MODELS" | grep '^qwen2.5' | sort -V | head -1)
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return
+  fi
+  echo "$OLLAMA_MODELS" | grep -vE '^all-minilm' | head -1 || echo "qwen2.5:1.5b"
+}
+
+# Pick embedding model: prefer all-minilm
+pick_embedding_model() {
+  if [ -z "$OLLAMA_FOUND" ]; then
+    echo "all-minilm:22m"
+    return
+  fi
+  local candidate
+  candidate=$(echo "$OLLAMA_MODELS" | grep '^all-minilm' | head -1)
+  if [ -n "$candidate" ]; then
+    echo "$candidate"
+    return
+  fi
+  echo "all-minilm:22m"
+}
+
+MAIN_MODEL=$(pick_main_model)
+CLASSIFIER_MODEL=$(pick_classifier_model)
+EMBEDDING_MODEL=$(pick_embedding_model)
+
+echo "  Selected for main model:    $MAIN_MODEL"
+echo "  Selected for classifier:    $CLASSIFIER_MODEL"
+echo "  Selected for embeddings:    $EMBEDDING_MODEL"
+echo ""
+
 # ----- Backend setup -----
 echo "--- Setting up backend ---"
 cd "$PROJECT/backend"
 
 # Create .env if missing
 if [ ! -f .env ]; then
-  echo "Creating backend/.env from defaults..."
-  cat > .env << 'ENVEOF'
+  echo "Creating backend/.env..."
+  cat > .env << ENVEOF
+# Backend server binding
 CONDUCTOR_HOST=127.0.0.1
 CONDUCTOR_PORT=8001
-OLLAMA_MODEL=qwen2.5:3b
+
+# Local (CPU) inference model — edit to match your Ollama setup
+OLLAMA_MODEL=${MAIN_MODEL}
+
+# Orchestrator provider: "local" or "worker"
 ORCHESTRATOR_MODEL=local
-CLASSIFIER_MODEL=qwen2.5:1.5b
+
+# Background synesthesia classifier — use a small, fast model
+CLASSIFIER_MODEL=${CLASSIFIER_MODEL}
 CLASSIFIER_POLL_INTERVAL=45
-EMBEDDING_MODEL=all-minilm:22m
+
+# Embedding model for DDC/LCC
+EMBEDDING_MODEL=${EMBEDDING_MODEL}
 ENVEOF
   echo "  backend/.env created"
 else
@@ -89,6 +187,24 @@ else
   echo "  node_modules exists — skipping install"
 fi
 echo ""
+
+# ----- Verify models -----
+if [ -n "$OLLAMA_FOUND" ]; then
+  echo "--- Verifying models ---"
+  MISSING=""
+  for m in "$MAIN_MODEL" "$CLASSIFIER_MODEL" "$EMBEDDING_MODEL"; do
+    if ! echo "$OLLAMA_MODELS" | grep -qF "$m"; then
+      MISSING="$MISSING $m"
+    fi
+  done
+  if [ -n "$MISSING" ]; then
+    echo "  WARNING: Models not found locally:$MISSING"
+    echo "  Pull them with: ollama pull <model>"
+  else
+    echo "  All selected models available"
+  fi
+  echo ""
+fi
 
 # ----- Done -----
 echo "=== Install complete ==="
