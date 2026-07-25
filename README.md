@@ -7,6 +7,8 @@ A distributed agentic AI monitoring and orchestration platform. Observes, classi
 
 ## Quick Start
 
+See [INSTALL.md](INSTALL.md) for detailed step-by-step instructions.
+
 **Requirements:** Python 3.11+, Node.js 20+, pnpm 9+, Ollama (local or LAN)
 
 **Optional:** OpenClaw (agent gateway), Prometheus + Grafana (external monitoring)
