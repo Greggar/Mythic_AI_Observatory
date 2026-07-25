@@ -1,6 +1,6 @@
-# Mythic AI Observatory
+# Mythic AI Observatory (Alpha)
 
-A distributed agentic AI monitoring and orchestration platform. Observes, classifies, and visualises LLM inference traces across a local or LAN-connected network of models.
+A distributed agentic AI monitoring and orchestration platform. Observes, classifies, and visualises LLM inference traces across a local or LAN-connected network of models. This is in the Alpha testing phase.
 
 - **Backend** — FastAPI conductor that runs orchestration traces against Ollama models, classifies them (DDC, LCC, synesthesia), and serves telemetry
 - **Frontend** — Next.js 16 dashboard with glassmorphic UI: real-time system vitals, trace replay, classification maps, and comparative analysis
