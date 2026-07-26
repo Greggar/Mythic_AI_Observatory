@@ -47,6 +47,9 @@ Open http://localhost:3001. On first launch a setup wizard walks through provide
 
 The **Conductor** (FastAPI) polls system telemetry, manages orchestration traces (7-stage pipeline), and runs background classifiers (DDC, LCC, synesthesia). The **Solar Interface** (Next.js) renders everything in real time.
 
+<img width="1127" height="885" alt="trace1" src="https://github.com/user-attachments/assets/6c0275f2-61d0-4d05-8922-978b80ffe532" />
+
+
 ## Features
 
 - **Orchestration pipeline** — 7-stage agentic trace (Intent Classification → Memory Retrieval → Agent Selection → Context Synthesis → Response Generation → Final Response) against any Ollama model
