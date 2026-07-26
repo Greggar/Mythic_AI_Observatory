@@ -1,3 +1,5 @@
+<img width="1145" height="832" alt="observatory" src="https://github.com/user-attachments/assets/45575741-1732-457b-a797-d3f9b274c95e" />
+
 # Mythic AI Observatory (Alpha)
 
 A distributed agentic AI monitoring and orchestration platform. Observes, classifies, and visualises LLM inference traces across a local or LAN-connected network of models. This is in the Alpha testing phase.
