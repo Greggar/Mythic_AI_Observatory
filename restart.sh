@@ -8,9 +8,11 @@ pkill -f "next-server" 2>/dev/null || true
 pkill -f "uvicorn" 2>/dev/null || true
 sleep 1
 
-# Load env defaults
+# Load env defaults — set -a exports all vars so subprocesses inherit them
 if [ -f "$PROJECT/backend/.env" ]; then
-  export $(grep -v '^\s*#' "$PROJECT/backend/.env" | xargs)
+  set -a
+  source "$PROJECT/backend/.env"
+  set +a
 fi
 BACKEND_PORT="${CONDUCTOR_PORT:-8001}"
 FRONTEND_PORT="${FRONTEND_PORT:-3001}"

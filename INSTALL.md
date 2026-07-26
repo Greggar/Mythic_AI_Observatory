@@ -68,6 +68,8 @@ Then open **http://localhost:3001** in a browser. On first launch, a setup wizar
 
 **First trace is slow (~30s)** — the model is loading into memory. Subsequent traces are fast.
 
+**Using Docker Model Runner instead of Ollama?** — DMR doesn't serve embeddings (`/api/embeddings`). After install, edit `backend/data/network.json` and set `embeddings.url` to an Ollama instance with `all-minilm:22m` (can be Docker Ollama on the same machine). Also update `services.ollama` to point at DMR's port (12434) if using it for completions.
+
 ## Optional Services
 
 These are not required. The Observatory works without them — they just add extra features.

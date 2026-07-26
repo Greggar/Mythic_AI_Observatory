@@ -14,10 +14,10 @@
     },
     "worker_llm": {
       "label": "Worker LLM",
-      "host": "0.0.0.0",
+      "host": "198.51.100.100",
       "port": 12434,
-      "model": "qwen2.5:7b",
-      "enabled": false
+      "model": "docker.io/ai/gpt-oss:20B",
+      "enabled": true
     },
     "prometheus": {
       "label": "Prometheus",
@@ -30,30 +30,30 @@
     "primary": {
       "name": "Primary Server",
       "host": "127.0.0.1",
-      "desc": "Primary orchestration server \u2014 API, UI, Ollama, OpenClaw",
+      "desc": "Primary orchestration server - API, UI, Ollama, OpenClaw",
       "insight": "The conductor. Hosts the API, UI, Ollama, OpenClaw. All orchestration originates here.",
       "services": [
         "ollama",
         "openclaw"
       ]
     },
-    "worker1": {
-      "name": "Worker Node",
-      "host": "0.0.0.0",
-      "desc": "GPU worker node \u2014 add your worker's IP",
-      "insight": "Compute node. Configure with your worker's LAN address.",
+    "backoffice": {
+      "name": "BackOffice",
+      "host": "198.51.100.100",
+      "desc": "Docker Model Runner (10 models)",
+      "insight": "GPU worker node running Docker Model Runner on port 12434.",
       "services": [
         "worker_llm"
       ]
     }
   },
   "analysis": {
-    "model": "qwen2.5:3b",
-    "provider": "local"
+    "model": "docker.io/ai/gpt-oss:20B",
+    "provider": "worker"
   },
   "model_provider": {
     "provider": "local",
-    "model": ""
+    "model": "qwen2.5:3b"
   },
   "embeddings": {
     "model": "all-minilm:22m",

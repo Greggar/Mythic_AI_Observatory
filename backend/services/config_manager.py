@@ -153,6 +153,13 @@ def get_embedding_url() -> str:
     # Fall back to ollama service
     return get_ollama_url()
 
+
+def get_embedding_model() -> str:
+    """Embedding model name. Resolved at call time so runtime config changes take effect."""
+    cfg = _load()
+    ec = cfg.get("embeddings", {})
+    return os.environ.get("EMBEDDING_MODEL") or ec.get("model", "all-minilm:22m")
+
 def get_model_provider_config() -> dict[str, str]:
     cfg = _load()
     mc = cfg.get("model_provider", {})

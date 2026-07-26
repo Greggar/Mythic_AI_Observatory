@@ -400,6 +400,14 @@ A response object can be truthy while its nested fields are still undefined (e.g
 
 `export VAR=value` in one shell command is not inherited by a process started in another. Use `env VAR=value uvicorn ...` as a single command, or hardcode sensible defaults with `os.environ.get("VAR", "default")`.
 
+### 6.10 Port 3001 EADDRINUSE With No Visible Process
+
+Sometimes `ss`, `lsof`, and `fuser` show nothing on port 3001 but `next dev -p 3001` still gets `EADDRINUSE`. This is typically a stale Next.js process or a zombie `node` from an interrupted session. Fix: `kill $(pgrep -f "next-server")` or use a different port (`pnpm dev --port 3003`). Also check for orphaned `node` processes: `ps aux | grep node`.
+
+### 6.11 Docker Model Runner Doesn't Serve Embeddings
+
+Docker Model Runner (port 12434) supports chat and completion models but not the `/api/embeddings` endpoint. The DDC/LCC classifiers and memory retrieval all require embeddings. If your primary model runner is DMR, set `embeddings.url` in `network.json` (or via Settings → Models → Embedding Service URL) to point at a separate Ollama instance that has `all-minilm:22m` pulled. This can be on the same machine (if running Ollama in Docker alongside DMR) or a different machine on the network.
+
 ---
 
 

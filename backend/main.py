@@ -10,7 +10,12 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+# Load .env before any other imports that read env vars
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
 
 import httpx
 import requests
@@ -199,6 +204,9 @@ async def start_background_tasks() -> None:
     asyncio.create_task(_telemetry_loop())
     asyncio.create_task(warmup_model())
     asyncio.create_task(classifier_loop())
+    # Pre-warm intent embeddings so first trace isn't slow (~25s)
+    from services.intent_classifier import prewarm_intent_embeddings
+    asyncio.create_task(prewarm_intent_embeddings())
 
 IDLE_SECONDS = 300  # 5 min before standby
 STANDBY_INTERVAL = 60.0
@@ -207,6 +215,7 @@ ACTIVE_INTERVAL = 1.5
 
 async def _telemetry_loop() -> None:
     global _last_activity, _latest_telemetry
+    probe_counter = 0
     while True:
         now = time.time()
         idle = now - _last_activity
@@ -222,6 +231,16 @@ async def _telemetry_loop() -> None:
             _telemetry_loop._was_standby = False
         try:
             telemetry = await collect_telemetry()
+            # Probe provider health every 30 iterations (~45s at 1.5s interval)
+            probe_counter += 1
+            if probe_counter >= 30:
+                probe_counter = 0
+                from services.vitals import probe_provider_health
+                try:
+                    health = await probe_provider_health()
+                    telemetry["provider_health"] = health
+                except Exception as exc:
+                    logger.debug("Provider health probe failed: %s", exc)
             _latest_telemetry = telemetry
             payload = json.dumps(telemetry, default=str)
             await manager.broadcast(payload)
@@ -307,6 +326,13 @@ async def post_setup(body: SetupBody) -> dict[str, Any]:
             "insight": w.get("insight", ""),
             "services": w.get("services", []),
         }
+        # Update worker_llm service with the worker's host so /api/models/network can reach it
+        if "worker_llm" in w.get("services", []) and w.get("host", "0.0.0.0") not in ("", "0.0.0.0"):
+            if "worker_llm" not in cfg.get("services", {}):
+                cfg.setdefault("services", {})["worker_llm"] = {"label": "Worker LLM", "model": ""}
+            cfg["services"]["worker_llm"]["host"] = w["host"]
+            cfg["services"]["worker_llm"]["port"] = w.get("port", 12434)
+            cfg["services"]["worker_llm"]["enabled"] = True
 
     cfg["_configured"] = True
     return save(cfg)

@@ -324,3 +324,54 @@ async def collect_vitals() -> list[dict[str, Any]]:
         logger.debug("Could not build Logs virtual machine: %s", exc)
 
     return {"machines": machines}
+
+
+# ── Provider health probes ──────────────────────────────────────────
+
+_provider_health: dict[str, dict[str, Any]] = {}
+
+async def probe_provider_health() -> dict[str, dict[str, Any]]:
+    """Quick TCP connect probe to each configured model provider.
+    Returns {provider_id: {"reachable": bool, "latency_ms": float|None, "last_check": str}}."""
+    now_str = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    providers = config_manager.get_available_providers()
+    results: dict[str, dict[str, Any]] = {}
+
+    async def _probe(pid: str, host: str, port: int):
+        start = __import__("time").time()
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=3.0
+            )
+            writer.close()
+            await writer.wait_closed()
+            latency = round((__import__("time").time() - start) * 1000)
+            results[pid] = {"reachable": True, "latency_ms": latency, "last_check": now_str}
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            results[pid] = {"reachable": False, "latency_ms": None, "last_check": now_str}
+
+    tasks = []
+    for p in providers:
+        pid = p["id"]
+        if pid == "local":
+            # Probe local ollama
+            svc = config_manager.get_service("ollama")
+            if svc:
+                tasks.append(_probe(pid, svc.get("host", "127.0.0.1"), svc.get("port", 11434)))
+        else:
+            # Probe worker_llm or other service
+            sid = {"worker": "worker_llm"}.get(pid, f"{pid}_llm")
+            svc = config_manager.get_service(sid)
+            if svc and svc.get("host") not in ("", "0.0.0.0"):
+                tasks.append(_probe(pid, svc["host"], svc.get("port", 12434)))
+
+    if tasks:
+        await asyncio.gather(*tasks)
+
+    _provider_health.update(results)
+    return results
+
+
+def get_provider_health() -> dict[str, dict[str, Any]]:
+    """Return cached provider health status (updated by background probe)."""
+    return _provider_health

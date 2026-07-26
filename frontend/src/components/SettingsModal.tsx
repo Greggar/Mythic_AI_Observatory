@@ -359,8 +359,20 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (ollamaSvc) svcIds.push("worker_llm");
     if (obsSvc) svcIds.push("openclaw");
 
+    // Update service entries with actual discovered host/port/enable
+    const updatedServices = { ...config.services };
+    if (ollamaSvc && updatedServices.worker_llm) {
+      updatedServices.worker_llm = {
+        ...updatedServices.worker_llm,
+        host: machine.ip,
+        port: ollamaSvc.port,
+        enabled: true,
+      };
+    }
+
     setConfig({
       ...config,
+      services: updatedServices,
       machines: {
         ...config.machines,
         [id]: {

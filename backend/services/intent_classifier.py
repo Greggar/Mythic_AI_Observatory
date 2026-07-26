@@ -13,7 +13,8 @@ from services import config_manager
 
 logger = logging.getLogger("conductor")
 
-EMBED_MODEL = os.environ.get("EMBEDDING_MODEL") or config_manager.get_embeddings_config().get("model", "all-minilm:22m")
+def _get_embed_model() -> str:
+    return config_manager.get_embedding_model()
 
 INTENT_CATEGORIES: list[dict[str, Any]] = [
     {
@@ -101,7 +102,7 @@ async def _compute_embedding(text: str) -> list[float]:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{base_url}/api/embeddings",
-            json={"model": EMBED_MODEL, "prompt": text[:512]},
+            json={"model": _get_embed_model(), "prompt": text[:512]},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -133,6 +134,15 @@ async def _get_intent_embeddings() -> dict[str, list[float]]:
         json.dump(_embeddings_cache, f)
     logger.info("Computed and cached %d intent category embeddings", len(_embeddings_cache))
     return _embeddings_cache
+
+
+async def prewarm_intent_embeddings() -> None:
+    """Pre-compute intent category embeddings at startup so first trace isn't slow."""
+    try:
+        await _get_intent_embeddings()
+        logger.info("Intent embedding pre-warm complete")
+    except Exception as e:
+        logger.warning("Intent embedding pre-warm failed (non-fatal): %s", e)
 
 
 def _generate_classification(top_intent: dict, prompt: str) -> str:

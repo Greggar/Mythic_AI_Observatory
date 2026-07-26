@@ -43,7 +43,7 @@ def set_model_provider(value: str) -> None:
     config_manager.set_model_provider_config(value)
     logger.info("Model provider switched to: %s", value)
 
-LLM_TIMEOUT = 300.0  # longer timeout for CPU-bound local inference; concurrent traces queue
+LLM_TIMEOUT = 120.0  # reduced from 300s; model-too-large hangs surface in ~60s
 
 MAX_HISTORY = 500
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "traces.jsonl")
@@ -615,7 +615,8 @@ def load_history(limit: int = 50) -> list[TraceSession]:
 
 
 _embed_cache: dict[str, list[float]] = {}
-EMBED_MODEL = os.environ.get("EMBEDDING_MODEL") or config_manager.get_embeddings_config().get("model", "all-minilm:22m")
+def _get_embed_model() -> str:
+    return config_manager.get_embedding_model()
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -634,7 +635,7 @@ async def _embed(text: str) -> list[float]:
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{base_url}/api/embeddings",
-            json={"model": EMBED_MODEL, "prompt": text},
+            json={"model": _get_embed_model(), "prompt": text},
             timeout=30,
         )
         data = resp.json()
@@ -923,8 +924,31 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
     return session
 
 
+STALE_THRESHOLD_S = 60  # steps running longer than this are flagged as potentially stuck
+
+def _annotate_staleness(session: TraceSession) -> None:
+    """Mark steps that have been 'processing' for >STALE_THRESHOLD_S as stale."""
+    now = datetime.now(timezone.utc)
+    for step in session.steps:
+        if step.status != "processing":
+            step.metadata.pop("stale", None)
+            continue
+        try:
+            started = datetime.fromisoformat(step.timestamp)
+            elapsed = (now - started).total_seconds()
+            if elapsed > STALE_THRESHOLD_S:
+                step.metadata["stale"] = True
+                step.metadata["stale_seconds"] = round(elapsed)
+            else:
+                step.metadata.pop("stale", None)
+                step.metadata.pop("stale_seconds", None)
+        except (ValueError, TypeError):
+            pass
+
+
 def get_trace(trace_id: str) -> TraceSession | None:
     if trace_id in _store:
+        _annotate_staleness(_store[trace_id])
         return _store[trace_id]
     for session in load_history(limit=500):
         if session.id == trace_id:
@@ -933,7 +957,10 @@ def get_trace(trace_id: str) -> TraceSession | None:
 
 
 def list_traces(limit: int = 50) -> list[TraceSession]:
-    return load_history(limit)
+    traces = load_history(limit)
+    for t in traces:
+        _annotate_staleness(t)
+    return traces
 
 
 def delete_trace(trace_id: str) -> bool:

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { CheckCircle, Circle, Clock, Loader } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, Clock, Loader } from "lucide-react";
 import type { TraceStep } from "@/types/trace";
 
 interface Props {
@@ -65,6 +65,12 @@ export default function TimelineStep({ step, index, isLast }: Props) {
           <span className="text-[10px] font-mono text-zinc-600">
             {step.status}
           </span>
+          {Boolean(step.metadata?.stale) && (
+            <span className="flex items-center gap-1 text-[10px] font-mono text-amber-400/80">
+              <AlertTriangle size={10} />
+              stuck ({String(step.metadata?.stale_seconds)}s)
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3 mt-0.5">
