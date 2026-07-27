@@ -227,4 +227,4 @@ Include:
 
 ---
 
-*Built by Gregory Long — greg@mythic-ai.dev*
+*Built by Gregory Long — gregory@greole.com*
