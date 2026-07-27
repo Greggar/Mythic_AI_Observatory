@@ -57,6 +57,7 @@ Located at `backend/data/network.json`. Editable through **Settings → Services
       "host": "0.0.0.0",
       "port": 12434,
       "model": "qwen2.5:7b",
+      "protocol": "ollama",
       "enabled": false
     },
     "openclaw": { ... },
@@ -70,6 +71,7 @@ Each service has:
 - `host` — IP or hostname
 - `port` — TCP port
 - `model` — (optional) default model for this service
+- `protocol` — `"ollama"` (default) or `"openai"` for vLLM/TGI/LM Studio/OpenAI-compatible servers
 - `enabled` — if `false`, the service is skipped during health checks
 
 ### Machines (`Settings > Machines tab`)
@@ -108,12 +110,15 @@ Set independently of the execution model. Can be a larger/remote model while the
   "embeddings": {
     "model": "all-minilm:22m",
     "cache_dir": "/tmp",
-    "url": "http://127.0.0.1:11434"
+    "url": "http://127.0.0.1:11434",
+    "protocol": "ollama"
   }
 }
 ```
 
-Used by DDC and LCC embedding classifiers. The model must support the `/api/embeddings` endpoint.
+Used by DDC and LCC embedding classifiers. The `protocol` field controls the embedding API format:
+- `"ollama"` (default) — uses Ollama's `/api/embeddings` endpoint
+- `"openai"` — uses OpenAI-compatible `/v1/embeddings` endpoint (for vLLM, TGI, etc.)
 
 **Docker Model Runner users:** DMR doesn't serve embeddings. If your primary model runner is DMR, set `embeddings.url` to an Ollama instance (can be on the same machine or another machine on your network) that has `all-minilm:22m` pulled.
 

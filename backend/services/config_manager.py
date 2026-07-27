@@ -92,6 +92,16 @@ def get_openclaw_health_url() -> str:
     return service_url("openclaw", "/health")
 
 
+def get_worker_protocol() -> str:
+    """Protocol for the worker LLM service: 'ollama' or 'openai'.
+
+    OpenAI-compatible servers (vLLM, TGI, LM Studio, etc.) use
+    /v1/chat/completions instead of Ollama's /api/generate.
+    """
+    svc = get_service("worker_llm")
+    return svc.get("protocol", "ollama") if svc else "ollama"
+
+
 def get_worker_url() -> str:
     return service_url("worker_llm")
 
@@ -142,6 +152,13 @@ def get_embeddings_config() -> dict[str, Any]:
     }
 
 
+def get_embedding_protocol() -> str:
+    """Protocol for the embedding service: 'ollama' or 'openai'."""
+    cfg = _load()
+    ec = cfg.get("embeddings", {})
+    return ec.get("protocol", "ollama")
+
+
 def get_embedding_url() -> str:
     """URL for embedding API. Separate from ollama because Docker Model Runner
     doesn't serve embeddings — users may need Ollama running alongside DMR."""
@@ -152,6 +169,30 @@ def get_embedding_url() -> str:
         return url
     # Fall back to ollama service
     return get_ollama_url()
+
+
+def embedding_endpoint_and_payload(text: str) -> tuple[str, dict[str, Any]]:
+    """Return (full_url, payload) for an embedding call, respecting protocol.
+
+    Ollama:  POST /api/embeddings  {model, prompt}
+    OpenAI:  POST /v1/embeddings    {model, input}
+    """
+    base = get_embedding_url()
+    model = get_embedding_model()
+    protocol = get_embedding_protocol()
+    if protocol == "openai":
+        return f"{base}/v1/embeddings", {"model": model, "input": text[:512]}
+    else:
+        return f"{base}/api/embeddings", {"model": model, "prompt": text[:512]}
+
+
+def embedding_response_vector(data: dict[str, Any]) -> list[float]:
+    """Extract embedding vector from either Ollama or OpenAI response format."""
+    # OpenAI: {"data": [{"embedding": [...]}]}
+    if "data" in data and isinstance(data["data"], list):
+        return data["data"][0].get("embedding", [])
+    # Ollama: {"embedding": [...]}
+    return data.get("embedding", [])
 
 
 def get_embedding_model() -> str:
@@ -204,7 +245,12 @@ def save(cfg: dict[str, Any]) -> dict[str, Any]:
     global _config
     _config = cfg
     os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
-    with open(_CONFIG_PATH, "w") as f:
+    # Atomic write: write to temp file then rename to avoid partial reads
+    tmp_path = _CONFIG_PATH + ".tmp"
+    with open(tmp_path, "w") as f:
         json.dump(cfg, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, _CONFIG_PATH)
     logger.info("Network config saved")
     return _config

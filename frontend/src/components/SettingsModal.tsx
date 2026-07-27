@@ -9,6 +9,7 @@ interface ServiceConfig {
   host: string;
   port: number;
   model?: string;
+  protocol?: "ollama" | "openai";
   enabled?: boolean;
 }
 
@@ -31,8 +32,9 @@ interface NetworkConfig {
 }
 
 interface DiscoveredService {
-  type: "ollama" | "docker_model_runner" | "observatory";
+  type: "ollama" | "docker_model_runner" | "vllm" | "observatory";
   port: number;
+  protocol?: "ollama" | "openai";
   models?: string[];
   info?: Record<string, string>;
 }
@@ -353,7 +355,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const addMachineFromDiscovery = (machine: DiscoveredMachine) => {
     if (!config) return;
     const id = `machine-${Date.now()}`;
-    const ollamaSvc = machine.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
+    const ollamaSvc = machine.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "vllm");
     const obsSvc = machine.services.find((s) => s.type === "observatory");
     const svcIds: string[] = [];
     if (ollamaSvc) svcIds.push("worker_llm");
@@ -367,6 +369,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         host: machine.ip,
         port: ollamaSvc.port,
         enabled: true,
+        protocol: ollamaSvc.protocol || "ollama",
       };
     }
 
@@ -645,7 +648,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
                       {discoveredMachines.map((m) => {
                         const alreadyAdded = config?.machines && Object.values(config.machines).some((mc) => mc.host === m.ip);
-                        const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
+                        const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "vllm");
                         return (
                           <button
                             key={m.ip}
@@ -848,6 +851,37 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                         : src.error
                                           ? `Model discovery failed: ${src.error}`
                                           : `Using configured model`}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <label className="text-[10px] text-zinc-500">Protocol</label>
+                                      <select
+                                        value={config?.services?.worker_llm?.protocol || "ollama"}
+                                        onChange={async (e) => {
+                                          const val = e.target.value as "ollama" | "openai";
+                                          setConfig((prev) => prev ? {
+                                            ...prev,
+                                            services: {
+                                              ...prev.services,
+                                              worker_llm: { ...prev.services.worker_llm, protocol: val },
+                                            },
+                                          } : prev);
+                                          try {
+                                            await fetch(`${API_BASE}/api/config/services`, {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({
+                                                services: {
+                                                  worker_llm: { ...(config?.services?.worker_llm || {}), protocol: val },
+                                                },
+                                              }),
+                                            });
+                                          } catch { /* ignore */ }
+                                        }}
+                                        className="bg-black/40 border border-white/[0.08] rounded px-2 py-0.5 text-[10px] text-zinc-300 focus:outline-none"
+                                      >
+                                        <option value="ollama">Ollama</option>
+                                        <option value="openai">OpenAI-compatible</option>
+                                      </select>
                                     </div>
                                   </div>
                                 );

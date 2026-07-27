@@ -6,8 +6,9 @@ import { Check, ChevronRight, Server, Wifi, Cpu, Plus, Trash2, Sparkles, Search,
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface DiscoveredService {
-  type: "ollama" | "docker_model_runner" | "observatory";
+  type: "ollama" | "docker_model_runner" | "vllm" | "observatory";
   port: number;
+  protocol?: "ollama" | "openai";
   models?: string[];
   info?: Record<string, string>;
 }
@@ -23,6 +24,7 @@ interface WorkerEntry {
   name: string;
   host: string;
   desc: string;
+  protocol: "ollama" | "openai";
   services: string[];
 }
 
@@ -66,14 +68,14 @@ export default function SetupWizard({ onComplete }: Props) {
   }, []);
 
   const ollamaDiscoveries = discovered.filter((m) =>
-    m.services.some((s) => s.type === "ollama" || s.type === "docker_model_runner")
+    m.services.some((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "vllm")
   );
   const workerDiscoveries = discovered.filter((m) =>
-    m.services.some((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "observatory")
+    m.services.some((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "vllm" || s.type === "observatory")
   );
 
   const addWorkerFromDiscovery = (machine: DiscoveredMachine) => {
-    const ollamaSvc = machine.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
+    const ollamaSvc = machine.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "vllm");
     const obsSvc = machine.services.find((s) => s.type === "observatory");
     const services: string[] = [];
     if (ollamaSvc) services.push("worker_llm");
@@ -88,6 +90,7 @@ export default function SetupWizard({ onComplete }: Props) {
         desc: ollamaSvc
           ? `Ollama${ollamaSvc.models?.length ? ` (${ollamaSvc.models.length} models)` : ""}`
           : "Observatory instance",
+        protocol: ollamaSvc?.protocol || "ollama",
         services,
       },
     ]);
@@ -96,7 +99,7 @@ export default function SetupWizard({ onComplete }: Props) {
   const addWorker = () => {
     setWorkers((prev) => [
       ...prev,
-      { id: `worker-${Date.now()}`, name: "", host: "", desc: "", services: ["worker_llm"] },
+      { id: `worker-${Date.now()}`, name: "", host: "", desc: "", protocol: "ollama", services: ["worker_llm"] },
     ]);
   };
 
@@ -124,6 +127,7 @@ export default function SetupWizard({ onComplete }: Props) {
             name: w.name,
             host: w.host,
             desc: w.desc,
+            protocol: w.protocol,
             services: w.services,
           })),
         }),
@@ -210,7 +214,7 @@ export default function SetupWizard({ onComplete }: Props) {
         <div className="space-y-1.5">
           <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
           {ollamaDiscoveries.map((m) => {
-            const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner")!;
+            const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "vllm")!;
             const isSelected = ollamaHost === m.ip;
             return (
               <button
@@ -265,7 +269,7 @@ export default function SetupWizard({ onComplete }: Props) {
           <label className="text-[10px] text-zinc-500 uppercase tracking-wider">Discovered on network</label>
           {workerDiscoveries.map((m) => {
             const alreadyAdded = workers.some((w) => w.host === m.ip);
-            const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner");
+            const svc = m.services.find((s) => s.type === "ollama" || s.type === "docker_model_runner" || s.type === "vllm");
             return (
               <button
                 key={m.ip}

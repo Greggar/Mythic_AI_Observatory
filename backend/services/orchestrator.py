@@ -129,39 +129,54 @@ def set_analysis_provider(value: str) -> None:
 
 
 async def warmup_model() -> None:
-    """Preload model into Ollama memory so first real trace doesn't pay cold-start cost."""
+    """Preload model into inference server memory so first real trace doesn't pay cold-start cost."""
     base_url = config_manager.get_ollama_url()
     if not base_url:
         logger.warning("No Ollama URL configured — skipping model warm-up")
         return
     model_name = LOCAL_MODEL
-    payload = {
-        "model": model_name,
-        "prompt": "hello",
-        "stream": False,
-        "options": {"num_ctx": 4096},
-    }
+    # Try Ollama-style warm-up first; fall back to OpenAI-compatible
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(f"{base_url}/api/generate", json=payload)
+            resp = await client.post(f"{base_url}/api/generate", json={
+                "model": model_name, "prompt": "hello", "stream": False,
+                "options": {"num_ctx": 4096},
+            })
             resp.raise_for_status()
             logger.info("Model warm-up complete: %s (%s)", model_name, resp.status_code)
+            return
+    except Exception:
+        pass
+    # Fallback: try OpenAI-compatible endpoint
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(f"{base_url}/v1/chat/completions", json={
+                "model": model_name, "messages": [{"role": "user", "content": "hello"}],
+                "max_tokens": 8,
+            })
+            resp.raise_for_status()
+            logger.info("Model warm-up complete (OpenAI compat): %s (%s)", model_name, resp.status_code)
     except Exception as e:
         logger.warning("Model warm-up failed (non-fatal): %s", e)
 
     # Warm up analysis model if different from execution model
     if ANALYSIS_MODEL and ANALYSIS_MODEL != model_name:
         an_url = config_manager.get_worker_url() if ANALYSIS_PROVIDER == "worker" else base_url
+        an_protocol = config_manager.get_worker_protocol() if ANALYSIS_PROVIDER == "worker" else "ollama"
         if an_url:
-            an_payload = {
-                "model": ANALYSIS_MODEL,
-                "prompt": "hello",
-                "stream": False,
-                "options": {"num_ctx": 4096},
-            }
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.post(f"{an_url}/api/generate", json=an_payload)
+                    if an_protocol == "openai":
+                        resp = await client.post(f"{an_url}/v1/chat/completions", json={
+                            "model": ANALYSIS_MODEL,
+                            "messages": [{"role": "user", "content": "hello"}],
+                            "max_tokens": 8,
+                        })
+                    else:
+                        resp = await client.post(f"{an_url}/api/generate", json={
+                            "model": ANALYSIS_MODEL, "prompt": "hello", "stream": False,
+                            "options": {"num_ctx": 4096},
+                        })
                     resp.raise_for_status()
                     logger.info("Analysis model warm-up complete: %s (%s)", ANALYSIS_MODEL, resp.status_code)
             except Exception as e:
@@ -183,23 +198,33 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
         provider = provider_override or ANALYSIS_PROVIDER
         if provider == "local":
             base_url = config_manager.get_ollama_url()
+            protocol = "ollama"
         else:
             base_url = config_manager.get_worker_url()
+            protocol = config_manager.get_worker_protocol()
         model_name = model_name_override
     else:
         base_url, model_name = _resolve_model_url(model)
+        protocol = "ollama" if _MODEL_PROVIDER == "local" else config_manager.get_worker_protocol()
 
     # Strip Docker registry prefix — the runner API expects the short name
     if "/" in model_name:
         model_name = model_name.split("/")[-1]
 
+    provider_for_ctx = provider_override or (ANALYSIS_PROVIDER if model_name_override else _MODEL_PROVIDER)
+
+    if protocol == "openai":
+        return await _call_openai(base_url, model_name, prompt, system, provider_for_ctx)
+    else:
+        return await _call_ollama(base_url, model_name, prompt, system, provider_for_ctx)
+
+
+async def _call_ollama(base_url: str, model_name: str, prompt: str, system: str | None, provider_for_ctx: str) -> tuple[str, int | None, int | None]:
     payload: dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
         "stream": False,
     }
-
-    provider_for_ctx = provider_override or (ANALYSIS_PROVIDER if model_name_override else _MODEL_PROVIDER)
     if provider_for_ctx == "local":
         payload["options"] = {"num_ctx": 4096}
     else:
@@ -228,6 +253,48 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
             return f"[{model_name} error: {msg}]", None, None
         except Exception as e:
             logger.error("Model call failed: %s", e)
+            return f"[{model_name} error: {e}]", None, None
+
+
+async def _call_openai(base_url: str, model_name: str, prompt: str, system: str | None, provider_for_ctx: str) -> tuple[str, int | None, int | None]:
+    """Call an OpenAI-compatible endpoint (vLLM, TGI, LM Studio, etc.)."""
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    num_ctx = 4096 if provider_for_ctx == "local" else 16384
+    payload: dict[str, Any] = {
+        "model": model_name,
+        "messages": messages,
+        "max_tokens": num_ctx,
+        "temperature": 0.7,
+    }
+
+    async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
+        try:
+            resp = await client.post(f"{base_url}/v1/chat/completions", json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            choice = data.get("choices", [{}])[0]
+            result = choice.get("message", {}).get("content", "").strip()
+            usage = data.get("usage", {})
+            eval_count = usage.get("completion_tokens")
+            # OpenAI API doesn't expose prompt/eval duration in the same way;
+            # we approximate from prompt_tokens + completion_tokens
+            prompt_tokens = usage.get("prompt_tokens")
+            completion_tokens = usage.get("completion_tokens")
+            eval_duration = None  # Not available from OpenAI API
+            return result, eval_count, eval_duration
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                msg = f"Model '{model_name}' not found on {base_url}. Check the model name for your inference server."
+            else:
+                msg = f"{model_name} error: {e}"
+            logger.error("OpenAI-compatible call failed: %s", msg)
+            return f"[{model_name} error: {msg}]", None, None
+        except Exception as e:
+            logger.error("OpenAI-compatible call failed: %s", e)
             return f"[{model_name} error: {e}]", None, None
 
 
@@ -574,6 +641,35 @@ def _persist(session: TraceSession) -> None:
         logger.error("Failed to persist trace: %s", e)
 
 
+def _update_persist(session: TraceSession) -> None:
+    """Replace the last line for this trace_id in-place (avoids file bloat)."""
+    try:
+        if not os.path.exists(HISTORY_FILE):
+            _persist(session)
+            return
+        with open(HISTORY_FILE) as f:
+            lines = f.readlines()
+        replaced = False
+        for i in range(len(lines) - 1, -1, -1):
+            if lines[i].strip():
+                try:
+                    entry = TraceSession.model_validate_json(lines[i])
+                    if entry.id == session.id:
+                        lines[i] = session.model_dump_json() + "\n"
+                        replaced = True
+                        break
+                except Exception:
+                    continue
+        if replaced:
+            with open(HISTORY_FILE, "w") as f:
+                f.writelines(lines)
+        else:
+            _persist(session)
+    except Exception as e:
+        logger.error("Failed to update trace in-place: %s", e)
+        _persist(session)
+
+
 def _trim_history() -> None:
     try:
         if not os.path.exists(HISTORY_FILE):
@@ -631,15 +727,10 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 async def _embed(text: str) -> list[float]:
     if text in _embed_cache:
         return _embed_cache[text]
-    base_url = config_manager.get_embedding_url()
+    url, payload = config_manager.embedding_endpoint_and_payload(text)
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{base_url}/api/embeddings",
-            json={"model": _get_embed_model(), "prompt": text},
-            timeout=30,
-        )
-        data = resp.json()
-        emb = data["embedding"]
+        resp = await client.post(url, json=payload, timeout=30)
+        emb = config_manager.embedding_response_vector(resp.json())
         _embed_cache[text] = emb
         return emb
 
@@ -865,7 +956,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
         insights = await _generate_llm_insights(session)
         if insights:
             session.llm_insights = insights
-            _persist(session)
+            _update_persist(session)
             logger.info("LLM insights generated for %s: %d insights", trace_id, len(insights))
     except Exception as e:
         logger.warning("LLM insight step failed for %s: %s", trace_id, e)
@@ -919,7 +1010,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
     except Exception as e:
         logger.warning("LCC classification failed for %s: %s", trace_id, e)
 
-    _persist(session)
+    _update_persist(session)
 
     return session
 

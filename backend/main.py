@@ -36,6 +36,15 @@ from services.classifier_agent import classifier_loop, merge_synesth
 from services.classify_task import start_classify_task, cancel_classify_task, get_classify_status, ClassifyTaskStatus, ClassifyCellResult
 from services.log_broadcaster import get_broadcaster, install_handler
 
+
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Done-callback for fire-and-forget tasks that logs unhandled exceptions."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("Background task %s failed: %s", task.get_name(), exc, exc_info=exc)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("conductor")
 
@@ -201,12 +210,13 @@ _latest_telemetry: dict[str, Any] | None = None
 @app.on_event("startup")
 async def start_background_tasks() -> None:
     install_handler()
-    asyncio.create_task(_telemetry_loop())
-    asyncio.create_task(warmup_model())
-    asyncio.create_task(classifier_loop())
+    for coro in (_telemetry_loop(), warmup_model(), classifier_loop()):
+        t = asyncio.create_task(coro)
+        t.add_done_callback(_log_task_exception)
     # Pre-warm intent embeddings so first trace isn't slow (~25s)
     from services.intent_classifier import prewarm_intent_embeddings
-    asyncio.create_task(prewarm_intent_embeddings())
+    t = asyncio.create_task(prewarm_intent_embeddings())
+    t.add_done_callback(_log_task_exception)
 
 IDLE_SECONDS = 300  # 5 min before standby
 STANDBY_INTERVAL = 60.0
@@ -333,6 +343,8 @@ async def post_setup(body: SetupBody) -> dict[str, Any]:
             cfg["services"]["worker_llm"]["host"] = w["host"]
             cfg["services"]["worker_llm"]["port"] = w.get("port", 12434)
             cfg["services"]["worker_llm"]["enabled"] = True
+            if w.get("protocol"):
+                cfg["services"]["worker_llm"]["protocol"] = w["protocol"]
 
     cfg["_configured"] = True
     return save(cfg)
@@ -391,6 +403,7 @@ async def scan_network() -> dict[str, Any]:
 
     OLLAMA_PORT = 11434
     DMR_PORT = 12434  # Docker Model Runner (Ollama-compatible)
+    VLLM_PORT = 8000  # vLLM default (OpenAI-compatible)
     OBSERVATORY_PORT = 8001
     TIMEOUT = 1.0  # seconds per host
 
@@ -436,20 +449,57 @@ async def scan_network() -> dict[str, Any]:
             await writer.wait_closed()
 
             models = []
+            protocol = "ollama"
             try:
                 async with httpx.AsyncClient(timeout=2.0) as client:
                     resp = await client.get(f"http://{ip_str}:{DMR_PORT}/api/tags")
                     if resp.status_code == 200:
                         data = resp.json()
                         models = [m["name"] for m in data.get("models", [])]
+                    else:
+                        # Fall back to OpenAI-compatible
+                        resp2 = await client.get(f"http://{ip_str}:{DMR_PORT}/v1/models")
+                        if resp2.status_code == 200:
+                            data = resp2.json()
+                            models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+                            protocol = "openai"
             except Exception:
                 pass
 
             services.append({
                 "type": "docker_model_runner",
                 "port": DMR_PORT,
+                "protocol": protocol,
                 "models": models,
             })
+        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+            pass
+
+        # Probe vLLM / OpenAI-compatible server (port 8000)
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(ip_str, VLLM_PORT), timeout=TIMEOUT
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            models = []
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    resp = await client.get(f"http://{ip_str}:{VLLM_PORT}/v1/models")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+            except Exception:
+                pass
+
+            if models:
+                services.append({
+                    "type": "vllm",
+                    "port": VLLM_PORT,
+                    "protocol": "openai",
+                    "models": models,
+                })
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             pass
 
@@ -521,6 +571,24 @@ class ModelConfigBody(BaseModel):
 async def get_providers() -> list[dict[str, Any]]:
     return config_manager.get_available_providers()
 
+class ServicesBody(BaseModel):
+    services: dict[str, Any]
+
+@app.post("/api/config/services")
+async def post_services_config(body: ServicesBody) -> dict[str, str]:
+    """Update service configurations (host, port, protocol, enabled, etc.)."""
+    from services.config_manager import get_all, save
+    cfg = get_all()
+    if "services" not in cfg:
+        cfg["services"] = {}
+    for svc_id, svc_data in body.services.items():
+        if svc_id in cfg["services"]:
+            cfg["services"][svc_id].update(svc_data)
+        else:
+            cfg["services"][svc_id] = svc_data
+    save(cfg)
+    return {"status": "ok"}
+
 @app.get("/api/config/model")
 async def get_model_config() -> dict[str, str]:
     return config_manager.get_model_provider_config()
@@ -578,7 +646,10 @@ async def list_ollama_models() -> dict[str, list[str]]:
 
 @app.get("/api/models/network")
 async def list_network_models() -> dict[str, list[dict[str, Any]]]:
-    """Discover models on network LLM services (services with a model field)."""
+    """Discover models on network LLM services (services with a model field).
+
+    Tries Ollama /api/tags first, then falls back to OpenAI-compatible /v1/models.
+    """
     from services.config_manager import get_services
     sources: list[dict[str, Any]] = []
     for sid, svc in get_services().items():
@@ -590,17 +661,37 @@ async def list_network_models() -> dict[str, list[dict[str, Any]]]:
         host = svc.get("host", "")
         port = svc.get("port", 0)
         label = svc.get("label", sid)
+        protocol = svc.get("protocol", "ollama")
         base = f"http://{host}:{port}"
         discovered: list[str] = []
         error: str | None = None
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{base}/api/tags")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    discovered = sorted(m["name"] for m in data.get("models", []))
+                if protocol == "openai":
+                    # OpenAI-compatible: GET /v1/models
+                    resp = await client.get(f"{base}/v1/models")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        discovered = sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+                    else:
+                        error = f"HTTP {resp.status_code}"
                 else:
-                    error = f"HTTP {resp.status_code}"
+                    # Ollama: GET /api/tags
+                    resp = await client.get(f"{base}/api/tags")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        discovered = sorted(m["name"] for m in data.get("models", []))
+                    else:
+                        # Fall back to OpenAI-compatible endpoint
+                        try:
+                            resp2 = await client.get(f"{base}/v1/models")
+                            if resp2.status_code == 200:
+                                data = resp2.json()
+                                discovered = sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+                            else:
+                                error = f"HTTP {resp.status_code}"
+                        except Exception:
+                            error = f"HTTP {resp.status_code}"
         except Exception as e:
             error = str(e)
         sources.append({
@@ -608,6 +699,7 @@ async def list_network_models() -> dict[str, list[dict[str, Any]]]:
             "label": label,
             "host": host,
             "port": port,
+            "protocol": protocol,
             "configured_model": model_field,
             "models": discovered,
             "error": error,
@@ -669,6 +761,7 @@ async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
     task = asyncio.create_task(orchestrate(req.prompt, session.id))
     _async_tasks[session.id] = task
     task.add_done_callback(lambda _: _async_tasks.pop(session.id, None))
+    task.add_done_callback(_log_task_exception)
     return {"trace_id": session.id, "status": "started"}
 
 
@@ -709,6 +802,7 @@ async def api_batch_orchestrate(req: BatchRequest) -> dict:
     task = asyncio.create_task(_process_batch(batch_id, req.prompts, trace_ids))
     _async_tasks[f"batch-{batch_id}"] = task
     task.add_done_callback(lambda _: _async_tasks.pop(f"batch-{batch_id}", None))
+    task.add_done_callback(_log_task_exception)
     return {"batch_id": batch_id, "total": len(req.prompts), "status": "started"}
 
 
@@ -787,6 +881,7 @@ async def api_test_run(req: TestRunRequest) -> dict:
     task = asyncio.create_task(_process_test_run(test_batch_id, req.prompt, req.configs))
     _async_tasks[f"test-{test_batch_id}"] = task
     task.add_done_callback(lambda _: _async_tasks.pop(f"test-{test_batch_id}", None))
+    task.add_done_callback(_log_task_exception)
     return {"test_batch_id": test_batch_id, "total": len(req.configs), "status": "started"}
 
 

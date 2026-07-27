@@ -97,15 +97,11 @@ _output_emb_cache: dict[str, list[float]] | None = None
 
 
 async def _compute_embedding(text: str) -> list[float]:
-    base_url = config_manager.get_embedding_url()
+    url, payload = config_manager.embedding_endpoint_and_payload(text)
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{base_url}/api/embeddings",
-            json={"model": _get_embed_model(), "prompt": text[:512]},
-        )
+        resp = await client.post(url, json=payload)
         resp.raise_for_status()
-        data = resp.json()
-        return data.get("embedding", [])
+        return config_manager.embedding_response_vector(resp.json())
 
 
 async def _get_input_embeddings() -> dict[int, list[float]]:
