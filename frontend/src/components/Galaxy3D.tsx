@@ -91,6 +91,7 @@ export default function Galaxy3D({ onSelect, refreshTrigger }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [tooltip, setTooltip] = useState<{ entry: HistoryEntry; x: number; y: number } | null>(null);
+  const [showLabels, setShowLabels] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -562,6 +563,13 @@ export default function Galaxy3D({ onSelect, refreshTrigger }: Props) {
     requestAnimationFrame(tween);
   }, []);
 
+  // Toggle label visibility
+  useEffect(() => {
+    for (const s of labelSprites.current) {
+      s.visible = showLabels;
+    }
+  }, [showLabels]);
+
   return (
     <div className="relative w-full">
       <div
@@ -582,14 +590,57 @@ export default function Galaxy3D({ onSelect, refreshTrigger }: Props) {
           <span className="text-[10px] font-mono text-zinc-600">No traces yet</span>
         </div>
       )}
-      <button
-        onClick={onReset}
-        className="absolute top-2 right-2 text-[9px] font-mono px-2 py-1 rounded-full
-          bg-white/[0.04] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.08]
-          transition-colors border border-white/[0.06]"
-      >
-        Reset view
-      </button>
+      <div className="absolute top-2 right-2 flex items-center gap-1.5">
+        <button
+          onClick={() => setShowLabels((v) => !v)}
+          className={`text-[9px] font-mono px-2 py-1 rounded-full transition-colors border ${
+            showLabels
+              ? "bg-white/[0.06] text-zinc-400 border-white/[0.06]"
+              : "bg-white/[0.02] text-zinc-600 border-white/[0.04]"
+          } hover:text-zinc-300 hover:bg-white/[0.08]`}
+        >
+          Labels
+        </button>
+        <button
+          onClick={onReset}
+          className="text-[9px] font-mono px-2 py-1 rounded-full
+            bg-white/[0.04] text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.08]
+            transition-colors border border-white/[0.06]"
+        >
+          Reset view
+        </button>
+      </div>
+      <div className="absolute bottom-2 left-2 flex flex-col gap-0.5">
+        {ARM_LABELS.map((label, arm) => {
+          const count = perArm[arm].length;
+          return (
+            <div key={label} className="flex items-center gap-1.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{ backgroundColor: ARM_COLORS_HEX[arm] }}
+              />
+              <span className="text-[8px] font-mono text-zinc-500 leading-none">{label}</span>
+              <span className="text-[8px] font-mono text-zinc-600 leading-none">
+                {count}
+              </span>
+            </div>
+          );
+        })}
+        {entries.length > 0 && (
+          <div className="mt-1 flex items-center gap-1.5">
+            <span className="text-[7px] font-mono text-zinc-700 leading-none">DDC</span>
+            {[["0","#6b7280"],["1","#a78bfa"],["2","#f87171"],["3","#60a5fa"],["4","#34d399"],
+              ["5","#fbbf24"],["6","#f472b6"],["7","#fb923c"],["8","#818cf8"],["9","#2dd4bf"]].map(([d, c]) => (
+              <span
+                key={d}
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: c }}
+                title={`DDC class ${d}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       {tooltip && createPortal(
         <div
           className="fixed z-[100] pointer-events-none glass-panel !rounded-lg px-3 py-2 min-w-[180px]"
