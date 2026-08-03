@@ -38,6 +38,10 @@ interface ModelProfileData {
   hedging_freq: number;
   lexical_diversity: number;
   directness_score: number;
+  avg_token_entropy?: number | null;
+  p95_token_entropy?: number | null;
+  avg_surprisal?: number | null;
+  entropy_trace_count?: number;
 }
 
 function shortModel(name: string): string {
@@ -306,6 +310,28 @@ export default function PersonalityProfile() {
                         </div>
                         <Slider value={p.lexical_diversity} leftLabel="Limited" rightLabel="Rich" color="oklch(65% 0.2 320)" />
                       </div>
+
+                      {/* Token Uncertainty / Decisiveness */}
+                      {p.avg_token_entropy != null && (
+                        <div>
+                          <div className="flex justify-between text-[8px] font-mono text-zinc-500 mb-1">
+                            <span>Decisiveness</span>
+                            <span className="text-violet-400">
+                              {p.avg_token_entropy.toFixed(2)} bits/tok
+                            </span>
+                          </div>
+                          <Slider
+                            value={Math.min(1, p.avg_token_entropy / 3)}
+                            leftLabel="Decisive"
+                            rightLabel="Uncertain"
+                            color="oklch(70% 0.18 300)"
+                          />
+                          <div className="text-[7px] font-mono text-zinc-600 mt-0.5">
+                            p95 {p.p95_token_entropy?.toFixed(2) ?? "—"} · surprisal{" "}
+                            {p.avg_surprisal?.toFixed(2) ?? "—"} · {p.entropy_trace_count ?? 0} traces
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 

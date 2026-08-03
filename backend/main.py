@@ -1382,7 +1382,7 @@ async def api_analyze_relationships(body: RelationshipAnalysisRequest) -> dict:
         prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces, body.paths, body.samples)
 
         analysis_model = get_analysis_model()
-        response, _, _ = await _call_model("worker", prompt, model_name_override=analysis_model)
+        response, _, _, _ = await _call_model("worker", prompt, model_name_override=analysis_model)
         return {"response": response, "model": analysis_model}
     except Exception as e:
         logger.error("Relationship analysis failed: %s", e)

@@ -12,6 +12,8 @@ import SankeyChart, { SankeyData } from "./charts/SankeyChart";
 import SynesthCorrelationHeatmap from "./charts/SynesthCorrelationHeatmap";
 import SynesthTimelineEvolution from "./charts/SynesthTimelineEvolution";
 import SynesthSunburst from "./charts/SynesthSunburst";
+import MemoryEntropyPanel from "./charts/MemoryEntropyPanel";
+import type { TokenEntropy } from "@/types/trace";
 import { CHART_OPTIONS, DEFAULT_CHART } from "@/data/chartOptions";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -24,7 +26,7 @@ const LABEL_R = 152;
 const INNER = 40;
 const PAD_ANGLE = 0.04;
 
-type RelType = "synesthesia" | "drift" | "cross" | "grammar" | "mood-intent";
+type RelType = "synesthesia" | "drift" | "cross" | "grammar" | "mood-intent" | "memory";
 
 interface IntentProb {
   label: string;
@@ -52,6 +54,7 @@ interface TraceData {
   ddc?: { prompt?: { code?: string; action?: string; label?: string; score?: number; margin?: number; top_scores?: { code: string; label: string; score: number }[] } | null; response?: { code?: string; action?: string; label?: string; score?: number; margin?: number; top_scores?: { code: string; label: string; score: number }[] } | null } | null;
   lcc?: { prompt?: { code?: string; action?: string; label?: string; score?: number; margin?: number; top_scores?: { code: string; label: string; score: number }[] } | null } | null;
   synesth?: SynesthClassification;
+  token_entropy?: TokenEntropy;
 }
 
 function polar(cx: number, cy: number, r: number, a: number): [number, number] {
@@ -534,6 +537,15 @@ const REL_CONFIGS: Record<RelType, {
     outputColors: INTENT_SUPER_COLORS,
     buildMatrix: buildMoodIntentSuperMatrix,
   },
+  memory: {
+    title: "Memory Grounding",
+    description: "Does retrieved memory actually ground responses? Compares the token entropy of responses conditioned on whether memory chunks were used, discarded, or absent.",
+    inputLabels: [],
+    outputLabels: [],
+    inputColors: [],
+    outputColors: [],
+    buildMatrix: () => [],
+  },
 };
 
 interface Props {
@@ -923,6 +935,22 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                     DDC7_LABELS[ddcMainClassIndex(t)],
                   ].join(","));
                 }
+              } else if (relType === "memory") {
+                rows.push("id,prompt,model_used,group,mean_entropy,p95_entropy,mean_surprisal,high_entropy_count,token_count");
+                for (const t of filteredTraces) {
+                  const e = t.token_entropy;
+                  if (e?.mean_entropy == null) continue;
+                  let chunks: { used?: boolean }[] = [];
+                  for (const s of t.steps || []) {
+                    if (Array.isArray(s.metadata?.retrieved_chunks)) chunks = s.metadata.retrieved_chunks as { used?: boolean }[];
+                  }
+                  const group = chunks.length === 0 ? "none" : chunks.some(c => c.used) ? "used" : "discarded";
+                  rows.push([
+                    esc(t.id), esc(t.prompt), esc(t.model_used || "unknown"), group,
+                    e.mean_entropy?.toFixed(4) ?? "", e.p95_entropy?.toFixed(4) ?? "", e.mean_surprisal?.toFixed(4) ?? "",
+                    e.high_entropy_count, e.token_count,
+                  ].join(","));
+                }
               }
 
               const blob = new Blob(["\ufeff" + rows.join("\n")], { type: "text/csv;charset=utf-8" });
@@ -948,7 +976,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
       {/* Chart */}
       <div ref={containerRef} className="relative rounded-lg overflow-hidden" style={{ background: "linear-gradient(180deg, #041824 0%, #0a2d38 50%, #06303d 100%)" }}>
         {(() => {
-          if (filteredTraces.length < 3 && relType !== "grammar") {
+          if (filteredTraces.length < 3 && relType !== "grammar" && relType !== "memory") {
             return (
               <div className="flex items-center justify-center" style={{ minHeight: "180px" }}>
                 <span className="text-[10px] font-mono text-zinc-600">Need at least 3 traces — try a different model or mode</span>
@@ -1003,6 +1031,11 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                 <span className="text-[10px] font-mono text-zinc-600">This chart type is coming soon for Grammar Schema</span>
               </div>
             );
+          }
+
+          // Memory Grounding — entropy conditioned on chunk usage
+          if (relType === "memory") {
+            return <MemoryEntropyPanel traces={filteredTraces} />;
           }
 
           // Non-grammar: check for mood-intent data requirement

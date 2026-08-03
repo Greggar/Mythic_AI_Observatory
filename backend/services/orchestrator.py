@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import uuid
 from collections import deque
@@ -13,7 +14,7 @@ import psutil
 
 logger = logging.getLogger("conductor")
 
-from models.trace import TraceSession, TraceStep, TelemetryImpact, LlmInsight
+from models.trace import TraceSession, TraceStep, TelemetryImpact, LlmInsight, TokenEntropy
 from services import config_manager
 from services.ddc_embeddings import classify_ddc, classify_multi as classify_multi_ddc
 from services.lcc_embeddings import classify_lcc, classify_multi as classify_multi_lcc
@@ -183,29 +184,64 @@ async def warmup_model() -> None:
                 logger.warning("Analysis model warm-up failed (non-fatal): %s", e)
 
 
-def _resolve_model_url(model_key: str) -> tuple[str, str]:
+def _strip_registry_prefix(name: str) -> str:
+    """'docker.io/ai/gpt-oss:20B' -> 'gpt-oss:20B' (server API expects short)."""
+    return name.split("/")[-1] if "/" in name else name
+
+
+def _resolve_model_endpoint(model_key: str) -> tuple[str, str, str]:
+    """Resolve the execution-model endpoint from the node registry.
+
+    'local' prefers the logprobs-capable local_llm node (llama.cpp-server) when
+    enabled and reachable, falling back to Ollama. 'worker' uses the worker_llm
+    node with its configured protocol. Returns (base_url, model_name, protocol).
+    """
     if _MODEL_PROVIDER == "local":
-        base_url = config_manager.get_ollama_url()
-        model_name = LOCAL_MODEL
-    else:
-        base_url = config_manager.get_worker_url()
-        model_name = config_manager.get_worker_model()
-    return base_url, model_name
+        llm = config_manager.get_local_llm_config()
+        if llm["enabled"] and llm["url"]:
+            return llm["url"], llm["model"] or LOCAL_MODEL, llm["protocol"]
+        return config_manager.get_ollama_url(), LOCAL_MODEL, "ollama"
+    return (
+        config_manager.get_worker_url(),
+        config_manager.get_worker_model() or LOCAL_MODEL,
+        config_manager.get_worker_protocol(),
+    )
 
 
-async def _call_model(model: str, prompt: str, system: str | None = None, *, model_name_override: str | None = None, provider_override: str | None = None) -> tuple[str, int | None, int | None]:
+def _current_execution_model() -> tuple[str, str]:
+    """Return (model_name, node_id) for the active execution provider.
+
+    Node-qualified identity (e.g. 'primary/qwen2.5:3b', 'backoffice/gpt-oss:20B')
+    keeps per-model profiles and entropy comparisons distinct per machine.
+    """
+    if _MODEL_PROVIDER == "local":
+        llm = config_manager.get_local_llm_config()
+        if llm["enabled"] and llm["url"]:
+            node = config_manager.get_service_node("local_llm") or "primary"
+            return (llm["model"] or LOCAL_MODEL), node
+        return LOCAL_MODEL, (config_manager.get_service_node("ollama") or "primary")
+    wm = config_manager.get_worker_model()
+    node = config_manager.get_service_node("worker_llm") or "worker"
+    return (wm or LOCAL_MODEL), node
+
+
+async def _call_model(model: str, prompt: str, system: str | None = None, *, model_name_override: str | None = None, provider_override: str | None = None) -> tuple[str, int | None, int | None, dict | None]:
     if model_name_override:
         provider = provider_override or ANALYSIS_PROVIDER
         if provider == "local":
-            base_url = config_manager.get_ollama_url()
-            protocol = "ollama"
+            llm = config_manager.get_local_llm_config()
+            if llm["enabled"] and llm["url"]:
+                base_url = llm["url"]
+                protocol = llm["protocol"]
+            else:
+                base_url = config_manager.get_ollama_url()
+                protocol = "ollama"
         else:
             base_url = config_manager.get_worker_url()
             protocol = config_manager.get_worker_protocol()
         model_name = model_name_override
     else:
-        base_url, model_name = _resolve_model_url(model)
-        protocol = "ollama" if _MODEL_PROVIDER == "local" else config_manager.get_worker_protocol()
+        base_url, model_name, protocol = _resolve_model_endpoint(model)
 
     # Strip Docker registry prefix — the runner API expects the short name
     if "/" in model_name:
@@ -219,7 +255,72 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
         return await _call_ollama(base_url, model_name, prompt, system, provider_for_ctx)
 
 
-async def _call_ollama(base_url: str, model_name: str, prompt: str, system: str | None, provider_for_ctx: str) -> tuple[str, int | None, int | None]:
+def _compute_token_entropy(logprobs_content: list[dict], top_k: int = 5, threshold: float = 1.5) -> dict | None:
+    """Compute entropy stats from an OpenAI-style logprobs.content array.
+
+    Each item: {token, logprob, top_logprobs: [{token, logprob, ...}...]}.
+    Entropy is estimated by normalizing the returned top-k distribution over
+    the observed candidates (the full vocab mass is not observable).
+    Special tokens (id >= 200000, e.g. <|channel|>) are skipped.
+    The downsampled 'series' preserves temporal order for sparkline rendering.
+    """
+    per_token: list[float] = []
+    surprisals: list[float] = []
+    for item in logprobs_content:
+        if not isinstance(item, dict):
+            continue
+        token_id = item.get("id")
+        if isinstance(token_id, int) and token_id >= 200000:
+            continue
+        tops = item.get("top_logprobs") or []
+        probs: list[float] = []
+        for t in tops:
+            if not isinstance(t, dict):
+                continue
+            lp = t.get("logprob")
+            if isinstance(lp, (int, float)):
+                probs.append(math.exp(lp))
+        if not probs:
+            continue
+        total = sum(probs)
+        if total <= 0:
+            continue
+        probs = [p / total for p in probs]
+        entropy = -sum(p * math.log2(p) for p in probs)
+        per_token.append(entropy)
+        sampled = item.get("logprob")
+        if isinstance(sampled, (int, float)):
+            surprisals.append(-sampled * math.log2(math.e))
+    if not per_token:
+        return None
+    ordered = [round(v, 4) for v in per_token]
+    sorted_vals = sorted(per_token)
+    p95 = sorted_vals[min(len(sorted_vals) - 1, int(0.95 * len(sorted_vals)))]
+    # Downsample temporal series to a bounded length for the sparkline.
+    series: list[float] = []
+    n = len(ordered)
+    max_points = 60
+    if n <= max_points:
+        series = ordered
+    else:
+        step = n / max_points
+        for i in range(max_points):
+            lo = min(n - 1, int(i * step))
+            hi = min(n - 1, int((i + 1) * step) or lo + 1)
+            window = ordered[lo:hi + 1]
+            series.append(round(sum(window) / len(window), 4))
+    return {
+        "mean_entropy": round(sum(per_token) / len(per_token), 4),
+        "p95_entropy": round(p95, 4),
+        "mean_surprisal": round(sum(surprisals) / len(surprisals), 4) if surprisals else None,
+        "high_entropy_count": sum(1 for e in per_token if e > threshold),
+        "token_count": len(per_token),
+        "top_k": top_k,
+        "series": series,
+    }
+
+
+async def _call_ollama(base_url: str, model_name: str, prompt: str, system: str | None, provider_for_ctx: str) -> tuple[str, int | None, int | None, dict | None]:
     payload: dict[str, Any] = {
         "model": model_name,
         "prompt": prompt,
@@ -243,21 +344,27 @@ async def _call_ollama(base_url: str, model_name: str, prompt: str, system: str 
                 result = data.get("thinking", "").strip()
             eval_count = data.get("eval_count")
             eval_duration = data.get("eval_duration")
-            return result, eval_count, eval_duration
+            return result, eval_count, eval_duration, None
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 msg = f"Model '{model_name}' not found on {base_url}. Use 'ollama pull {model_name}' to download it."
             else:
                 msg = f"{model_name} error: {e}"
             logger.error("Model call failed: %s", msg)
-            return f"[{model_name} error: {msg}]", None, None
+            return f"[{model_name} error: {msg}]", None, None, None
         except Exception as e:
             logger.error("Model call failed: %s", e)
-            return f"[{model_name} error: {e}]", None, None
+            return f"[{model_name} error: {e}]", None, None, None
 
 
-async def _call_openai(base_url: str, model_name: str, prompt: str, system: str | None, provider_for_ctx: str) -> tuple[str, int | None, int | None]:
-    """Call an OpenAI-compatible endpoint (vLLM, TGI, LM Studio, etc.)."""
+async def _call_openai(base_url: str, model_name: str, prompt: str, system: str | None, provider_for_ctx: str) -> tuple[str, int | None, int | None, dict | None]:
+    """Call an OpenAI-compatible endpoint (vLLM, TGI, LM Studio, etc.).
+
+    Requests top-k logprobs and computes token-entropy stats from the
+    response. Handles reasoning models whose answer lands in
+    'reasoning_content' (mirrors the Ollama path's 'thinking' fallback) and
+    derives eval_duration_ns from the server's 'timings' block when present.
+    """
     messages: list[dict[str, str]] = []
     if system:
         messages.append({"role": "system", "content": system})
@@ -269,6 +376,8 @@ async def _call_openai(base_url: str, model_name: str, prompt: str, system: str 
         "messages": messages,
         "max_tokens": num_ctx,
         "temperature": 0.7,
+        "logprobs": True,
+        "top_logprobs": 5,
     }
 
     async with httpx.AsyncClient(timeout=LLM_TIMEOUT) as client:
@@ -277,25 +386,36 @@ async def _call_openai(base_url: str, model_name: str, prompt: str, system: str 
             resp.raise_for_status()
             data = resp.json()
             choice = data.get("choices", [{}])[0]
-            result = choice.get("message", {}).get("content", "").strip()
+            message = choice.get("message", {})
+            result = (message.get("content") or "").strip()
+            if not result:
+                result = (message.get("reasoning_content") or "").strip()
             usage = data.get("usage", {})
             eval_count = usage.get("completion_tokens")
-            # OpenAI API doesn't expose prompt/eval duration in the same way;
-            # we approximate from prompt_tokens + completion_tokens
-            prompt_tokens = usage.get("prompt_tokens")
-            completion_tokens = usage.get("completion_tokens")
-            eval_duration = None  # Not available from OpenAI API
-            return result, eval_count, eval_duration
+            # OpenAI API doesn't expose prompt/eval duration directly; derive
+            # it from llama.cpp-style 'timings' when present.
+            eval_duration = None
+            timings = data.get("timings") or {}
+            predicted_ms = timings.get("predicted_ms")
+            if isinstance(predicted_ms, (int, float)):
+                eval_duration = int(predicted_ms * 1_000_000)
+            # Token entropy from logprobs when the server returns them.
+            entropy = None
+            lp = choice.get("logprobs") or {}
+            content = lp.get("content") if isinstance(lp, dict) else None
+            if isinstance(content, list) and content:
+                entropy = _compute_token_entropy(content)
+            return result, eval_count, eval_duration, entropy
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 msg = f"Model '{model_name}' not found on {base_url}. Check the model name for your inference server."
             else:
                 msg = f"{model_name} error: {e}"
             logger.error("OpenAI-compatible call failed: %s", msg)
-            return f"[{model_name} error: {msg}]", None, None
+            return f"[{model_name} error: {msg}]", None, None, None
         except Exception as e:
             logger.error("OpenAI-compatible call failed: %s", e)
-            return f"[{model_name} error: {e}]", None, None
+            return f"[{model_name} error: {e}]", None, None, None
 
 
 def _compute_confidence(session: TraceSession) -> float:
@@ -749,11 +869,15 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
         emit_event("session_start", "Orchestration started", trace_id, prompt[:80])
     if model_override:
         resolved_model = model_override
+        if _MODEL_PROVIDER == "worker":
+            node_id = config_manager.get_service_node("worker_llm") or "worker"
+        else:
+            node_id = config_manager.get_service_node("local_llm") or config_manager.get_service_node("ollama") or "primary"
     else:
-        _, resolved_model = _resolve_model_url("worker")
-        if _MODEL_PROVIDER == "local":
-            resolved_model = LOCAL_MODEL
-    session.model_used = resolved_model
+        resolved_model, node_id = _current_execution_model()
+    # Node-qualified identity: profiles/entropy aggregate per model×node.
+    qualified_model = f"{node_id}/{_strip_registry_prefix(resolved_model)}"
+    session.model_used = qualified_model
 
     for i, stage in enumerate(STAGES):
         stage_id = stage["id"]
@@ -769,7 +893,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
             label=label,
             status="processing",
             timestamp=datetime.now(timezone.utc).isoformat(),
-            model_used=resolved_model if model else None,
+            model_used=qualified_model if model else None,
             agent_used=agent_name,
             cpu_before=cpu_before,
             mem_before=mem_before,
@@ -795,11 +919,13 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
             else:
                 if stage_id == "step-6" and not headless:
                     step.metadata["gen_started_at"] = datetime.now(timezone.utc).isoformat()
-                output, eval_count, eval_duration_ns = await _call_model(
+                output, eval_count, eval_duration_ns, entropy = await _call_model(
                     model, combined, system,
                     model_name_override=model_override if model_override else None,
                     provider_override=provider_override if provider_override else None,
                 )
+                if stage_id == "step-6" and entropy:
+                    step.metadata["token_entropy"] = entropy
 
             step.eval_count = eval_count
             step.eval_duration_ns = eval_duration_ns
@@ -937,6 +1063,14 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
     session.completed_at = datetime.now(timezone.utc).isoformat()
     session.confidence = _compute_confidence(session)
     session.insight_tags = _detect_insights(session)
+
+    # Promote stage-6 token entropy to the session level for fingerprinting.
+    gen_step = next((s for s in session.steps if s.id == "step-6"), None)
+    if gen_step and gen_step.metadata.get("token_entropy"):
+        try:
+            session.token_entropy = TokenEntropy(**gen_step.metadata["token_entropy"])
+        except Exception as e:
+            logger.warning("Failed to attach token entropy for %s: %s", trace_id, e)
 
     peak_cpu = round(max(cpu_samples), 1) if cpu_samples else 0.0
     peak_mem = round(max(mem_samples), 1) if mem_samples else 0.0

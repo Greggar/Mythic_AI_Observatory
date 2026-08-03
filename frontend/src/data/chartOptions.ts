@@ -31,6 +31,9 @@ export const CHART_OPTIONS: Record<string, ChartOption[]> = {
     { id: "confusion", label: "Confusion Matrix", description: "Mood × Intent density grid" },
     { id: "grouped-bar", label: "Grouped Bar", description: "Intent distribution per mood" },
   ],
+  memory: [
+    { id: "grounding", label: "Entropy by Chunk Usage", description: "Response token entropy conditioned on used/discarded/absent memory chunks" },
+  ],
   distribution: [
     { id: "celestial", label: "Celestial Scatter", description: "Traces plotted by duration vs prompt length" },
     { id: "histogram", label: "Duration Histogram", description: "Latency distribution across traces" },
@@ -49,6 +52,7 @@ export const DEFAULT_CHART: Record<string, string> = {
   cross: "chord",
   grammar: "sankey",
   "mood-intent": "chord",
+  memory: "grounding",
   distribution: "celestial",
   personality: "cards",
 };

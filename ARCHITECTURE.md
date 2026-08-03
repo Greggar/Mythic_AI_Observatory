@@ -25,11 +25,12 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 │                        Ubuntu Server                             │
 │                    198.51.100.1 (primary-server)              │
 │                                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐ │
-│  │  Ollama   │  │ OpenClaw │  │ FastAPI  │  │   Next.js 16    │ │
-│  │ :11434    │  │ :18789   │  │ :8001    │  │   :3001         │ │
-│  │ (local)   │  │(systemd) │  │ (uvicorn)│  │   (pnpm dev)    │ │
-│  └──────────┘  └──────────┘  └──────────┘  └─────────────────┘ │
+│  ┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐ │
+│  │  Ollama   │  │ llama.cpp    │  │ OpenClaw │  │ FastAPI  │  │   Next.js 16    │ │
+│  │ :11434    │  │ :12435       │  │ :18789   │  │ :8001    │  │   :3001         │ │
+│  │ (local)   │  │ (exec model, │  │(systemd) │  │ (uvicorn)│  │   (pnpm dev)    │ │
+│  │           │  │  logprobs)   │  │          │  │          │  │                 │ │
+│  └──────────┘  └──────────────┘  └──────────┘  └──────────┘  └─────────────────┘ │
 │                                       │                         │
 │  ┌────────────────────────────────────┘                         │
 │  │  Prometheus Snap :9090    Node Exporter :9100                │
@@ -56,6 +57,7 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 | Service | Port | Binding | Status |
 |---|---|---|---|---|
 | Ollama (local) | 11434 | 127.0.0.1 | Running |
+| Local LLM (llama.cpp-server, exec model) | 12435 | 127.0.0.1 | Running |
 | OpenClaw Gateway | 18789 | 0.0.0.0 | Running (systemd user service) |
 | FastAPI Conductor | 8001 | 0.0.0.0 | Manual start |
 | Next.js Solar Interface | 3001 | 0.0.0.0 | Manual start (next start — production mode) |
@@ -137,16 +139,20 @@ async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
     return {"trace_id": session.id, "status": "started"}
 ```
 
-### 3.5 Model Provider Selection
+### 3.5 Model Provider Selection (registry-driven routing)
 
-Controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and also **hot-swappable at runtime** via `set_model_provider("local"|"worker")`.
+Execution provider is controlled by `ORCHESTRATOR_MODEL` env var (default: `local`), and **hot-swappable at runtime** via `set_model_provider("local"|"worker")`.
 
-| Value | Base URL | Model | Suitable for |
-|---|---|---|---|
-| `local` | `http://127.0.0.1:11434` (Ollama) | Auto-detected (see §5) | CPU inference on primary server |
-| `worker` | `http://198.51.100.100:12434` (Docker Model Runner) | `qwen2.5:7b` | GPU inference on Worker Node 1 (high quality, fast) |
+Routing is **registry-driven**, not a hardcoded binary switch. `_resolve_model_endpoint(model_key)` in the orchestrator looks up a model chain and picks the first node that is enabled+reachable:
 
-When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the configured model's context window. When `worker`, the context limit is handled by the remote server.
+| Provider | Preferred node | Fallback | Protocol | Logprobs |
+|---|---|---|---|---|
+| `local` | `local_llm` — llama.cpp-server on `127.0.0.1:12435` (serves `qwen2.5:3b` GGUF) | `ollama` (`127.0.0.1:11434`) | `openai` | ✓ |
+| `worker` | `worker_llm` — llama.cpp-server on the backoffice GPU node (`:12434`, serves `gpt-oss:20B`) | — | `openai` | ✓ |
+
+Every node that speaks OpenAI-compatible + top-k logprobs (llama.cpp-server, vLLM, TGI, LM Studio) becomes a first-class node by adding a `network.json` service entry — no orchestrator changes. The `local_llm` node exists specifically because Ollama does **not** expose logprobs; serving the execution model through it lets the primary node capture token entropy instead of silently losing it.
+
+**Node-qualified model identity** — `session.model_used` is now `<node>/<model>` (e.g. `primary/qwen2.5:3b`, `backoffice/gpt-oss:20B`). The node is derived from `config_manager.get_service_node()` (which machine owns the service in `network.json`). This keeps personality profiles and entropy aggregated per model×node instead of merging same-named models across machines. Legacy traces predating qualification keep their unqualified names.
 
 **Runtime hot-swap** — implemented as a mutable module-level global `_MODEL_PROVIDER` with `get_model_provider()` / `set_model_provider()` accessors. Two REST endpoints expose this:
 
@@ -154,6 +160,25 @@ When `local`, the payload adds `"options": {"num_ctx": 4096}` to stay within the
 - `POST /api/config/model` — accepts `{"provider": "local"|"worker"}`, switches on the fly, returns 400 on invalid value
 
 No restart or reload needed — the next `_call_model()` invocation reads the current provider. This lets the frontend SettingsModal switch models without a server restart.
+
+### 3.6 Token-Level Uncertainty Capture (Entropy)
+
+When the execution node speaks OpenAI-compat with `logprobs` enabled, the orchestrator asks for top-5 logprobs on every generated token (`_call_openai`), then computes per-trace entropy via `_compute_token_entropy()`:
+
+- **mean entropy** — average of `-Σ p·log2(p)` over top-5 probabilities (normalized to bits, 0–~2.5)
+- **p95 entropy / max surprisal** — tail-of-distribution view; surprisal = `-log2(p_best)`
+- **series** — per-token values, kept as the model's uncertainty timeline
+
+Stored on `TraceSession.token_entropy` (and per-step in step 6 metadata), surfaced as:
+- **UncertaintySparkline** — mini SVG sparkline in the trace output card
+- **Decisiveness** axis on the personality fingerprint (low mean entropy = decisive)
+- **DualTimeline** entropy cards per stage
+
+Entropy is **node-local** — values are only comparable across models served by nodes with the same tokenizer/logprob semantics. A canonical-fact trace ("capital of France") correctly shows near-zero entropy; that near-zero is the honest signal, not a bug.
+
+### 3.7 Memory Grounding Analysis
+
+`MemoryEntropyPanel` (frontend) buckets traces by whether their retrieved chunks were `used`, `discarded`, or absent (no `retrieved_chunks`), then compares mean token entropy across groups. The Δ(used − discarded) readout answers "does grounding in memory make the model more decisive?" — and the verdict is **always labeled anecdotal** when the corpus is small (currently only a handful of traces carry entropy, all predating the rest). Traces without `token_entropy` are excluded and the panel shows an honest empty state.
 
 ---
 
@@ -408,12 +433,15 @@ Sometimes `ss`, `lsof`, and `fuser` show nothing on port 3001 but `next dev -p 3
 
 Docker Model Runner (port 12434) supports chat and completion models but not the `/api/embeddings` endpoint. The DDC/LCC classifiers and memory retrieval all require embeddings. If your primary model runner is DMR, set `embeddings.url` in `network.json` (or via Settings → Models → Embedding Service URL) to point at a separate Ollama instance that has `all-minilm:22m` pulled. This can be on the same machine (if running Ollama in Docker alongside DMR) or a different machine on the network.
 
+### 6.12 Restart Scripts Must Outlive the Shell That Launched Them
+
+When a restart/daemon command is run through an agent tool (opencode, CI), the tool **kills the entire process group when its command times out or the shell exits** — so `uvicorn ... &` started inline dies the moment the tool returns. The fix is a dedicated script that fully detaches: `setsid nohup <cmd> >log 2>&1 & disown` (see `restart_backend.sh` and `tools/start_local_llm.sh`). Verify with `ss -ltn` on the port afterward, and confirm the backend actually restarted (not a zombie) by curling `/health`.
+
+### 6.13 Ollama Does Not Expose Logprobs
+
+Ollama's OpenAI-compat endpoint does not return per-token `logprobs`/`top_logprobs`, so no entropy can be captured through it (requests silently come back without the field). To get token-level uncertainty on a node, serve the model via llama.cpp-server (or vLLM/TGI/LM Studio), which returns `logprobs` + a `timings` block. This is why the `local_llm` node exists — the execution model is routed to it when it's up, and falls back to Ollama (entropy silently lost) only when it isn't.
+
 ---
-
-
-
-
-
 
 ## 7. Lessons Learned
 
@@ -477,7 +505,11 @@ Docker Model Runner (port 12434) supports chat and completion models but not the
 
 24. **`traceSteps.duration_ms` can be `null` for pending/failed steps.** When passing trace steps as props, TypeScript will enforce the `null` union. The component must filter with `.find(s => s.duration_ms != null)` before using the value in calculations. (2026-06-06)
 
+25. **Ollama hides logprobs; llama.cpp-server exposes them.** If a metric needs per-token probabilities, an Ollama-backed node will silently return responses without the field — no error, no signal. Detect the absence explicitly and document it (as with the `MemoryEntropyPanel` empty state) rather than letting the panel look like a bug. (2026-08-03)
 
+26. **Node-qualified identity prevents cross-machine merging.** Once two machines can serve the same-named model (e.g. `qwen2.5:3b` on primary and backoffice), unqualified `model_used` strings collapse distinct populations in `/api/traces/profile`. Prefixing with the owning machine (`primary/qwen2.5:3b`) keeps profiles and entropy honest. Qualify at the single assignment point (`session.model_used`) so it can't drift. (2026-08-03)
+
+27. **Registry-driven routing beats a binary local/worker switch.** A hardcoded `if provider == "local"` check can't express "try this node, fall back to that one" or admit a new node without code changes. Resolving a model key to an ordered chain of `network.json` services means adding a node (llama.cpp, vLLM, …) is pure config. (2026-08-03)
 
 ## 8. Future Considerations
 
@@ -517,6 +549,11 @@ Docker Model Runner (port 12434) supports chat and completion models but not the
 - **[Tooling] restart.sh.** `~/mythic-ai-observatory/restart.sh` — kills both servers, rebuilds frontend, starts backend with `--reload` and frontend with `pnpm dev`. (2026-06-10)
 - **[Frontend] VectorDistanceGraph tooltip enhancement.** Replaced `useState` mouse tracking with `useRef` to avoid re-renders on every mouse move; richer tooltip content with color dot, trace ID, Used/Discarded status, relevance percentage. (2026-06-10)
 - **[Frontend] Switched to `next dev` for development.** `next start` caches HTML in memory — rebuilding `.next` has no effect until server restart. Dev mode hot-reloads and avoids stale HTML. Use `pnpm dev` for active development, `next start` for demos. (2026-06-10)
+- **[Backend + Frontend] Token-level uncertainty capture (entropy).** `_call_openai` requests top-5 logprobs on execution; `_compute_token_entropy()` stores mean/p95/surprisal/series on `TraceSession.token_entropy` + step-6 metadata. Frontend renders `UncertaintySparkline`, a Decisiveness fingerprint axis, and DualTimeline entropy cards. Entropy surfaces in `/api/traces/profile`. (2026-07)
+- **[Backend + Frontend] Memory Grounding analysis panel.** `MemoryEntropyPanel` compares mean token entropy between traces whose chunks were used vs discarded vs absent; verdict always labeled anecdotal on small samples. Wired into RelationshipsPanel as a `memory` relationship type. (2026-08-03)
+- **[Backend] Local llama.cpp execution node.** `local_llm` service (`127.0.0.1:12435`, protocol `openai`) serves the local `qwen2.5:3b` execution model with logprobs so the primary node captures entropy. `config_manager.get_local_llm_config()` + `get_service_node()`. (2026-08-03)
+- **[Backend] Registry-driven model routing + node-qualified identity.** `_resolve_model_endpoint()` replaces the binary local/worker URL switch with ordered node chains from `network.json`; `session.model_used` is now `<node>/<model>` (e.g. `primary/qwen2.5:3b`). (2026-08-03)
+- **[Tooling] `restart_backend.sh` + `tools/start_local_llm.sh`.** Detached daemon start scripts using `setsid nohup … & disown` so the backend / llama.cpp node survive the launching shell (agent tooling kills process groups on timeout). (2026-08-03)
 
 ### Medium Priority
 

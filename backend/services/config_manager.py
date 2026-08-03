@@ -121,6 +121,40 @@ def set_worker_model(model: str) -> None:
         raise ValueError("worker_llm service not found in config")
 
 
+def get_local_llm_config() -> dict[str, Any]:
+    """OpenAI-compatible local inference node (llama.cpp-server).
+
+    Serves the same family of protocol as the worker (logprobs-capable), so the
+    'local' provider can capture token entropy when this node is up instead of
+    silently losing it through Ollama. Falls back to Ollama in the orchestrator
+    when disabled/unreachable.
+    """
+    svc = get_service("local_llm")
+    return {
+        "url": service_url("local_llm"),
+        "model": svc.get("model", "qwen2.5:3b") if svc else "",
+        "protocol": svc.get("protocol", "openai") if svc else "openai",
+        "enabled": bool(
+            svc
+            and svc.get("enabled", True)
+            and svc.get("host", "") not in ("", "0.0.0.0")
+        ),
+    }
+
+
+def get_service_node(service_id: str) -> str:
+    """Machine key that owns *service_id* in its services array.
+
+    e.g. 'worker_llm' -> 'backoffice', 'local_llm'/'ollama' -> 'primary'.
+    Used to node-qualify model identity so profiles/entropy aggregate per
+    model×node rather than merging same-named models across machines.
+    """
+    for mid, mc in get_machines_config().items():
+        if service_id in mc.get("services", []):
+            return mid
+    return ""
+
+
 def get_analysis_config() -> dict[str, str]:
     cfg = _load()
     ac = cfg.get("analysis", {})

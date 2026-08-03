@@ -1,0 +1,396 @@
+# Mythic AI Observatory — Engineering Guide
+
+*Prepared 2026. A plain-but-complete explanation of how the Observatory works, written for answering technical questions from a visiting scientist. Diagrams are described as image-generation prompts at the end.*
+
+---
+
+## 1. What the Observatory Is, in One Paragraph
+
+The Mythic AI Observatory is a self-hosted **observability and introspection platform for a small LLM system**. You give it a prompt, it runs a fixed **7-stage pipeline** (receiving, classifying intent, routing to a model, retrieving relevant memory, assembling context, generating a response, and packaging the output), and it records *everything* that happens during that run — the time each stage took, which model answered, how confident the intent classification was, which historical "memory" chunks were retrieved and whether they were used, the DDC/LCC library-classification of both prompt and response, and a structural grammar analysis of the text. It then visualizes all of that as a web dashboard (the "Solar Interface"), and it can analyze patterns across many traces: model personality profiles, what-if model comparisons, confusion matrices, correlation heatmaps, drift over time, and more.
+
+The design motto is **"truth over polish"** — the tool deliberately shows raw signal, honest margins, and uncertainty rather than hiding it behind slick visuals.
+
+---
+
+## 2. Topology: The Machines and Services
+
+The Observatory spans two machines on a home/LAN network, plus an optional agent gateway.
+
+| Component | Where it runs | Port | Role |
+|---|---|---|---|
+| **Frontend — "Solar Interface"** | `primary-server` (primary) | **3001** | Next.js dashboard, charts, panels |
+| **Backend — "Conductor"** | `primary-server` (primary) | **8001** | FastAPI orchestrator + all logic + telemetry |
+| **Ollama (local models)** | `primary-server` | **11434** | Runs small local models (default `qwen2.5:3b`) |
+| **Local LLM (llama.cpp)** | `primary-server` | **12435** | Local execution model served via llama.cpp-server — OpenAI-compat + **logprobs** (Ollama can't expose them) |
+| **Worker LLM (GPU)** | `backoffice` machine | **12434** | Bigger model on GPU: `docker.io/ai/gpt-oss:20B` |
+| **OpenClaw gateway** | `primary-server` | **18789** | Optional agent gateway (SSE) — currently enabled |
+| **Prometheus** | `backoffice` | **9090** | Optional metrics source — currently **disabled** (unreachable guard) |
+
+The two machines are defined in a network topology file (`network.json`):
+- **`primary`** at `127.0.0.1` — hosts Ollama and OpenClaw.
+- **`backoffice`** at `198.51.100.100` — hosts the worker LLM.
+
+Because Prometheus is unreachable from `primary`, the Conductor uses a **circuit breaker**: it probes Prometheus for ~2s, and if unreachable it marks it "unavailable (amber)" and falls back to a healthy status, so the vitals panel responds quickly instead of hanging for 20 seconds.
+
+**Key concept — provider health probing:** the telemetry loop probes every configured LLM provider roughly every ~45 seconds and keeps a reachability flag per provider. Frontend reachability uses OS-level port probing with short timeouts.
+
+---
+
+## 3. The Core Flow: Orchestrating One Prompt
+
+### 3.1 How a request travels
+
+1. The user types a prompt into the Solar Interface (`:3001`).
+2. The frontend calls `POST /api/orchestrate` on the Conductor (`:8001`).
+3. The Conductor launches an **asynchronous background task** (asyncio) so the request doesn't block the server.
+4. The frontend **polls** `GET /api/traces/{trace_id}` every ~1.5 seconds until the trace status is `complete` or `error`.
+
+> **Design note:** The frontend uses **HTTP polling, not WebSockets**, for live updates. (A `/ws/telemetry` WebSocket endpoint exists, but the client intentionally polls REST every 1.5s with visibility-aware rescheduling — when the tab is hidden, polling pauses.) This is more robust than WebSockets across a LAN.
+
+### 3.2 The 7 orchestration stages
+
+The pipeline is fixed and sequential. Only **one** stage actually calls an LLM — the rest are deterministic Python.
+
+| # | Stage | What happens | LLM? |
+|---|---|---|---|
+| 1 | **Request Received** | Accept and timestamp the prompt | — |
+| 2 | **Intent Classification** | Embedding-based classifier assigns intent categories with confidence probabilities (top-3 with confidence scores + reasoning) | No (embeddings) |
+| 3 | **Model Router** | Choose which model/provider serves this trace (local vs worker) | No |
+| 4 | **Memory Retrieval** | Find past traces similar to the current prompt | No (embeddings) |
+| 5 | **Context Assembly** | Build the context window: retrieved chunks + architecture context | No |
+| 6 | **Response Generation** | Call the chosen LLM to write the answer | **Yes** |
+| 7 | **Output Packaging** | Format/structure the final output, record final metrics | No |
+
+Each stage records: its duration, status, and structured metadata (tokens, confidence, chunk IDs, etc.). The LLM-generated response is *only* produced in stage 6; stages 2 and 5 are lightweight deterministic steps.
+
+### 3.3 Trace persistence
+
+- Completed traces are kept in an in-memory store (`dict[str, TraceSession]`) for instant reads.
+- They are also **persisted to `backend/data/traces.jsonl`** (JSON Lines) using in-place line replacement on update.
+- The history file is **trimmed at 5MB** to prevent unbounded growth (oldest traces are dropped).
+
+---
+
+## 4. Classification: How the System "Understands" Text
+
+The Observatory uses **embedding-based classification** rather than asking an LLM to label things (for the core classifiers). A **small embedding model (`all-minilm:22m`)** converts text into a vector; then cosine similarity against a fixed set of category descriptions picks the best match. This is fast, deterministic, and free of LLM drift.
+
+> **Key honest-data fact:** all-minilm's 22M-parameter embedding space is *narrow* — typical similarity scores are compressed into the 0.05–0.25 range, and the top two candidates can be within 0.01 of each other. So the system reports a **margin** (winner minus runner-up) and a low **absolute threshold (0.10)**, and it treats low margins as low confidence — truth over polish.
+
+### 4.1 DDC classification (Dewey Decimal Classification)
+
+- **`backend/services/ddc_embeddings.py`** — 55 DDC categories, each with an enriched plain-language description including concrete examples (so "rainbow" maps to Physics/QC, not Religion/200).
+- Produces a primary label plus **top-5 candidate scores**.
+- Threshold 0.10, no margin requirement (the score distribution is too compressed for margin checks to be meaningful).
+
+### 4.2 LCC classification (Library of Congress Classification)
+
+- **`backend/services/lcc_embeddings.py`** — 70+ LCC subclasses (e.g., HA = Statistics, HB = Economic Theory).
+- **Single-letter main classes (Q, H, ...) were deliberately removed**: their generic descriptions matched nearly every prompt at 0.12–0.14 similarity. The main class is now derived from the *first letter* of the chosen subclass.
+
+### 4.3 Intent classification
+
+- **`backend/services/intent_classifier.py`** — embedding-based intent categories with confidence scores, returned as top-3 probabilities with reasoning in stage 2.
+
+### 4.4 Synesthesia grammar classification
+
+A **6-ring structural grammar schema** describes the *shape* of text, prompt→response:
+
+| Ring | Dimension | Categories |
+|---|---|---|
+| 1 | **Depth** | Interjection / Minor Sentence / Full Verb Phrase |
+| 2 | **Mood** | Imperative / Indicative / Interrogative / Conditional / Subjunctive |
+| 3 | **Syntax** | Simple / Compound / Complex |
+| 4 | **Action Type** | Direct Execution / Conversational Phatic / Refusal / Guardrail |
+| 5 | **Pragmatic Tone** | Informative / Instructional / Creative / Analytical / Corrective |
+| 6 | **Output Form** | Structured / Bulleted / Continuous Prose |
+
+There are **two implementations** of the synesthesia classifier:
+
+1. **Client-side regex classifiers** (in the frontend `RelationshipsPanel` and a standalone correlation heatmap) — fast, deterministic, used for charts.
+2. **LLM-powered background classifier** (`backend/services/classifier_agent.py`) — runs a local small model (`qwen2.5:1.5b`) in the background every ~45s against a plain-language **editable schema** (`backend/services/synesthesia_schema.md`). Editing the schema file changes classification behavior without code changes. It also computes a **`synesth_domain`** field (e.g., instruction-following, creative-writing, technical-analysis, conversational).
+
+The LLM classifier writes to its own cache (`backend/data/synesth_cache.json`), which is **merged** with traces at the API layer — backward compatible (old traces get `synesth: null`).
+
+### 4.5 Multi-label classification
+
+A dedicated `classify_multi()` returns the **top-3 categories above threshold**, used for a 3-level sunburst visualization (primary main class → primary category → alternative main class). The single `classify()` early-returns on the best match, so it can't be reused for multi-label.
+
+---
+
+## 5. Memory Retrieval and Context Assembly
+
+This is the system's "memory." During stage 4:
+
+- The current prompt is embedded.
+- Past traces are compared by **word-overlap similarity** (and embedding cosine similarity for the vector graph).
+- The top chunks are tagged **`used`** (relevance ≥ 0.08) or **`discarded`**.
+- A **vector graph** is built: points (past traces) connected by edges weighted by embedding cosine similarity.
+
+During stage 5, retrieved chunks and the **architecture context** (a live description of which network services are reachable) are interleaved into the prompt that goes to the LLM in stage 6.
+
+---
+
+## 6. Model Profiles: "Personality Fingerprinting"
+
+The Observatory computes a **behavioral fingerprint** per model over many traces:
+
+- **Quick stats:** count, average latency, p50/p95/p99 latency, tokens, failure rate, confidence.
+- **Per-stage averages:** how long each orchestration stage takes for that model.
+- **Hedging patterns** (`HEDGE_PATTERNS`): counts of self-limiting/evasive language in outputs.
+- Exposed via `GET /api/traces/profile` (frontend `PersonalityProfile` panel).
+
+These profiles power comparisons of how different models *behave*, not just how fast they are.
+
+---
+
+## 7. Relationship Analysis ("Analyze with AI")
+
+For each trace there are 5 **relationship types** describing how prompt properties relate to response properties:
+
+| Relationship | Question it answers |
+|---|---|
+| **cross** | Persona tensions between prompt and response |
+| **synesthesia** | 2D→3D / structure shifts between input and output |
+| **mood-intent** | How mood maps to intent |
+| **intonation** | Tone analysis of the output (CoPilot-style) |
+| **grammar** | Structural patterns |
+
+The user clicks **"Analyze with AI"** → `POST /api/traces/analyze` → the Conductor generates a **type-specific LLM prompt** (`_build_analysis_prompt()`) and produces structured analysis.
+
+**Important: analysis uses its own model** — `ANALYSIS_MODEL` / `ANALYSIS_PROVIDER` are independent of the execution model. Analysis settings persist in `network.json` under an `"analysis"` key so they survive restarts.
+
+**Sample-size honesty:** if the sample of traces is small, the analysis *explicitly discloses it*: N < 10 forces an "anecdotal sample" disclaimer; N < 30 forces cautious-language instructions (`SAMPLE_SIZE_THRESHOLD = 30`). This is the "truth over polish" ethos applied to the LLM's own output.
+
+---
+
+## 8. What-If Testing: The Model-as-Classifier Lab
+
+- **Diagnostic probes** (`backend/data/diagnostic_probes.json`) — a fixed corpus of test prompts.
+- **Test Runner** — `POST /api/tests/run` runs a set of probes across **multiple models concurrently**, then compares results in the `TestComparison` panel.
+- **Model-as-classifier** (`backend/services/classify_task.py`) — a background task that prompts each model to *classify* inputs against DDC/LCC/Intent schemas, measuring accuracy vs ground truth. Useful for evaluating whether an LLM could replace the dedicated embedding classifiers. Results are ephemeral (in-memory), limited to 20 traces, with a 60s per-call timeout.
+- `POST /api/tests/classify` + `GET /api/tests/classify/{task_id}` drive the grid: **probes × models × traces**.
+
+---
+
+## 9. The Dashboard ("Solar Interface")
+
+### 9.1 Tabs
+
+The frontend is organized into tabs (header toggle):
+
+- **Systems tab** — vitals, runtime metrics, system orbit, activity feed.
+- **Traces tab** — nexus/prompt input, timeline, intelligence, memory constellation.
+- **History tab** — the full trace archive, memory constellation, trace table, personality profiles.
+
+### 9.2 Key panels
+
+| Panel | What it shows |
+|---|---|
+| **PromptInput / BatchInput** | Single prompt or batch submission |
+| **SolarNexus** | The active trace, step-by-step with orbital animation |
+| **TraceTimeline** | Chronological stage timeline |
+| **IntelligencePanel** | Stage descriptions, intent confidence bars, fork-in-the-road decision tree, live thought stream, causal tracing (finds root cause of failures), Dual-Timeline workspace, Synthesis Bridge (sentence→chunk links), radar chart |
+| **MemoryConstellation** | Dot map of every historical trace (dots colored/grouped by DDC/LCC/multi-label/keyword cluster); dot size = trace age; click to jump to that trace |
+| **TraceTable** | Sortable/filterable pivot table of all traces with classification badges + confidence dots; per-trace document download |
+| **ResourceConstellation** | System orbit of machines/planets (including the OpenClaw "sentinel" satellite); dynamic orbit radii, portaled tooltips |
+| **SystemVitalsPanel** | Machine vitals + virtual "Trace Logs" machine |
+| **EngineStatusPanel** | Throughput, latency, error count, mini duration bar charts (15s visibility-aware auto-refresh) |
+| **LatencyBreakdown** | Per-stage colored progress bars + live-trace overlay |
+| **PerformanceInsights** | Heuristic rules + LLM-generated insight cards |
+| **PersonalityProfile** | Per-model behavioral fingerprints |
+| **RelationshipsPanel** | The 6 relationship charts (below) + per-type "Analyze with AI" + classifier profile |
+| **CelestialDistribution** | Distribution of model usage over time |
+| **ActivityFeed** | Live event feed |
+| **DiscoveryEvents** | Newly discovered machines/events |
+| **TestRunner / TestComparison** | What-if model testing UI |
+| **TraceSummaryModal** | Full trace document viewer |
+| **LogTerminal** | Real-time log stream (`$_` button in header) — SSE-driven, filter/search/pause/auto-scroll |
+
+### 9.3 Chart gallery (in RelationshipsPanel)
+
+- **Confusion Matrix** — 3-mode normalization (total/row/col), totals row+column, inline % toggle, CSV export.
+- **Sunburst** — 2- or 3-level radial treemap (DDC/LCC/multi-label), portaled tooltip, CSV export.
+- **Drift Heatmap / Drift Scatter** — temporal evolution of classification over time.
+- **Correlation Heatmap** — 24×24 Pearson matrix across the 6 grammar rings; reveals couplings like Imperative → Direct Execution.
+- **Sankey** — 7-column flow from Depth→Mood→Syntax→Action→Tone→Form→DDC.
+- **Grouped bars / stacked bars / chord / timeline** per relationship type.
+- **Fingerprint radar** — multi-trace comparative radar (5/7 axes: Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty, + more).
+- **Token velocity, drift, embedding confusion profile** (margin-based near-tie analysis).
+- **Memory Grounding** (`MemoryEntropyPanel`, analysis type `memory`) — compares response **token entropy** conditioned on whether retrieved memory chunks were `used`, `discarded`, or absent. Grouped mean/p95 entropy bars with a Δ(used − discarded) readout and a verdict string that discloses small samples ("treat as anecdotal"). Lower entropy when chunks are used = evidence that memory grounds responses. CSV export + portaled per-group tooltip (traces, p95, surprisal, uncertain-token ratio, model mix). Honest-data rule: traces without `token_entropy` are excluded, and the empty state explains the corpus predates the feature.
+
+Each chart type is registered in `frontend/src/data/chartOptions.ts` with a `DEFAULT_CHART` per relationship type.
+
+---
+
+## 10. Telemetry, Vitals, and the Event System
+
+- **Telemetry loop** (backend, asyncio task): polls active/passive providers every **1.5s while active**, drops to **60s standby after 300s idle**.
+- **Vitals collection** (`backend/services/vitals.py`): assembles per-machine vitals plus the synthetic **"Trace Logs"** machine (error/warn counts, log rate, ring-buffer fill) — rendered automatically by the existing panel because it's just another entry in the vitals payload.
+- **Event bus** (`emit_event`): the orchestrator emits events into an activity deque that feeds the ActivityFeed and log stream.
+- **Model warm-up**: on startup the Conductor preloads `qwen2.5:3b` into Ollama to avoid cold-start latency; intent embeddings are pre-warmed too.
+
+---
+
+## 11. Configuration: Three Layers
+
+Runtime config is resolved newest-first:
+
+1. **`network.json`** (`backend/data/network.json`) — runtime-editable via the Settings UI (models, providers, machines, analysis config).
+2. **Environment variables** — all deployed values can be overridden (documented in `CONFIGURATION.md` and `.env` files).
+3. **Python defaults** in code.
+
+Key variables: `CONDUCTOR_PORT` (8001), `FRONTEND_PORT` (3001), `OLLAMA_MODEL` (qwen2.5:3b), `ANALYSIS_MODEL`, `LLM_TIMEOUT` (120s), `CLASSIFIER_POLL_INTERVAL` (45s), `MODEL_PROFILES_DIR`.
+
+Provider mapping: the `"worker"` provider maps to the `worker_llm` service via `_PROVIDER_SERVICE_MAP`. `service_url()` returns `""` for disabled providers; `local` is always reachable.
+
+### 11.1 Model-node registry (network-wide scaling)
+
+Model execution nodes are resolved from the service registry, not a hardcoded pair:
+
+- **`local_llm`** — local llama.cpp-server (`127.0.0.1:12435`, protocol `openai`, model `qwen2.5:3b`). Logprobs-capable, so the primary node now captures token entropy. Started via `tools/start_local_llm.sh` (daemon logs to `~/llama-cpp/local_llm.log`).
+- **`worker_llm`** — backoffice GPU node (`198.51.100.100:12434`, protocol `openai`, model `docker.io/ai/gpt-oss:20B`).
+- **`ollama`** — fallback for the `local` provider (no logprobs) and used by embeddings/classifier/analysis.
+
+`_resolve_model_endpoint()` in the orchestrator prefers `local_llm` when enabled+reachable and falls back to Ollama, so the entropy signal survives node failures. Any machine that speaks OpenAI-compat + top-k logprobs (llama.cpp-server, vLLM, etc.) becomes a first-class node by adding a `network.json` service entry — no orchestrator changes.
+
+**Node-qualified identity**: `session.model_used` is now `{node}/{model}` — e.g. `primary/qwen2.5:3b`, `backoffice/gpt-oss:20B` — via `_current_execution_model()` + `config_manager.get_service_node()`. Profiles and entropy comparisons therefore aggregate per model×node instead of merging same-named models across machines. Existing unqualified traces remain as-is (honest data; corpus turns over).
+
+**Known coupling**: the Settings "Models" tab edits `model_provider.model`, but when `local_llm` is enabled the execution model is `local_llm.model` (what the server actually loaded). Changing the local model in Settings requires loading that model into the llama.cpp node too.
+
+**Current runtime config snapshot:** Ollama `127.0.0.1:11434` (enabled), OpenClaw `127.0.0.1:18789` (enabled), worker LLM `198.51.100.100:12434` model `docker.io/ai/gpt-oss:20B` (enabled), local LLM `127.0.0.1:12435` model `qwen2.5:3b` (enabled), Prometheus (disabled). Analysis model provider: worker. Execution model: local `qwen2.5:3b`. Embeddings: `all-minilm:22m` (cache dir `/tmp`).
+
+---
+
+## 12. Logging and Alerting
+
+- **LogBroadcaster** (`backend/services/log_broadcaster.py`): in-memory ring buffer (500 entries) + `RotatingFileHandler` (10MB × 3 backups) writing to `backend/logs/conductor.log`.
+- **`GET /api/logs/stream`** — SSE live stream (drives LogTerminal).
+- **`GET /api/logs/recent`** — REST polling endpoint with `limit`/`level`/`since` filters and a summary block (error/warn counts over 5m/24h, entries/min, top loggers).
+- **`tools/log_alerter.sh`** — cron/systemd-timer script that polls `/api/logs/recent` and sends a **Telegram alert** if errors appear or warnings exceed 5 in 5 minutes. Uses direct Telegram Bot API (the OpenClaw CLI `message send` hangs locally, so it's avoided for cron alerts).
+
+---
+
+## 13. Persistence Summary
+
+| Data | Location | Notes |
+|---|---|---|
+| Traces | `backend/data/traces.jsonl` | JSON Lines, trimmed at 5MB |
+| Synesthesia cache | `backend/data/synesth_cache.json` | Merged at API layer |
+| Network config | `backend/data/network.json` | Runtime-editable |
+| Annotations | `backend/data/annotations.jsonl` | Via annotation_service |
+| Model profiles | `backend/data/model_profiles/` | Per-model fingerprint stats |
+| Diagnostic probes | `backend/data/diagnostic_probes.json` | What-if test corpus |
+| Logs | `backend/logs/conductor.log` | Rotating 10MB × 3 |
+| Latency cache (CLI) | `~/.latency_monitor_cache.json` | CLI tool cache |
+
+---
+
+## 14. API Reference (Key Endpoints)
+
+**Health & metrics:** `GET /health`, `GET /metrics` (Prometheus format), `GET /api/telemetry`, `GET /api/vitals`.
+
+**Config:** `GET /api/config/first-run`, `POST /api/config/setup`, `GET/PUT /api/network-config`, `POST /api/network/scan`, `GET /api/config/providers`, `POST /api/config/services`, `GET/POST /api/config/model`, `GET/POST /api/config/analysis-model`.
+
+**Models:** `GET /api/models`, `GET /api/models/network`, `GET /api/models/current`, `POST /api/models/select`.
+
+**Orchestration:** `POST /api/orchestrate`, `POST /api/traces/batch`, `GET /api/traces/batch/{id}`.
+
+**Testing:** `POST /api/tests/run`, `GET /api/tests/run/{id}`, `POST /api/tests/classify`, `GET /api/tests/classify/{task_id}`, `POST /api/tests/classify/{task_id}/cancel`.
+
+**Logs:** `GET /api/logs/stream` (SSE), `GET /api/logs/recent`.
+
+**Traces:** `GET /api/traces`, `GET/DELETE /api/traces/{trace_id}`, `POST /api/traces/bulk-delete`, `GET /api/traces/profile`, `POST /api/traces/analyze`, `POST /api/traces/classify-synesth`, annotation routes (`POST/DELETE /api/traces/{trace_id}/annotations/...`).
+
+**Schema:** `GET/PUT /api/schema`.
+
+**Export:** `GET /api/export/traces.csv`, `GET /api/export/profiles.csv`.
+
+---
+
+## 15. Deployment and Operations
+
+- **`restart.sh`** (project root): kills `next-server`/`uvicorn`, sources `backend/.env`, starts backend (port from `CONDUCTOR_PORT`) and frontend (`FRONTEND_PORT`, `pnpm dev`), logs to `logs/backend.log` / `logs/frontend.log`, uses `setsid` + `disown` so servers survive the shell, and uses `.venv/bin` Python when available.
+- **Ports:** frontend 3001, backend 8001, Ollama 11434, worker LLM 12434, OpenClaw 18789.
+- **Known ops lessons** (recorded in ARCHITECTURE.md):
+  - Use `pnpm dev` not `next start` — `next start` caches stale HTML in memory.
+  - Port 3001 `EADDRINUSE` = zombie `next` → `kill -9 $(lsof -t -i:3001)`.
+  - Stale `.next` corruption → `rm -rf .next`.
+  - WebSockets are fragile across LAN → prefer HTTP polling.
+  - VRAM fit check via `nvidia-smi`.
+  - Hydration mismatches from floating-point SVG → round to `.toFixed(4)`.
+
+---
+
+## 16. Data Model: The TraceSession
+
+A `TraceSession` (Python `backend/models/trace.py`, mirrored in `frontend/src/types/trace.ts`) contains:
+- `trace_id`, `status`, `timestamps`, `prompt`, `output`
+- `steps` — the 7 stages, each with duration, status, and metadata (`gen_started_at`, token counts, etc.)
+- `model`, `model_provider`, latency, token counts, eval count/duration (for tok/s)
+- `intent_probs` — top-3 intent confidences + reasoning
+- `retrieved_chunks` — memory chunks with used/discarded status + relevance
+- `context_assembled` — what went into the model call
+- `response_rationale`, `trace_explanation` — the model's self-reported reasoning
+- `ddc` / `lcc` — each: prompt + response classifications with `code`, `label`, `action`, `domain`, `score`, `margin`, `top_scores`
+- `synesth` — grammar rings + `synesth_domain` (may be `null` for old traces)
+- `vector_graph` — points + edges for the memory visualization
+
+---
+
+## 17. The "Truth over Polish" Design Values (how to explain it)
+
+1. **Show the margin.** Low-confidence classifications are shown as amber/red, not hidden.
+2. **Disclose small samples.** LLM analysis explicitly says "anecdotal sample" when N < 10.
+3. **Distinguish system-recorded truth from LLM self-report.** The Dual-Timeline pairs Objective Trace (what the system measured) with LLM Self-Rationale (what the model claims) — and Ghost Reference detection highlights where the model's claims reference system metrics.
+4. **Prefer deterministic classification for core labels** (embeddings), reserving LLMs for open-ended analysis.
+5. **Fail visibly.** Unreachable providers show amber "unavailable," never silent failure.
+
+---
+
+## 18. Diagram Generation Prompts (for image-generation models)
+
+These are prompts you can paste into an image model (Midjourney, DALL·E, Stable Diffusion, GPT-4o image, etc.) to produce presentation-ready diagrams.
+
+### Diagram 1 — System Topology Overview
+> "Clean flat-design system architecture diagram, dark navy background with teal and amber accents. Two computer machines drawn as simple rounded rectangles connected by a LAN line labeled 'home network'. Machine 1 labeled 'primary / primary-server' contains three connected service nodes inside it: 'Solar Interface (Next.js :3001)', 'Conductor (FastAPI :8001)', and 'Ollama (:11434, qwen2.5:3b)'. Machine 2 labeled 'backoffice (198.51.100.100)' contains 'Worker LLM (:12434, gpt-oss:20B on GPU)'. A third element, a small satellite icon labeled 'OpenClaw gateway (:18789)', hovers near machine 1 with a dashed connection. A dashed red box labeled 'Prometheus :9090 (disabled)' sits to the side, crossed out. Title at top: 'Mythic AI Observatory — Topology'. No text inside the machines beyond labels. White background, legible from a projector."
+
+### Diagram 2 — The 7-Stage Pipeline
+> "Horizontal flowchart, 7 rounded-rectangle boxes in a row connected by arrows, dark theme, teal gradient fill. Boxes numbered and labeled: 1 Request Received, 2 Intent Classification (embedding), 3 Model Router, 4 Memory Retrieval, 5 Context Assembly, 6 Response Generation (LLM) [this box drawn larger and highlighted with a glowing outline], 7 Output Packaging. Under the flow, a thin 'Telemetry + Trace Recording' bar spans the whole row. Under box 4 draw a small 'past trace database' cylinder feeding upward. Under box 6 draw a 'model provider' cloud feeding upward. Clean, minimal, text large enough to read at a distance."
+
+### Diagram 3 — Embedding Classification (DDC/LCC/Intent)
+> "Educational diagram showing text classification by cosine similarity. Left side: a text box labeled 'prompt text' with an arrow to a small sphere labeled 'embedding vector (all-minilm)'. Center: a 3D-style scatter plot of many colored points in a sphere, one point highlighted. Right: a list of three library labels 'DDC — Dewey Decimal', 'LCC — Library of Congress', 'Intent' with percentage bars. A bracket labeled 'cosine similarity, threshold 0.10, margin = winner − runner-up' connects the vector to the labels. Dark background, teal/violet/amber palette, clean vector style, title 'How the Observatory classifies text without an LLM'."
+
+### Diagram 4 — Memory Retrieval & Context Assembly
+> "Data-flow diagram, dark theme. Left: a search box labeled 'new prompt' pointing into a panel labeled 'memory store: past traces'. Inside the panel draw 6 small document cards; 3 colored teal with a checkmark labeled 'used (relevance ≥ 0.08)' and 3 grayed-out with an X labeled 'discarded'. Arrows carry the teal cards into a center panel labeled 'Context Assembly' alongside a smaller card labeled 'architecture context (reachable services)'. From the context panel an arrow flows into a highlighted box labeled 'LLM — Response Generation'. Title: 'Memory Retrieval → Context Assembly'. Clean vector, readable labels."
+
+### Diagram 5 — The Synesthesia 6-Ring Schema
+> "Concentric ring / sunburst diagram, 6 colored rings radiating outward from a center dot, dark background with vibrant gradient hues (blue, violet, teal, amber, pink, green). Each ring is labeled on an outer legend with a number and name: 1 Depth, 2 Mood, 3 Syntax, 4 Action Type, 5 Pragmatic Tone, 6 Output Form. Thin white separator lines divide each ring into 3–6 segments; segments have tiny white labels. Title: 'Synesthesia: 6-Ring Grammar Schema (prompt → response)'. High detail, infographic style, legible."
+
+### Diagram 6 — Model Personality Fingerprint Radar
+> "Radar / spider chart comparison, five-sided polygon, dark background. Two overlapping colored polygons (teal and violet) with distinct data-point dots and dashed outlines, representing two different AI models. The 5 axes labeled: Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty. A small legend in the corner: 'gpt-oss:20B (teal)' and 'qwen2.5:3b (violet)'. Clean analytical infographic style, title 'Model Personality Fingerprints'."
+
+### Diagram 7 — Dashboard Mockup
+> "Web dashboard UI mockup, dark-mode fintech style, teal and amber accent colors, glass-morphism cards with subtle blur. Layout: top header bar with tabs 'Systems / Traces / History'. Left column: prompt input box and an orbital animation circle of dots. Center: a 7-step vertical timeline with progress bars per stage. Right: a radar chart and confidence bars. Bottom: a dot-constellation map of hundreds of colored dots and a pivot table with colored badges. Title overlay: 'Solar Interface — the Observatory dashboard'. High fidelity, clean, no real text needed beyond labels."
+
+### Diagram 8 — The "Truth over Polish" Data Honesty Concept
+> "Conceptual infographic, dark background. Center: a single glowing data point labeled 'the margin (winner − runner-up)'. Around it three small callouts: a bar chart labeled 'confidence 58% — shown amber, not hidden', a document labeled 'anecdotal sample (N < 10) — disclosed', and a two-column card labeled 'Objective Trace vs LLM Self-Rationale'. A subtitle at the bottom: 'show the uncertainty — truth over polish'. Minimal, editorial, high contrast."
+
+### Diagram 9 — Trace Lifecycle / Data Flow
+> "Sequence diagram, dark theme, three swimlanes: 'User', 'Solar Interface (Next.js :3001)', 'Conductor (FastAPI :8001)'. Arrow sequence: User→UI 'types prompt'; UI→Conductor 'POST /api/orchestrate'; Conductor returns 'trace_id'; then a loop arrow labeled 'poll GET /api/traces/{id} every 1.5s' between UI and Conductor repeating 4 times with increasing progress dots; Conductor finally returns 'complete' and UI shows a 'completed trace with radar + timeline'. Title: 'Trace Lifecycle: submit → poll → visualize'. Clean vector, numbered steps."
+
+---
+
+## 19. Suggested Talking-Point Answers (cheat sheet)
+
+- **"Is the LLM doing the classification?"** — No. Core labels (DDC/LCC/intent) come from embedding cosine similarity (`all-minilm:22m`) against category descriptions — fast, deterministic, drift-free. An optional background LLM does synesthesia grammar classification against an editable schema. LLMs are reserved for analysis and generation.
+- **"Why don't margins matter for DDC?"** — The 22M-parameter embedding space is compressed; winner and runner-up are often within 0.01. We dropped margin checks, kept an absolute 0.10 floor, and surface low confidence visibly.
+- **"How is memory implemented?"** — Past traces are embedded and matched by similarity; top chunks tagged used/discarded (relevance threshold 0.08); a vector graph shows trace-to-trace similarity.
+- **"How do you know the system is being honest?"** — We separate objective metrics from the model's self-reported reasoning (Dual-Timeline), detect when the model references system numbers (Ghost Reference), disclose small samples, and fail visibly.
+- **"What models are in play?"** — Three runners: **Ollama** (local embeddings, classifier, and fallback execution), **llama.cpp-server** on the primary node (`:12435`, local `qwen2.5:3b` execution — logprobs-capable), and **llama.cpp-server** on the backoffice GPU (`:12434`, `gpt-oss:20B` worker). The last two speak the same OpenAI-compatible protocol and both expose token logprobs, which is what makes entropy capture work everywhere. Analysis uses an independently configured model.
+- **"How does the frontend get live data?"** — HTTP polling every 1.5s with visibility-aware pause, not WebSockets — more reliable across a LAN.
+- **"What happens if Prometheus is down?"** — A 2s probe + circuit breaker marks it "unavailable (amber)" and the vitals panel responds in ~2s instead of hanging 20s.
+
+---
+
+*End of engineering guide. For deeper detail: `ARCHITECTURE.md`, `CONFIGURATION.md`, `FUTURE_PLANS.md`, `backend/services/orchestrator.py`, `backend/main.py`.*

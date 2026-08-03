@@ -66,6 +66,12 @@ class ModelProfile(BaseModel):
     lexical_diversity: float = 0  # type-token ratio 0-1
     directness_score: float = 0.5  # 0=blunt, 1=discursive
 
+    # Token entropy / decisiveness (bits per token, lower = more decisive)
+    avg_token_entropy: float | None = None
+    p95_token_entropy: float | None = None
+    avg_surprisal: float | None = None
+    entropy_trace_count: int = 0  # how many traces had entropy data
+
 
 def _percentile(sorted_data: list[float], p: float) -> float:
     """Linear-interpolated percentile, works for any dataset size >= 1."""
@@ -208,6 +214,9 @@ def compute_profile() -> list[ModelProfile]:
         errors = 0
         confidences: list[float] = []
         stage_durs: dict[str, list[float]] = {s: [] for s in stage_order}
+        entropies: list[float] = []
+        surprisals: list[float] = []
+        p95_entropies: list[float] = []
 
         for t in group:
             dur = sum(s.duration_ms or 0 for s in t.steps)
@@ -218,6 +227,14 @@ def compute_profile() -> list[ModelProfile]:
 
             if t.confidence is not None:
                 confidences.append(t.confidence)
+
+            if t.token_entropy is not None:
+                if t.token_entropy.mean_entropy is not None:
+                    entropies.append(t.token_entropy.mean_entropy)
+                if t.token_entropy.p95_entropy is not None:
+                    p95_entropies.append(t.token_entropy.p95_entropy)
+                if t.token_entropy.mean_surprisal is not None:
+                    surprisals.append(t.token_entropy.mean_surprisal)
 
             for s in t.steps:
                 if s.id in stage_durs and s.duration_ms is not None:
@@ -247,6 +264,10 @@ def compute_profile() -> list[ModelProfile]:
                 for sid, ds in stage_durs.items()
             },
             avg_steps=sum(len(t.steps) for t in group) / len(group) if group else 0,
+            avg_token_entropy=sum(entropies) / len(entropies) if entropies else None,
+            p95_token_entropy=sum(p95_entropies) / len(p95_entropies) if p95_entropies else None,
+            avg_surprisal=sum(surprisals) / len(surprisals) if surprisals else None,
+            entropy_trace_count=len(entropies),
             **personality,
         ))
 

@@ -70,6 +70,16 @@ export interface SynesthClassification {
   output_probs: number[];
 }
 
+export interface TokenEntropy {
+  mean_entropy: number | null;
+  p95_entropy: number | null;
+  mean_surprisal: number | null;
+  high_entropy_count: number;
+  token_count: number;
+  top_k: number;
+  series?: number[];
+}
+
 export interface TraceSession {
   id: string;
   prompt: string;
@@ -89,6 +99,7 @@ export interface TraceSession {
   embedding?: number[];
   response_rationale?: string;
   trace_explanation?: string;
+  token_entropy?: TokenEntropy;
   ddc?: DdcMetadata;
   lcc?: LccMetadata;
   synesth?: SynesthClassification;

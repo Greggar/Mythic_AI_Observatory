@@ -469,6 +469,7 @@ export default function Home() {
                 ["cross", "DDC × LCC Cross"],
                 ["grammar", "Grammar Schema"],
                 ["mood-intent", "Mood × Intent"],
+                ["memory", "Memory Grounding"],
                 ["distribution", "Runtime Distribution"],
                 ["personality", "Personality Profile"],
               ].map(([id, label]) => (

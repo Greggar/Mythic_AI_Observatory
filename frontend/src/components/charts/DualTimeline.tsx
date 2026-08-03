@@ -80,7 +80,7 @@ interface ObjectiveCard {
   label: string;
   value: string;
   unit?: string;
-  color?: "teal" | "amber" | "zinc";
+  color?: "teal" | "amber" | "zinc" | "violet";
   ghostGroup?: string;
 }
 
@@ -254,6 +254,23 @@ export default function DualTimeline({ trace }: Props) {
             ghostGroup: `${i}-response`,
           });
         }
+        const ent = trace.token_entropy;
+        if (ent && ent.mean_entropy != null) {
+          const color = ent.mean_entropy > 1.2 ? "amber" : "violet";
+          objective.push({
+            label: "Token entropy",
+            value: ent.mean_entropy.toFixed(2),
+            unit: "bits",
+            color,
+            ghostGroup: `${i}-entropy`,
+          });
+          objective.push({
+            label: "Uncertain tokens",
+            value: `${ent.high_entropy_count}/${ent.token_count}`,
+            color: ent.high_entropy_count / Math.max(1, ent.token_count) > 0.25 ? "amber" : "violet",
+            ghostGroup: `${i}-entropy`,
+          });
+        }
       }
 
       pairs.push({
@@ -389,7 +406,9 @@ export default function DualTimeline({ trace }: Props) {
                                       ? "text-teal-400"
                                       : card.color === "amber"
                                         ? "text-amber-400"
-                                        : "text-zinc-300"
+                                        : card.color === "violet"
+                                          ? "text-violet-400"
+                                          : "text-zinc-300"
                                   }`}
                                 >
                                   {card.value}

@@ -17,6 +17,15 @@
       "host": "198.51.100.100",
       "port": 12434,
       "model": "docker.io/ai/gpt-oss:20B",
+      "protocol": "openai",
+      "enabled": true
+    },
+    "local_llm": {
+      "label": "Local LLM (llama.cpp)",
+      "host": "127.0.0.1",
+      "port": 12435,
+      "model": "qwen2.5:3b",
+      "protocol": "openai",
       "enabled": true
     },
     "prometheus": {
@@ -34,7 +43,8 @@
       "insight": "The conductor. Hosts the API, UI, Ollama, OpenClaw. All orchestration originates here.",
       "services": [
         "ollama",
-        "openclaw"
+        "openclaw",
+        "local_llm"
       ]
     },
     "backoffice": {

@@ -69,6 +69,29 @@ class SynesthClassification(BaseModel):
     output_probs: list[float]  # 5 scores 0.0-1.0: Concise List/Facts, Prose Explanation, Creative/Verse, Bulleted List, Technical/Code
 
 
+class TokenEntropy(BaseModel):
+    """Response token-distribution uncertainty, computed from top-k logprobs.
+
+    mean_entropy: average per-token entropy (bits) over the returned top-k
+                  distribution (normalized). An estimate — the full vocab
+                  mass beyond top-k is not observed.
+    p95_entropy:  95th-percentile per-token entropy (bits).
+    mean_surprisal: average -log2 p(sampled token) (bits) — how surprising the
+                  chosen token was, distinct from entropy.
+    high_entropy_count: tokens with entropy > threshold (default 1.5 bits).
+    token_count:   number of non-special tokens scored.
+    top_k:         how many candidate logprobs were requested per token.
+    """
+
+    mean_entropy: float | None = None
+    p95_entropy: float | None = None
+    mean_surprisal: float | None = None
+    high_entropy_count: int = 0
+    token_count: int = 0
+    top_k: int = 5
+    series: list[float] = Field(default_factory=list)  # downsampled temporal entropy
+
+
 class TelemetryImpact(BaseModel):
     peak_cpu: float = 0.0
     peak_mem: float = 0.0
@@ -95,6 +118,7 @@ class TraceSession(BaseModel):
     embedding: list[float] | None = None
     response_rationale: str | None = None
     trace_explanation: str | None = None
+    token_entropy: TokenEntropy | None = None
     ddc: DdcMetadata | None = None
     lcc: LccMetadata | None = None
     synesth: SynesthClassification | None = None

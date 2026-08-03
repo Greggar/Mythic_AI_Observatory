@@ -440,4 +440,40 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 - **Self-contained component keeps IntelligencePanel clean** — the DualTimeline takes a single `TraceSession` and derives all data internally via `useMemo`. No new props or state needed in the parent.
 - **Centered timeline with side cards handles variable data density** — stages with rich data (Intent Classification, Memory Retrieval) fill both columns naturally; stages with thin data (Model Routing, Output Packaging) show "No data" gracefully rather than looking broken.
 
+## Session summary — 2026-08-03 (Token Entropy Everywhere + Memory Grounding + Local llama.cpp Node)
+
+- **Token-level uncertainty capture (entropy)** — `_call_openai` in the orchestrator requests top-5 logprobs on every generated token; `_compute_token_entropy()` derives mean entropy, p95, max surprisal, and a per-token series, stored on `TraceSession.token_entropy` + step-6 metadata. Surfaces in `/api/traces/profile` and personality fingerprints (Decisiveness axis).
+- **UncertaintySparkline** — `frontend/src/components/UncertaintySparkline.tsx`: mini SVG sparkline of the entropy series in the trace output card; DualTimeline gained per-stage entropy cards.
+- **Memory Grounding panel** — `frontend/src/components/charts/MemoryEntropyPanel.tsx`: buckets traces by used/discarded/absent chunks and compares mean entropy across groups (Δ readout + verdict, **always labeled anecdotal** on small samples). New `memory` relationship type wired through RelationshipsPanel, chartOptions (`memory → grounding`), and the Analysis sidebar.
+- **Local llama.cpp node** — downloaded llama.cpp b10240 + `Qwen2.5-3B-Instruct-Q4_K_M.gguf` (1.93 GB) to `~/llama-cpp/`; `tools/start_local_llm.sh` runs llama-server on `127.0.0.1:12435` (OpenAI-compat, logprobs, `/health` verified). This makes the **primary** node entropy-capable, not just the backoffice worker.
+- **Registry-driven routing** — `_resolve_model_endpoint()` replaces the binary local/worker URL switch with ordered node chains read from `network.json` (`local` prefers `local_llm` → falls back to `ollama`; `worker` → `worker_llm`). Any OpenAI-compat+logprobs node becomes first-class via config.
+- **Node-qualified identity** — `session.model_used` is now `<node>/<model>` (`primary/qwen2.5:3b`, `backoffice/gpt-oss:20B`) via `get_service_node()`, so profiles/entropy don't merge same-named models across machines. Legacy traces keep unqualified names.
+- **Verified end-to-end** — real trace `699dd317c300` produced `model_used: primary/qwen2.5:3b`, session entropy (mean 0.0101, p95 0.0778, 8 tokens), and a distinct `primary/qwen2.5:3b | n=1 | entropy n=1` profile row.
+- **Honest data** — only 2/317 legacy traces carried entropy (both backoffice gpt-oss); the MemoryEntropyPanel excludes entropy-less traces and shows an empty state explaining the corpus predates the feature. Near-zero entropy on canonical facts ("capital of France") is the correct signal.
+- **Performance tradeoff** — the i7-6700 CPU generates ~0.63 tok/s on Q4 3B through llama.cpp; slow but honest. `restart_backend.sh` (setsid + disown) restarts uvicorn so it survives the launching shell.
+
+### Lessons Learned
+- **Ollama silently drops logprobs** — its OpenAI-compat endpoint returns no `logprobs`/`top_logprobs` field (no error). If a metric needs token probabilities, detect the absence explicitly and route the model through a logprobs-capable node (llama.cpp-server/vLLM/TGI). Entropy through Ollama is silently lost, not absent-by-design.
+- **The worker was already a llama.cpp-server** — the backoffice "Docker Model Runner" is actually llama.cpp-server v0.1.0 speaking OpenAI-compat; the same protocol family now serves the local node. Convergence on one protocol (OpenAI-compat + timings + logprobs) is what made a single routing/entropy path possible.
+- **Node-qualify at the single assignment point** — `session.model_used` is set in exactly one place (`orchestrate()`), which made qualification a one-line change. A qualified identity is only as good as the registry behind it (`get_service_node`).
+- **Registry-driven > hardcoded switch** — a binary `if provider == "local"` can't express fallback chains or admit new nodes without code changes. `_resolve_model_endpoint` reads chains from `network.json`, so adding a node is pure config.
+- **`setsid nohup … & disown` for daemons** — agent tools (opencode, CI) kill the whole process group on timeout/shell-exit; inline `uvicorn &` dies when the tool returns. A dedicated script that fully detaches (see `restart_backend.sh`) is the reliable pattern; verify with `ss -ltn` + `/health` curl.
+- **Canonical-fact near-zero entropy is a feature** — the model's own token probabilities confirm "The capital of France is Paris" has ~zero uncertainty. That validation makes the entropy signal trustworthy for the traces where it's meaningful.
+
+## Phase 17 — Token-Level Uncertainty & Multi-Node Scaling (★☆☆–★★★)
+
+*The entropy signal now exists on both nodes (primary + backoffice). These items extend it from a per-trace curiosity into a first-class uncertainty lens — and harden the registry routing that made it possible.*
+
+| # | Idea | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Entropy trajectory chart** — line chart of the per-token entropy *series* over the generation (we already store it). See exactly *where* uncertainty spikes mid-generation (e.g. at the first answer token vs. trailing prose). | ★☆☆ | 45 min | Reuse `UncertaintySparkline` data |
+| 2 | **Entropy ↔ classifier-confidence calibration** — compare embedding margin (DDC/LCC) and intent confidence against response entropy. Are uncertain prompts also low-margin classifications? | ★☆☆ | 1 h | Extends RelationshipsPanel |
+| 3 | **Entropy-aware analysis prompts** — inject mean/p95 entropy + trajectory into the "Analyze with AI" relationship prompts so the analysis model reasons about the model's uncertainty, not just its text. | ★☆☆ | 30 min | `_build_analysis_prompt()` |
+| 4 | **Health-aware node failover** — `_resolve_model_endpoint` currently uses a hardcoded preferred node per provider. Make the chain read live telemetry reachability so a dead node is skipped at resolution time. | ★★☆ | 1.5 h | Registry + telemetry |
+| 5 | **Settings coupling fix** — the Models tab edits `model_provider.model`, but execution actually uses `local_llm.model` when the node is enabled. Wire the Models tab to the node registry (or document per-node model fields) so "change local model" means what it says. | ★★☆ | 1.5 h | SettingsModal + config_manager |
+| 6 | **Backfill legacy corpus** — logprobs can't be recovered retroactively; the 317 legacy traces will never have entropy. Option: re-run a diagnostic probe suite through the logprobs node to build an entropy baseline per model. | ★★☆ | 1 h | Probe suite exists (Phase 9) |
+| 7 | **Hidden-state probe service** — on-demand endpoint that serves a model's true hidden states (deep-layer probes) for confidence calibration, instead of token-logprob proxies. Deliberately deferred: needs 50+ entropy traces to be worth the complexity; probe runs via a standalone HF-transformers sidecar, not Ollama/llama.cpp. | ★★★ | 4-6 h | Research-heavy |
+| 8 | **Memory-grounding significance testing** — the MemoryEntropyPanel verdict is labeled anecdotal until the entropy-bearing corpus grows. Add a Mann-Whitney/t-test + minimum-N gate so the verdict self-upgrades from "anecdotal" to "statistically meaningful" when data allows. | ★★☆ | 1.5 h | Truth over polish |
+| 9 | **Cross-node entropy comparability** — document/measure how tokenizer + logprob semantics differ between primary and backoffice nodes; decide whether to normalize before cross-node comparison. | ★★☆ | research | Node-local by default |
+
 

@@ -52,13 +52,21 @@ Located at `backend/data/network.json`. Editable through **Settings → Services
       "port": 11434,
       "enabled": true
     },
+    "local_llm": {
+      "label": "Local LLM (llama.cpp)",
+      "host": "127.0.0.1",
+      "port": 12435,
+      "model": "qwen2.5:3b",
+      "protocol": "openai",
+      "enabled": true
+    },
     "worker_llm": {
       "label": "Worker LLM",
-      "host": "0.0.0.0",
+      "host": "198.51.100.100",
       "port": 12434,
-      "model": "qwen2.5:7b",
-      "protocol": "ollama",
-      "enabled": false
+      "model": "gpt-oss:20B",
+      "protocol": "openai",
+      "enabled": true
     },
     "openclaw": { ... },
     "prometheus": { ... }
@@ -71,8 +79,19 @@ Each service has:
 - `host` — IP or hostname
 - `port` — TCP port
 - `model` — (optional) default model for this service
-- `protocol` — `"ollama"` (default) or `"openai"` for vLLM/TGI/LM Studio/OpenAI-compatible servers
+- `protocol` — `"ollama"` (default) or `"openai"` for vLLM/TGI/LM Studio/llama.cpp-server/OpenAI-compatible servers
 - `enabled` — if `false`, the service is skipped during health checks
+
+### Execution Model Routing & the `local_llm` Node
+
+The execution model is resolved through an ordered node chain (`_resolve_model_endpoint` in the orchestrator), not a hardcoded URL:
+
+- **`local` provider** → prefers `local_llm` (llama.cpp-server, logprobs-capable) when enabled + reachable, else falls back to `ollama`.
+- **`worker` provider** → `worker_llm` (the backoffice GPU node).
+
+`local_llm` exists because Ollama does not expose per-token `logprobs`; serving the local execution model through llama.cpp-server is what lets the primary node capture token entropy. The GGUF is loaded by `tools/start_local_llm.sh`.
+
+**Known coupling:** the Settings "Models" tab edits `model_provider.model`, but when `local_llm` is enabled the execution model is actually `local_llm.model` (what the llama.cpp server loaded). Changing the local model in Settings requires loading that model into the llama.cpp node too.
 
 ### Machines (`Settings > Machines tab`)
 
@@ -84,7 +103,7 @@ Each service has:
       "host": "127.0.0.1",
       "desc": "Primary orchestration server",
       "insight": "The conductor. All orchestration originates here.",
-      "services": ["ollama", "openclaw"]
+      "services": ["ollama", "local_llm", "openclaw"]
     }
   }
 }

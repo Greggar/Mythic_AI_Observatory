@@ -2,7 +2,8 @@
 
 import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle, Circle, Clock, Loader } from "lucide-react";
-import type { TraceStep } from "@/types/trace";
+import UncertaintySparkline from "./UncertaintySparkline";
+import type { TraceStep, TokenEntropy } from "@/types/trace";
 
 interface Props {
   step: TraceStep;
@@ -95,6 +96,22 @@ export default function TimelineStep({ step, index, isLast }: Props) {
             <span className="text-teal-mystic/70">[{step.label}]</span>{" "}
             <span>{(step.metadata.output as string)}</span>
           </div>
+        )}
+
+        {/* Token entropy — uncertainty sparkline for the generation step */}
+        {step.label === "Response Generation" && (
+          (() => {
+            const ent = step.metadata?.token_entropy as TokenEntropy | undefined;
+            if (!ent) return null;
+            return (
+              <div className="mt-2 rounded-lg bg-violet-500/[0.04] border border-violet-500/[0.08] px-2.5 py-2">
+                <div className="text-[9px] font-semibold tracking-widest uppercase text-violet-400/70 mb-1">
+                  Token Uncertainty
+                </div>
+                <UncertaintySparkline entropy={ent} />
+              </div>
+            );
+          })()
         )}
 
         {/* Assembled context chain — always visible */}
