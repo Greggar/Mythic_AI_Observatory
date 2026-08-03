@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Pre-commit hook — delegates to tools/scrub_check.sh.
+# Install once per checkout:  git config core.hooksPath hooks
+exec "$(git rev-parse --show-toplevel)/tools/scrub_check.sh"
