@@ -21,7 +21,7 @@ No code changes are needed to reconfigure the system for a new network.
 | `CONDUCTOR_HOST` | `127.0.0.1` | IP to bind the FastAPI server |
 | `CONDUCTOR_PORT` | `8001` | Port for the FastAPI server |
 | `OLLAMA_MODEL` | Auto-detected by `install.sh` (`qwen2.5:3b` fallback) | Local (CPU) inference model |
-| `ORCHESTRATOR_MODEL` | `local` | Provider: `local` or `worker` |
+| `ORCHESTRATOR_MODEL` | *(unset — use saved config)* | Provider override: `local` or `worker`. When **unset**, the provider saved in `network.json` (via the Models UI) is used and persists across restarts. Setting it forces the provider regardless of the saved choice. |
 | `CLASSIFIER_MODEL` | Auto-detected (`qwen2.5:1.5b` fallback) | Model for background synesthesia classifier |
 | `CLASSIFIER_POLL_INTERVAL` | `45` | Seconds between classifier agent cycles |
 | `EMBEDDING_MODEL` | Auto-detected (`all-minilm:22m` fallback) | Model for DDC/LCC embedding similarity |
