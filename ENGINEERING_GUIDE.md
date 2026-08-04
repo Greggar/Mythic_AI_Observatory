@@ -127,6 +127,8 @@ This is the system's "memory." During stage 4:
 - The top chunks are tagged **`used`** (relevance ≥ 0.08) or **`discarded`**.
 - A **vector graph** is built: points (past traces) connected by edges weighted by embedding cosine similarity.
 
+Because chat exchanges are ordinary traces, **prior turns in the same chat are naturally retrievable** here — cross-turn influence is implicit via this stage (no raw history injection). The "context-source composition" idea (Phase 11, item 12) would make exactly this per-turn retrieval visible.
+
 During stage 5, retrieved chunks and the **architecture context** (a live description of which network services are reachable) are interleaved into the prompt that goes to the LLM in stage 6.
 
 ---
@@ -180,8 +182,11 @@ The user clicks **"Analyze with AI"** → `POST /api/traces/analyze` → the Con
 The frontend is organized into tabs (header toggle):
 
 - **Systems tab** — vitals, runtime metrics, system orbit, activity feed.
-- **Traces tab** — nexus/prompt input, timeline, intelligence, memory constellation.
+- **Single Prompt tab** — nexus/prompt input, timeline, intelligence, memory constellation.
+- **Chat tab** — multi-turn conversation spine with per-session trajectory + metrics (below).
 - **History tab** — the full trace archive, memory constellation, trace table, personality profiles.
+
+Chat is a **two-entry-point → shared render layer** design: Single Prompt and Chat both load traces into the *same* analysis panels. A chat exchange is just a trace with `chat_id`/`exchange_index`; clicking an exchange (or a trajectory dot) routes it into the identical surface the Single Prompt tab uses — zero panel duplication. A standalone prompt is formally a chat of length 1.
 
 ### 9.2 Key panels
 
@@ -199,6 +204,9 @@ The frontend is organized into tabs (header toggle):
 | **LatencyBreakdown** | Per-stage colored progress bars + live-trace overlay |
 | **PerformanceInsights** | Heuristic rules + LLM-generated insight cards |
 | **PersonalityProfile** | Per-model behavioral fingerprints |
+| **ChatPanel** | Multi-turn conversation spine — EX-# exchange cards with model/DDC/LCC/entropy chips, ⌘+Enter input, "New chat". Clicking a completed exchange loads it into the shared analysis surface |
+| **ChatTrajectory** | Per-session entropy arc — mean entropy line (teal area) + p95 band, dots colored by intent, ΔH + peak summary, clickable intent strip, portaled tooltip. The 4-turn chat that inspired it: open 0.391 → tension 0.443 → meta-pivot 0.548 → reconnection 0.467 |
+| **ChatMetrics** | Per-session KPIs — intent consistency %, DDC main-class drift (prompt/response), mood volatility (client-side `classifyMood5`), context utilization + avg relevance per turn, entropy slope/direction sparkline, session summary (tokens, runtime, models) |
 | **RelationshipsPanel** | The 6 relationship charts (below) + per-type "Analyze with AI" + classifier profile |
 | **CelestialDistribution** | Distribution of model usage over time |
 | **ActivityFeed** | Live event feed |
@@ -294,7 +302,9 @@ Model execution nodes are resolved from the service registry, not a hardcoded pa
 
 **Models:** `GET /api/models`, `GET /api/models/network`, `GET /api/models/current`, `POST /api/models/select`.
 
-**Orchestration:** `POST /api/orchestrate`, `POST /api/traces/batch`, `GET /api/traces/batch/{id}`.
+**Orchestration:** `POST /api/orchestrate` (accepts optional `chat_id`; backend stamps `chat_id` + assigns `exchange_index`), `POST /api/traces/batch`, `GET /api/traces/batch/{id}`.
+
+**Chats:** `GET /api/chats` (session summaries, newest-first), `GET /api/chats/{chat_id}` (ordered exchanges; 404 unknown).
 
 **Testing:** `POST /api/tests/run`, `GET /api/tests/run/{id}`, `POST /api/tests/classify`, `GET /api/tests/classify/{task_id}`, `POST /api/tests/classify/{task_id}/cancel`.
 
@@ -326,12 +336,14 @@ Model execution nodes are resolved from the service registry, not a hardcoded pa
 
 A `TraceSession` (Python `backend/models/trace.py`, mirrored in `frontend/src/types/trace.ts`) contains:
 - `trace_id`, `status`, `timestamps`, `prompt`, `output`
+- `chat_id` / `exchange_index` — optional chat-session linkage (`None`/`null` = standalone single prompt; every trace is interchangeable between single-prompt and chat views)
 - `steps` — the 7 stages, each with duration, status, and metadata (`gen_started_at`, token counts, etc.)
 - `model`, `model_provider`, latency, token counts, eval count/duration (for tok/s)
 - `intent_probs` — top-3 intent confidences + reasoning
 - `retrieved_chunks` — memory chunks with used/discarded status + relevance
 - `context_assembled` — what went into the model call
 - `response_rationale`, `trace_explanation` — the model's self-reported reasoning
+- `token_entropy` — mean/p95 entropy + high-entropy token count + per-token series (captured from top-5 logprobs on the generation stage)
 - `ddc` / `lcc` — each: prompt + response classifications with `code`, `label`, `action`, `domain`, `score`, `margin`, `top_scores`
 - `synesth` — grammar rings + `synesth_domain` (may be `null` for old traces)
 - `vector_graph` — points + edges for the memory visualization
