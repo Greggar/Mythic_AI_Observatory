@@ -19,6 +19,7 @@ import EngineStatusPanel from "@/components/EngineStatusPanel";
 import ActivityFeed from "@/components/ActivityFeed";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useOrchestrate } from "@/hooks/useOrchestrate";
+import { useChat } from "@/hooks/useChat";
 import { useTraceReplay } from "@/hooks/useTraceReplay";
 import { emitAudioEvent } from "@/lib/audioService";
 import { HoverProvider } from "@/lib/HoverContext";
@@ -35,6 +36,7 @@ import ModelSwitcher from "@/components/ModelSwitcher";
 import ComparativeRadarPanel from "@/components/ComparativeRadarPanel";
 import SetupWizard from "@/components/SetupWizard";
 import Galaxy3D from "@/components/Galaxy3D";
+import ChatPanel from "@/components/ChatPanel";
 import type { Probe, ModelOption, TraceSession } from "@/types/trace";
 import { DEFAULT_CHART } from "@/data/chartOptions";
 
@@ -43,6 +45,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 export default function Home() {
   const { data: telemetry, connected } = useWebSocket();
   const { trace, loading, submit } = useOrchestrate();
+  const chat = useChat();
   const { activeStepIndex, phase } = useTraceReplay(trace);
   const [liveComplete, setLiveComplete] = useState(false);
   const [historyRefresh, setHistoryRefresh] = useState(0);
@@ -88,6 +91,14 @@ export default function Home() {
       setHistoryRefresh((n) => n + 1);
     }
   }, [trace?.status]);
+
+  // Refresh memory constellation when a chat exchange completes
+  const chatCompleted = chat.exchanges.filter((e) => e.status === "complete").length;
+  useEffect(() => {
+    if (chatCompleted > 0) {
+      setHistoryRefresh((n) => n + 1);
+    }
+  }, [chatCompleted]);
 
   const isLiveProcessing = loading && trace !== null;
   const traceActive = phase === "replaying" || phase === "complete" || isLiveProcessing || liveComplete;
@@ -160,7 +171,7 @@ export default function Home() {
   const activeTrace = replayTrace || trace;
 
   const isIdle = !activeTrace && !loading;
-  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "history" | "analysis" | "tests">("systems");
+  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "chat" | "history" | "analysis" | "tests">("systems");
   const [analysisType, setAnalysisType] = useState<string>("synesthesia");
   const [chartType, setChartType] = useState<string>(DEFAULT_CHART[analysisType] || "confusion");
 
@@ -197,7 +208,17 @@ export default function Home() {
                   : "text-zinc-500 hover:text-zinc-300"
               }`}
             >
-              Trace
+              Single Prompt
+            </button>
+            <button
+              onClick={() => setActiveTab("chat")}
+              className={`px-3 py-1.5 text-[11px] font-mono tracking-wider rounded-md transition-all ${
+                activeTab === "chat"
+                  ? "bg-teal-mystic/15 text-teal-mystic shadow-sm"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              Chat
             </button>
             <button
               onClick={() => setActiveTab("history")}
@@ -376,6 +397,21 @@ export default function Home() {
               <ErrorBoundary><PerformanceInsights trace={activeTrace} /></ErrorBoundary>
             </aside>
           </div>
+        </ErrorBoundary>
+      )}
+
+      {/* Chat Tab — multi-turn chat sessions */}
+      {activeTab === "chat" && (
+        <ErrorBoundary key="chat">
+          <ChatPanel
+            chatId={chat.chatId}
+            exchanges={chat.exchanges}
+            sending={chat.sending}
+            error={chat.error}
+            onSend={chat.send}
+            onSelectExchange={handleHistorySelect}
+            onNewChat={chat.reset}
+          />
         </ErrorBoundary>
       )}
 

@@ -85,6 +85,8 @@ export interface TraceSession {
   prompt: string;
   batch_id?: string;
   test_batch_id?: string;
+  chat_id?: string;
+  exchange_index?: number;
   status: "processing" | "complete" | "error";
   steps: TraceStep[];
   output: string | null;
