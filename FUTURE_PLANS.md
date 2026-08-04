@@ -521,6 +521,7 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 | 8 | **Mythic Layer** — name recurring phenomena as UI garnish (high entropy = "The Whispering Forest", self-reference = "The Mirror Pool"). Technical definition must stay visible beside the name. | ★☆☆ | 1 h | Cheap delight; guard truth over polish |
 | 9 | **Observatory Journal / self-observation** — scheduled background report (weekly) written by the analysis model over the last N traces: drift, entropy trend, new patterns, notable transitions. Nineteenth-century astronomy journal, automated. | ★★☆ | 2 h | Reuses ANALYSIS_MODEL + insight infra |
 | 10 | **North Star — the conversation as phenomenon** — meta-doc framing the observatory's long-term subject as conversation itself (its laws, attractors, ecology), not any particular model. | ★☆☆ | 30 min | Vision note only |
+| 11 | **Input-side ambiguity (the operator's branching factor)** — measure prompt-side complexity per exchange (mood: interrogative vs imperative, hedging language, multi-intent density, prompt length) and correlate it with the model's output entropy. Question: do *ambiguous prompts from the human* predict the model's uncertainty spikes? Flips the observatory to observe its operator — the scientist's branching factor. *(added by opencode, 2026-08-04)* | ★★☆ | 2 h | Testable now: prompt + `token_entropy` already captured; reuses ChatMetrics mood/intent extraction |
 
 ### Notes
 
