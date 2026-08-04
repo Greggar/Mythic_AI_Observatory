@@ -503,4 +503,30 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 | 8 | **Memory-grounding significance testing** — the MemoryEntropyPanel verdict is labeled anecdotal until the entropy-bearing corpus grows. Add a Mann-Whitney/t-test + minimum-N gate so the verdict self-upgrades from "anecdotal" to "statistically meaningful" when data allows. | ★★☆ | 1.5 h | Truth over polish |
 | 9 | **Cross-node entropy comparability** — document/measure how tokenizer + logprob semantics differ between primary and backoffice nodes; decide whether to normalize before cross-node comparison. | ★★☆ | research | Node-local by default |
 
+---
+
+## Phase 18 — Conversation Phenomena (★☆☆–★★★)
+
+*Shift the unit of observation from the model to the conversation. Everything here builds on data already captured (entropy series, top-5 logprobs, embeddings, per-exchange DDC/LCC/intent, chat sessions) — no new telemetry needed to start. Inspired by Cal, 2026-08-04.*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Branching factor (effective continuations)** — `2^H` per token from existing logprobs = "how many competing continuations were plausible." Median across the generation is the headline number. Viz: the single glowing stream splits at high-uncertainty tokens. | ★★☆ | 1.5 h | Reuses `token_entropy.series` |
+| 2 | **Conversation topology** — embed every exchange (all-minilm `embedding` field exists), MDS to 2D (VectorDistanceGraph already does this), then draw the chat's path as an animated landscape. Watch discussions drift topic-space. | ★★☆ | 2 h | Sequel to ChatTrajectory |
+| 3 | **Phase transitions** — label each exchange with a higher-level "phase" (exploration / technical / reflective / creative / meta-analysis / problem-solving), detect where the state shifts, correlate the shift with entropy / retrieval similarity / prompt length. Question to answer: does retrieval similarity above some threshold predict a mode shift? | ★★★ | 3 h | Extends ChatMetrics; the correlation query is the real work |
+| 4 | **Surprise score (v1 heuristic)** — quantify topic-jump *magnitude* between consecutive exchanges (DDC main-class distance, not just change/no-change). v2 (research): predictive baseline model → true "expected vs actual" surprise. | ★★☆ | 2 h | Drift metric exists; jump magnitude is new |
+| 5 | **Emergent vocabulary** — track n-gram/concept first-appearance date + subsequent frequency across prompts, outputs, trace_explanations. "Watch concepts be born, then spread." | ★★☆ | 2 h | Script + time-series viz |
+| 6 | **Behaviour Atlas (capstone)** — per-trace behavioural feature vector (entropy, branching, intent stability, DDC drift, grammar rings, ghost-ref rate, tokens, confidence) → cluster across the corpus (k-means/UMAP) → LLM-name the clusters ("Explorer", "Architect", "Mirror") → show a conversation moving between attractors over time. | ★★★ | 4–6 h | Feature vectors already exist; new clustering backend |
+| 7 | **Constellations of Minds** — overlay per-model behaviour landscapes ("this region belongs to GPT-OSS, nobody else goes there"). | ★★☆ | 2 h | Extends ComparativeRadarPanel |
+| 8 | **Mythic Layer** — name recurring phenomena as UI garnish (high entropy = "The Whispering Forest", self-reference = "The Mirror Pool"). Technical definition must stay visible beside the name. | ★☆☆ | 1 h | Cheap delight; guard truth over polish |
+| 9 | **Observatory Journal / self-observation** — scheduled background report (weekly) written by the analysis model over the last N traces: drift, entropy trend, new patterns, notable transitions. Nineteenth-century astronomy journal, automated. | ★★☆ | 2 h | Reuses ANALYSIS_MODEL + insight infra |
+| 10 | **North Star — the conversation as phenomenon** — meta-doc framing the observatory's long-term subject as conversation itself (its laws, attractors, ecology), not any particular model. | ★☆☆ | 30 min | Vision note only |
+
+### Notes
+
+- Deliberately deferred: raw hidden-state probes (already Phase 17 #7); hand-authored phase schemas (item 3 keeps phases simple; item 6 is where structure *emerges* statistically).
+- Cal's items 6 + 8 ("Observatory Watching Itself" + "Observatory Journal") are **one engine** — a scheduled analysis-model report — merged into item 9.
+- Item 6 is the capstone precisely because items 1–5 feed its feature vector.
+
+
 
