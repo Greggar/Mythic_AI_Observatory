@@ -1188,6 +1188,19 @@ def list_traces(limit: int = 50) -> list[TraceSession]:
     return traces
 
 
+def next_exchange_index(chat_id: str) -> int:
+    """Next exchange_index for a chat: max existing + 1, or 0 if none yet."""
+    indices = [
+        s.exchange_index for s in _store.values()
+        if s.chat_id == chat_id and s.exchange_index is not None
+    ]
+    indices += [
+        s.exchange_index for s in load_history(limit=500)
+        if s.chat_id == chat_id and s.exchange_index is not None
+    ]
+    return (max(indices) + 1) if indices else 0
+
+
 def delete_trace(trace_id: str) -> bool:
     removed = False
     if trace_id in _store:

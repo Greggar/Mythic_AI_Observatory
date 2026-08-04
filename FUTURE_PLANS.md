@@ -111,32 +111,59 @@ The project is released under the standard MIT License (see `LICENSE`). The copy
 
 ## Phase 11 — Chat Traces (★★☆–★★★)
 
-*Extend the observatory from single-prompt traces to full multi-turn chat sessions. Requires research into LLM context maintenance, session management, and content normalization.*
+*Extend the observatory from single-prompt traces to full multi-turn chat sessions. UI keeps a **Single Prompt** tab and a **Chat** tab as *entry points* — both route into the same shared per-trace analysis surface. The backend data model stays unified (`chat_id`/`exchange_index`), so a single prompt is just a chat of length 1.*
 
 ### Core Idea
 
-Currently every trace is a single prompt → response pair. Chat traces would capture an entire conversation with N exchanges, preserving context flow between turns. The user selects "Single Prompt" or "Chat" at the start. Chat sessions get a `chat_id` field (0 = not part of a chat) and an `exchange_index` for turn ordering.
+Tabs decide *what you load*, not which panels exist. **Single Prompt** = today's flow (prompt input → deep trace analysis). **Chat** = conversation spine (exchange cards, trajectory overlays, cross-turn links); clicking an exchange loads the *same* panels the Single Prompt tab uses. This reuses the existing History→Trace bridge pattern (click a constellation dot → Trace tab). No duplicated panels, no UI drift.
+
+Backend: every trace gets optional `chat_id` (`None` = standalone, backward compatible) and `exchange_index`. Chat sessions are linked trace groups — no new storage table; `traces.jsonl` entries just carry the two new fields.
+
+### Build Order (each phase ends at a verification boundary)
 
 | # | Item | Effort | Est. Time | Notes |
 |---|------|--------|-----------|-------|
-| 1 | **Chat session model** — `ChatSession` wrapper containing `chat_id`, `exchange_index`, `prompt`, `response`, `parent_trace_id`, `context_summary`. Backend stores sessions as linked trace groups rather than standalone entries. | ★★☆ | 2 h | Core data model |
-| 2 | **UI mode selector** — modal/prompt-area toggle between "Single Prompt" and "Chat" mode. Chat mode shows an ongoing session panel with exchange history. | ★★☆ | 1.5 h | UX |
-| 3 | **Chat ID generation** — backend assigns `chat_id` on first exchange; subsequent prompts in the same session receive the same `chat_id` with incremented `exchange_index`. A `chat_id` of `0` means not part of a chat (backward-compatible default). | ★☆☆ | 30 min | Plumbing |
-| 4 | **Context carry-over** — each exchange receives the previous N exchanges (or tokens) as injected context. Research required: how does each model family (qwen, llama, gpt-oss) handle context window limits? What truncation strategy works? | ★★★ | 4–6 h | Research-heavy |
-| 5 | **Per-exchange classification** — run DDC, LCC, synesthesia, mood/intent, intonation on each exchange individually. Aggregate to show how classifications evolve over the conversation (e.g., drifting from Factual Question to Complex Inquiry). | ★★☆ | 1.5 h | Uses existing pipeline |
-| 6 | **Chat-level metrics** — aggregate across exchanges: topic drift velocity (how fast DDC/LCC class changes), mood volatility (mood switches per exchange), intent consistency (does the model maintain the same persona?), context utilization (which chunks were retrieved per turn). | ★★☆ | 2 h | Analytics |
-| 7 | **Context window research** — study how each deployed model uses its context window across turns. Do responses degrade after N exchanges? At what token count does retrieval quality drop? Document per-model context profiles. | ★★★ | 3–5 h | Research |
-| 8 | **Content cleaner (collapsible)** — optional pre-processing stage that tags pleasantries ("Thanks!", "Sure!", "I'd be happy to...") and offensive language as `social_lubricant` or `toxic` with a frequency metric per model/session. Original text is **collapsed behind a labelled badge** rather than stripped — nothing is hidden. Could use a small classifier (all-minilm fine-tune or regex cascade). | ★★☆ | 3–4 h | ML |
-| 9 | **Chat timeline visualization** — horizontal timeline showing exchanges as linked cards, with per-exchange classification badges, token counts, and a sentiment/confidence trend line along the bottom. | ★★☆ | 2 h | UI |
-| 10 | **Session replay** — replay an entire chat in the IntelligencePanel, showing context accumulation across turns and how the model's reasoning evolves. Each exchange gets its own ForkInTheRoad, ThoughtStream, and TokenVelocity. | ★★★ | 3 h | Polish |
+| 1 | **TraceSession chat fields** — `chat_id: str | None`, `exchange_index: int | None` on the Pydantic model. Old jsonl entries parse with null fields (chat listings ignore them). | ★☆☆ | 30 min | Foundation |
+| 2 | **OrchestrateRequest extension** — optional `chat_id` on POST /api/orchestrate; `orchestrate()` passes it through. Missing chat_id → current single-prompt behavior untouched. | ★☆☆ | 30 min | Backward compatible |
+| 3 | **Chat listing endpoints** — `GET /api/chats` (id, exchange count, first prompt, last activity) + `GET /api/chats/{id}` (ordered exchanges). Scan of traces.jsonl; no new storage. | ★★☆ | 1 h | Plumbing |
+| 4 | **Chat tab (entry point)** — new nav tab next to Single Prompt; conversation spine with exchange cards + chat input at the bottom. Empty state on first visit. | ★★☆ | 2 h | UX |
+| 5 | **Exchange → shared surface routing** — clicking an exchange sets the active tab to the analysis view and loads that trace via the existing `handleHistoryReplay`-style bridge. Zero panel duplication. | ★☆☆ | 30 min | Reuses existing pattern |
+| 6 | **Chat ID generation** — frontend generates `crypto.randomUUID()` on first message, reuses it for subsequent exchanges (increments `exchange_index`). | ★☆☆ | 30 min | Plumbing |
+| 7 | **Per-exchange classification** — DDC/LCC/synesthesia/mood-intent run per exchange automatically via the existing pipeline; no new models. | ★★☆ | 1 h | Loop over pipeline |
+| 8 | **Context carry-over** — v1: the existing memory-retrieval stage treats prior exchanges in the same chat as retrievable context (no raw history injection). v2 (research): explicit truncated history injection per model family. | ★★★ | 4–6 h | Research-heavy |
+| 9 | **Chat-level metrics** — topic drift velocity (DDC/LCC change per exchange), mood volatility, intent consistency, context utilization per turn. | ★★☆ | 2 h | Analytics |
+| 10 | **Conversation trajectory visualizations** — fingerprint drift (TraceRadar multi-trace overlay, already exists), classification evolution (DriftHeatmap, already temporal), mood/entropy trend line. | ★★☆ | 2 h | Compose existing |
+| 11 | **Cross-turn reference map** — arc links showing "exchange N responds to M" via SynthesisBridge's word-overlap logic lifted to conversation level. *One of two new viz genres.* | ★★★ | 2.5 h | New |
+| 12 | **Context-source composition** — per-exchange stacked bar: fresh prompt vs memory retrieval vs history carry-over (reuses used/discarded chunk tagging). *Second new viz genre.* | ★★☆ | 1.5 h | New |
+| 13 | **Chat timeline + session replay** — horizontal timeline of exchanges; replay in IntelligencePanel with per-exchange ForkInTheRoad/ThoughtStream/TokenVelocity. | ★★★ | 3 h | Polish |
+
+### Verification & Regression Checks (run at every phase boundary)
+
+Backend:
+- `cd backend && python -m pytest tests/ -v` — smoke tests (health, `/api/traces`) must stay green after every change.
+- New tests added with items 1–3: chat trace round-trip (`POST /api/orchestrate` with chat_id → appears in `GET /api/chats/{id}` in exchange_index order); standalone trace (no chat_id) → absent from all chat listings; old-format jsonl entries load cleanly.
+- API shape stability — `/api/traces`, `/api/traces/{id}`, `/api/traces/profile` must not rename or remove fields (frontend types only ever grow, never shrink).
+
+Frontend:
+- `npx tsc --noEmit` clean after every change.
+- Manual regression walkthrough per phase: (1) all 5 existing tabs still render, (2) Single Prompt orchestration → full analysis identical to pre-chat behavior, (3) History→Trace dot bridge still works, (4) comparative radar still works, (5) no duplicate-key/console errors, (6) Chat tab empty state renders clean.
+- New check: a single-exchange "chat" degrades to the identical render as a single prompt (graceful collapse).
+
+Repo hygiene:
+- Pre-commit scrub hook stays active (`core.hooksPath hooks`); chat feature adds no machine-specific IPs/hostnames, so commits pass automatically.
 
 ### Architecture Notes
 
-- `chat_id` is a UUID assigned by the orchestrator on session start. The frontend passes it as an optional field in the orchestration request.
-- `exchange_index` is a simple incrementing integer per chat_id. The backend enforces ordering and can reject out-of-sequence exchanges.
-- The content cleaner (item 8) could piggyback on the existing embedding classifier pattern: train or prompt a small model to classify utterance type (greeting, instruction, clarification, insult, etc.) and strip or flag common boilerplate.
-- Per-exchange classification reuses the existing DDC/LCC/synesthesia pipeline. No new models needed — just loop over exchanges in a chat.
-- Context window research (item 7) is the critical path item. Without understanding how models degrade over long contexts, the chat trace feature is just cosmetic. This should be started first.
+- `chat_id` is a UUID generated by the frontend on session start (or by the orchestrator when absent); `exchange_index` is an incrementing integer per chat_id, enforced by the backend (out-of-sequence exchanges rejected).
+- The content cleaner idea (from the original Phase 11) remains as a deferred item — it could piggyback on the existing embedding classifier pattern; deliberately dropped from the first cut to keep scope tight.
+- Context carry-over (item 8) is the only research-heavy item. v1 uses the existing memory-retrieval stage so the chat ships without it; v2 (per-model context profiles, truncation strategy) can be a follow-up.
+
+---
+
+## Phase 11.5 — Chat Traces Follow-ups (deferred)
+
+- **Context window research** — study how each deployed model (qwen2.5:3b, gpt-oss:20B) uses its context window across turns. Do responses degrade after N exchanges? At what token count does retrieval quality drop? Document per-model context profiles.
+- **Content cleaner (collapsible)** — tag pleasantries/offensive language as `social_lubricant`/`toxic` with a frequency metric; original text collapsed behind a labelled badge rather than stripped.
 
 ---
 

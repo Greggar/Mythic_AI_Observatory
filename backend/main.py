@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from models.trace import TraceSession
 from services.profile import compute_profile, ModelProfile
 from models.annotation import Annotation
-from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, get_analysis_model, set_analysis_model, get_analysis_provider, set_analysis_provider, warmup_model, _call_model, LOCAL_MODEL
+from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, get_analysis_model, set_analysis_model, get_analysis_provider, set_analysis_provider, warmup_model, next_exchange_index, _call_model, LOCAL_MODEL
 from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
@@ -725,6 +725,7 @@ async def select_model(body: ModelSelectBody) -> dict[str, str]:
 # ── Orchestration models ──────────────────────────────────────────
 class OrchestrateRequest(BaseModel):
     prompt: str
+    chat_id: str | None = None
 
 class BatchRequest(BaseModel):
     prompts: list[str]
@@ -755,7 +756,12 @@ _async_tasks: dict[str, asyncio.Task] = {}
 @app.post("/api/orchestrate")
 async def api_orchestrate(req: OrchestrateRequest) -> dict[str, str]:
     logger.info("Orchestration request: %s", req.prompt[:80])
-    session = TraceSession(id=uuid.uuid4().hex[:12], prompt=req.prompt)
+    session = TraceSession(
+        id=uuid.uuid4().hex[:12],
+        prompt=req.prompt,
+        chat_id=req.chat_id,
+        exchange_index=next_exchange_index(req.chat_id) if req.chat_id else None,
+    )
     from services.orchestrator import _store
     _store[session.id] = session
     task = asyncio.create_task(orchestrate(req.prompt, session.id))
@@ -1001,6 +1007,58 @@ class BulkDeleteRequest(BaseModel):
 async def api_bulk_delete_traces(req: BulkDeleteRequest) -> dict:
     count = bulk_delete_traces(req.ids)
     return {"deleted": count}
+
+
+# ── Chat sessions ────────────────────────────────────────────────
+
+class ChatSummary(BaseModel):
+    chat_id: str
+    exchange_count: int
+    first_prompt: str
+    last_activity: str
+
+
+def _chat_exchanges(chat_id: str) -> list[TraceSession]:
+    from services.orchestrator import _store, load_history
+    traces: dict[str, TraceSession] = {}
+    for t in list(_store.values()) + load_history(limit=500):
+        if t.chat_id == chat_id:
+            traces[t.id] = t
+    return sorted(
+        traces.values(),
+        key=lambda t: (t.exchange_index if t.exchange_index is not None else 2**31, t.created_at),
+    )
+
+
+@app.get("/api/chats")
+async def api_list_chats() -> list[ChatSummary]:
+    from services.orchestrator import _store, load_history
+    by_chat: dict[str, dict[str, TraceSession]] = {}
+    for t in list(_store.values()) + load_history(limit=500):
+        if t.chat_id:
+            by_chat.setdefault(t.chat_id, {})[t.id] = t
+    summaries: list[ChatSummary] = []
+    for cid, traces in by_chat.items():
+        ordered = sorted(
+            traces.values(),
+            key=lambda t: (t.exchange_index if t.exchange_index is not None else 2**31, t.created_at),
+        )
+        summaries.append(ChatSummary(
+            chat_id=cid,
+            exchange_count=len(ordered),
+            first_prompt=ordered[0].prompt[:80] if ordered else "",
+            last_activity=max((t.created_at for t in ordered), default=""),
+        ))
+    summaries.sort(key=lambda s: s.last_activity, reverse=True)
+    return summaries
+
+
+@app.get("/api/chats/{chat_id}", response_model=list[TraceSession])
+async def api_get_chat(chat_id: str) -> list[TraceSession]:
+    exchanges = _chat_exchanges(chat_id)
+    if not exchanges:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return exchanges
 
 
 from services.classifier_agent import _classifier_cycle
