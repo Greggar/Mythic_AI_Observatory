@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
+import ChatTrajectory from "@/components/ChatTrajectory";
 import type { TraceSession } from "@/types/trace";
 
 interface Props {
@@ -76,6 +77,9 @@ export default function ChatPanel({
 
         {/* Conversation spine */}
         <div ref={spineRef} className="flex-1 overflow-y-auto space-y-4 min-h-0 pr-1">
+          {exchanges.length > 0 && (
+            <ChatTrajectory exchanges={exchanges} onSelectExchange={onSelectExchange} />
+          )}
           {exchanges.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 h-full text-center">
               <Sparkles className="w-6 h-6 text-teal-mystic/50" />
