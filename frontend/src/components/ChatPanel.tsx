@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
 import ChatTrajectory from "@/components/ChatTrajectory";
+import ChatConversationTopology from "@/components/ChatConversationTopology";
 import ChatMetrics from "@/components/ChatMetrics";
 import ChatReferenceMap from "@/components/ChatReferenceMap";
 import ChatContextComposition from "@/components/ChatContextComposition";
@@ -100,6 +101,12 @@ export default function ChatPanel({
                 onStop={onStopReplay}
               />
               <ChatTrajectory exchanges={exchanges} onSelectExchange={onSelectExchange} />
+              <ChatConversationTopology
+                exchanges={exchanges}
+                onSelectExchange={onSelectExchange}
+                playing={replayPlaying}
+                current={replayCurrent}
+              />
               <ChatReferenceMap exchanges={exchanges} onSelectExchange={onSelectExchange} />
               <ChatContextComposition exchanges={exchanges} />
               <ChatMetrics exchanges={exchanges} />

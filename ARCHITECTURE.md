@@ -228,7 +228,13 @@ layout.tsx          — Root layout, Geist fonts, dark background
   │   │    in page.tsx so it survives  └── VectorDistanceGraph (MDS-2D)
   │   │    the tab switch)
   │   ├── ChatTrajectory               │
-  │   ├── ChatReferenceMap             │   └── TraceTimeline
+  │   ├── ChatConversationTopology     │   └── TraceTimeline
+  │   │   (MDS topic-space landscape:  │       └── TimelineStep
+  │   │    per-exchange embeddings →   └── VectorDistanceGraph (MDS-2D)
+  │   │    all-pairs cosine distances, │
+  │   │    animated comet loops the    │
+  │   │    path, per-hop drift labels) │
+  │   ├── ChatReferenceMap             │
   │   │   (cross-turn arcs: teal =     │       └── TimelineStep
   │   │    memory retrieval pulled a   └── VectorDistanceGraph (MDS-2D)
   │   │    chunk from an earlier ex,
@@ -595,6 +601,7 @@ Ollama's OpenAI-compat endpoint does not return per-token `logprobs`/`top_logpro
 - **[Backend + Frontend] Entropy-aware analysis prompts.** `_build_analysis_prompt` accepts an `entropy_summary` block (per-trace H/p95/n_tokens/high-entropy count, built client-side in RelationshipsPanel) and instructs the analysis model to treat high-entropy responses as uncertain generation and correlate them with relationship patterns — calibrated to sample size, silent about missing entropy data. (2026-08-05)
 - **[Frontend] Research provenance layer.** `researchRefs.ts` registry (metric/panel → real citations with URL + relevance line) + `ResearchPopover` component (quiet ⓘ glyph, click-to-open portaled glass popover, outside-click/Esc close). Wired into EntropyTrajectoryChart (Kadavath 2022), EntropyCalibrationPanel (Guo 2017 + Kadavath), MemoryEntropyPanel (Lewis 2020). Truth-over-polish rule: no hallucinated citations. (2026-08-05)
 - **[Frontend] Correction detector (Phase 18 #4 seed).** `frontend/src/utils/correctionDetector.ts` + `ChatMetrics` amber strip: flags human corrections of the model via weighted signals — `meta-language` (0.6, correction framing), `margin-collapse` (0.2, DDC prompt margin < 0.03), `self-ref-retrieval` (0.2, prior exchange retrieved as grounding). Threshold 0.6. Validated on the "Poetic No" chat: fires only on the true correction (EX2→EX3, score 1.0), 0 false positives across all 6 chats. Encodes a Phase 18 finding: corrections reuse the topic surface, so topic-distance surprise inverts for them — the tell is classifier margin collapse + retrieval re-feeding the disputed artifact. (2026-08-05)
+- **[Frontend] Conversation topology (Phase 18 #2).** `ChatConversationTopology.tsx` draws the chat as an animated landscape in embedding topic-space: per-exchange all-minilm embeddings → all-pairs cosine distances → MDS projection, intent-colored nodes sized by token count, a comet that loops the EX0→…→EXn path (synced to session replay via a shared `progress` motion value), per-hop drift labels (`1 − cos`, teal/amber/pink by magnitude), and click-through to the shared analysis surface. MDS extracted to shared `utils/mds.ts` (deterministic seeded power iteration, convergent; `VectorDistanceGraph` refactored onto it). "Poetic No" sanity check: EX2↔EX3 are nearest neighbours (sim 0.482, drift 0.518 — correction stays grounded near the poem) while EX0 diverges (0.784/0.856). (2026-08-05)
 
 ### Medium Priority
 

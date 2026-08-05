@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { mds2d } from "@/utils/mds";
 
 const W = 260;
 const H = 200;
@@ -25,10 +26,7 @@ interface Props {
   edges: VectorEdge[];
 }
 
-function mds2d(
-  points: VectorPoint[],
-  edges: VectorEdge[]
-): { x: number; y: number; pt: VectorPoint }[] {
+function layoutFromEdges(points: VectorPoint[], edges: VectorEdge[]) {
   const n = points.length;
   if (n === 0) return [];
   if (n === 1) return [{ x: W / 2, y: H / 2, pt: points[0] }];
@@ -47,71 +45,14 @@ function mds2d(
     }
   }
 
-  const dSq = dist.map((row) => row.map((d) => d * d));
-  const rowMeans = dSq.map((row) => row.reduce((a, b) => a + b, 0) / n);
-  const colMeans = dSq[0].map((_, ci) => dSq.reduce((s, row) => s + row[ci], 0) / n);
-  const grandMean = rowMeans.reduce((a, b) => a + b, 0) / n;
-
-  const B = dSq.map((row, ri) =>
-    row.map((_, ci) => -0.5 * (row[ci] - rowMeans[ri] - colMeans[ci] + grandMean))
-  );
-
-  function dominantEigen(B: number[][]): { val: number; vec: number[] } {
-    let vec = Array(n).fill(1).map(() => Math.random() - 0.5);
-    const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
-    if (norm < 1e-12) return { val: 0, vec: Array(n).fill(0) };
-    vec = vec.map((v) => v / norm);
-    for (let iter = 0; iter < 100; iter++) {
-      const nv = Array(n).fill(0);
-      for (let i = 0; i < n; i++)
-        for (let j = 0; j < n; j++) nv[i] += B[i][j] * vec[j];
-      const eig = Math.sqrt(nv.reduce((s, v) => s + v * v, 0));
-      if (eig < 1e-12) break;
-      vec = nv.map((v) => v / eig);
-      return { val: eig, vec };
-    }
-    return { val: 0, vec: Array(n).fill(0) };
-  }
-
-  const Bc = B.map((r) => [...r]);
-  const e1 = dominantEigen(Bc);
-  const B2 = Bc.map((row, ri) =>
-    row.map((_, ci) => Bc[ri][ci] - e1.val * e1.vec[ri] * e1.vec[ci])
-  );
-  const e2 = dominantEigen(B2);
-
-  const pos = points.map((pt, i) => ({
-    x: Math.sqrt(Math.abs(e1.val)) * (e1.vec[i] || 0),
-    y: Math.sqrt(Math.abs(e2.val)) * (e2.vec[i] || 0),
-    pt,
-  }));
-
-  const xs = pos.map((p) => p.x);
-  const ys = pos.map((p) => p.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const pad = 30;
-  const s = Math.min(
-    (W - pad * 2) / (maxX - minX || 1),
-    (H - pad * 2) / (maxY - minY || 1)
-  );
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-
-  return pos.map((p) => ({
-    x: W / 2 + (p.x - cx) * s,
-    y: H / 2 + (p.y - cy) * s,
-    pt: p.pt,
-  }));
+  return mds2d(dist, W, H).map((pt, i) => ({ x: pt.x, y: pt.y, pt: points[i] }));
 }
 
 export default function VectorDistanceGraph({ points, edges }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const tooltipRef = useRef<{ x: number; y: number } | null>(null);
 
-  const layout = useMemo(() => mds2d(points, edges), [points, edges]);
+  const layout = useMemo(() => layoutFromEdges(points, edges), [points, edges]);
   const pointMap = useMemo(
     () => new Map(layout.map((l) => [l.pt.id, l])),
     [layout]
