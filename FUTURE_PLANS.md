@@ -575,5 +575,45 @@ Where a text trace records tokens, an image trace records **denoising steps** (2
 - Full investigation + inventory + mapping: **`RESEARCH.md`**
 - Live infrastructure addresses: `~/.config/opencode/AGENTS.md` (never committed)
 
+---
+
+## Phase 20 — Research Provenance (★★☆☆–★★★)
+
+*The observatory's claims should be traceable to the literature. This phase adds a lightweight citation layer: every panel/metric gets a "why does this exist" reference — the paper that grounds the measurement. A help popover (ⓘ) on panel headers surfaces the citation, its URL, and a plain-language relevance line. Turned-inward ethos: the observatory doesn't just observe models, it documents its own epistemology.*
+
+### Core Idea
+
+A static, frontend-only registry keyed by metric/panel ID maps each measurement to its source. Example — our token-entropy stack is grounded by:
+
+- **Kadavath et al. (2022), "Language Models (Mostly) Know What They Know"** — arXiv:2207.05221. Token-level entropy and conditional log-probabilities directly reflect whether a model "knows" a fact or is guessing. This is the exact justification for `token_entropy`, the EntropyTrajectoryChart, the Decisiveness fingerprint axis, and the entropy-aware analysis prompts.
+
+A `<ResearchPopover>` component (portaled, following the existing tooltip pattern) renders the entry from a ⓘ button in the panel header.
+
+### Build Order
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **ResearchRefs registry** — `frontend/src/data/researchRefs.ts`: static `metricId → { title, authors, year, venue, url, relevance }`. Pure frontend, no backend. ✓ done | ★☆☆ | 1 h | Seed with the citations below |
+| 2 | **ResearchPopover component** — ⓘ button in panel headers; portaled popover with citation(s), URL link, and one-line relevance in our own words. Reuses the `createPortal` + `fixed` tooltip pattern. ✓ done | ★☆☆ | 1.5 h | Zero data dependencies; click-to-open, outside-click/Esc closes |
+| 3 | **Wire the entropy panels first** — EntropyTrajectoryChart, MemoryEntropyPanel, EntropyCalibrationPanel, Decisiveness axis → Kadavath et al. (2022). Then calibration → Guo et al. (2017); memory retrieval → Lewis et al. (2020); DDC/LCC → the classification standards themselves. ✓ done (entropy surfaces) | ★☆☆ | 1 h | Trajectory/Calibration/Memory wired; Decisiveness axis deferred (no header surface yet) |
+| 4 | **Editorial rule: truth over polish, applied to provenance** — every ref must (a) be real and verifiable, (b) carry a URL, (c) include a relevance line written in our own words, and (d) be verified before adding. No hallucinated citations — same rule as the metric data. ✓ done | ★☆☆ | 30 min | Enforced at commit review |
+
+### Seed citations
+
+| Metric / panel | Citation | Relevance (our words) |
+|---|---|---|
+| Token entropy, Decisiveness axis, entropy trajectory | Kadavath et al. (2022), *Language Models (Mostly) Know What They Know*, arXiv:2207.05221 | Token-level entropy / conditional log-probs tell us when the model is guessing vs confident — the foundation of the whole uncertainty workstream |
+| Confidence calibration (DDC/LCC margin, intent confidence, EntropyCalibrationPanel) | Guo et al. (2017), *On Calibration of Modern Neural Networks*, ICML | Classifier confidence ≠ accuracy; calibration must be measured, not assumed |
+| Memory retrieval (used/discarded chunks, memory grounding) | Lewis et al. (2020), *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks*, arXiv:2005.11401 | Grounding generation in retrieved context — the architectural basis for the memory stage |
+| Entropy itself (definition) | Shannon (1948), *A Mathematical Theory of Communication* | The definition of the quantity every uncertainty panel reports |
+| DDC / LCC classification | Dewey Decimal Classification (Melvil Dewey, 1876); Library of Congress Classification (1897) | The ontologies the classifier maps prompts/responses onto |
+| (Seed research) Conversation topology | Tomasello (2014) / conversation-analysis literature | The framing for chat-phase phenomena (Phase 18) |
+
+### Verification & Regression Checks
+
+- Frontend: `npx tsc --noEmit` clean; popovers render from registry keys only — a missing key renders nothing, never a crash.
+- Every added citation verified to exist before commit (truth over polish).
+- Repo hygiene: registry contains only paper URLs (arXiv/DOI/ACM), never infra addresses.
+
 
 

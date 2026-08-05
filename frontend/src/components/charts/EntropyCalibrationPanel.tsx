@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import ResearchPopover from "../ResearchPopover";
 
 interface EntropyInfo {
   mean_entropy: number | null;
@@ -188,18 +189,21 @@ export default function EntropyCalibrationPanel({ traces }: Props) {
             low-confidence classifications. Pearson r per metric; verdict self-upgrades past n={MIN_N}.
           </span>
         </div>
-        <button
-          onClick={exportCsv}
-          disabled={total === 0}
-          className="text-zinc-500 hover:text-teal-mystic/70 transition-colors shrink-0 disabled:opacity-40"
-          title="Export CSV"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
-            <polyline points="7 10 12 15 17 10" />
-            <line x1="12" y1="15" x2="12" y2="3" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <ResearchPopover refKey="calibration" align="right" />
+          <button
+            onClick={exportCsv}
+            disabled={total === 0}
+            className="text-zinc-500 hover:text-teal-mystic/70 transition-colors shrink-0 disabled:opacity-40"
+            title="Export CSV"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {total === 0 ? (

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TokenEntropy } from "@/types/trace";
+import ResearchPopover from "./ResearchPopover";
 
 interface Props {
   entropy: TokenEntropy;
@@ -181,6 +182,7 @@ export default function EntropyTrajectoryChart({ entropy, output }: Props) {
         <span className="text-amber-500/70">p95 {stats.p95?.toFixed(3)}</span>
         <span className="text-zinc-600">·</span>
         <span className="text-zinc-500">n={n}</span>
+        <ResearchPopover refKey="token-entropy" className="ml-auto" />
       </div>
 
       {hover && typeof document !== "undefined" && (
