@@ -149,6 +149,51 @@ export default function Home() {
     }
   }, []);
 
+  // Chat session replay — walks each complete exchange into the shared
+  // analysis surface, pacing each step by that exchange's replay duration.
+  // The loop lives here (not in ChatTimeline) because selecting an exchange
+  // switches to the Trace tab, which unmounts the chat components.
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replayCurrent, setReplayCurrent] = useState<number | null>(null);
+  const replayStopRef = useRef(false);
+
+  const stopChatReplay = useCallback(() => {
+    replayStopRef.current = true;
+    setReplayPlaying(false);
+    setReplayCurrent(null);
+  }, []);
+
+  const playChatReplay = useCallback(async () => {
+    const ordered = [...chat.exchanges]
+      .filter((e) => e.status === "complete")
+      .sort((a, b) => (a.exchange_index ?? 0) - (b.exchange_index ?? 0));
+    if (ordered.length < 2) return;
+
+    replayStopRef.current = false;
+    setReplayPlaying(true);
+
+    for (let i = 0; i < ordered.length; i++) {
+      if (replayStopRef.current) break;
+      const exchange = ordered[i];
+
+      // Estimate the exchange's replay duration from its step timings,
+      // matching useTraceReplay's pacing (each step >= 600ms + 400ms lead).
+      const stepMs = (exchange.steps ?? []).reduce((s, st) => s + Math.max(st.duration_ms ?? 300, 600), 0);
+      const paceMs = Math.max(stepMs + 400, 2500);
+
+      setReplayCurrent(i);
+      await handleHistorySelect(exchange.id);
+
+      if (replayStopRef.current) break;
+      await new Promise((resolve) => setTimeout(resolve, paceMs));
+    }
+
+    if (!replayStopRef.current) {
+      setReplayPlaying(false);
+      setReplayCurrent(null);
+    }
+  }, [chat.exchanges, handleHistorySelect]);
+
   // Determine active display state
   // During live processing: use liveStepIndex from the incremental trace
   // After live completion: trigger replay on the completed trace
@@ -411,6 +456,10 @@ export default function Home() {
             onSend={chat.send}
             onSelectExchange={handleHistorySelect}
             onNewChat={chat.reset}
+            replayPlaying={replayPlaying}
+            replayCurrent={replayCurrent}
+            onPlayReplay={playChatReplay}
+            onStopReplay={stopChatReplay}
           />
         </ErrorBoundary>
       )}

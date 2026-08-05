@@ -5,6 +5,9 @@ import { Sparkles } from "lucide-react";
 import { useRef, useState } from "react";
 import ChatTrajectory from "@/components/ChatTrajectory";
 import ChatMetrics from "@/components/ChatMetrics";
+import ChatReferenceMap from "@/components/ChatReferenceMap";
+import ChatContextComposition from "@/components/ChatContextComposition";
+import ChatTimeline from "@/components/ChatTimeline";
 import type { TraceSession } from "@/types/trace";
 
 interface Props {
@@ -15,6 +18,10 @@ interface Props {
   onSend: (prompt: string) => void;
   onSelectExchange: (traceId: string) => void;
   onNewChat: () => void;
+  replayPlaying: boolean;
+  replayCurrent: number | null;
+  onPlayReplay: () => void;
+  onStopReplay: () => void;
 }
 
 function exchangeChips(t: TraceSession) {
@@ -42,6 +49,10 @@ export default function ChatPanel({
   onSend,
   onSelectExchange,
   onNewChat,
+  replayPlaying,
+  replayCurrent,
+  onPlayReplay,
+  onStopReplay,
 }: Props) {
   const [value, setValue] = useState("");
   const spineRef = useRef<HTMLDivElement>(null);
@@ -80,7 +91,17 @@ export default function ChatPanel({
         <div ref={spineRef} className="flex-1 overflow-y-auto space-y-4 min-h-0 pr-1">
           {exchanges.length > 0 && (
             <>
+              <ChatTimeline
+                exchanges={exchanges}
+                onSelectExchange={onSelectExchange}
+                playing={replayPlaying}
+                current={replayCurrent}
+                onPlay={onPlayReplay}
+                onStop={onStopReplay}
+              />
               <ChatTrajectory exchanges={exchanges} onSelectExchange={onSelectExchange} />
+              <ChatReferenceMap exchanges={exchanges} onSelectExchange={onSelectExchange} />
+              <ChatContextComposition exchanges={exchanges} />
               <ChatMetrics exchanges={exchanges} />
             </>
           )}

@@ -219,12 +219,28 @@ layout.tsx          — Root layout, Geist fonts, dark background
   │   └── PersonalityProfile           ├── LatencyBreakdown [left sidebar]
   │                                    ├── PerformanceInsights [right sidebar]
   │   [Chat Tab]                       ├── SolarNexus
-  │   ├── ChatTrajectory               │   └── ContextPane
-  │   │   (entropy mean/p95 lines +    ├── PromptInput
-  │   │    intent-colored points)      ├── ObservatoryPanel
-  │   ├── ChatMetrics                  │   └── TraceTimeline
-  │   │   (consistency/drift/mood/     │       └── TimelineStep
-  │   │    utilization/entropy trend)  └── VectorDistanceGraph (MDS-2D)
+  │   ├── ChatTimeline                 │   └── ContextPane
+  │   │   (horizontal exchange rail +  ├── PromptInput
+  │   │    session replay: play paces  ├── ObservatoryPanel
+  │   │    each exchange into the      │   └── TraceTimeline
+  │   │    shared surface; loop lives  │       └── TimelineStep
+  │   │    in page.tsx so it survives  └── VectorDistanceGraph (MDS-2D)
+  │   │    the tab switch)
+  │   ├── ChatTrajectory               │
+  │   ├── ChatReferenceMap             │   └── TraceTimeline
+  │   │   (cross-turn arcs: teal =     │       └── TimelineStep
+  │   │    memory retrieval pulled a   └── VectorDistanceGraph (MDS-2D)
+  │   │    chunk from an earlier ex,
+  │   │    violet dashed = lexical
+  │   │    echo of an earlier output)
+  │   ├── ChatContextComposition       │
+  │   │   (per-exchange stacked bar:   │
+  │   │    fresh vs history carry-over │
+  │   │    vs external memory, used    │
+  │   │    solid / discarded hatched)  │
+  │   ├── ChatMetrics                  │
+  │   │   (consistency/drift/mood/     │
+  │   │    utilization/entropy trend)  │
   │   └── ChatPanel — conversation spine; clicking an exchange
   │       routes it into the SAME analysis panels above (shared
   │       render layer — no panel duplication)
