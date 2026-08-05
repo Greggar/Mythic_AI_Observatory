@@ -14,7 +14,8 @@ export type ResearchKey =
   | "entropy-def"
   | "ddc"
   | "lcc"
-  | "conversation";
+  | "conversation"
+  | "reasoning-fragility";
 
 export const RESEARCH_REFS: Record<ResearchKey, ResearchRef[]> = {
   "token-entropy": [
@@ -101,6 +102,26 @@ export const RESEARCH_REFS: Record<ResearchKey, ResearchRef[]> = {
       url: "https://www.hup.harvard.edu/books/9780674724778",
       relevance:
         "Frames conversation as a cooperative, phase-structured phenomenon — the lens behind chat-phase and conversation-topology analysis.",
+    },
+  ],
+  "reasoning-fragility": [
+    {
+      authors: "Mirzadeh, Alizadeh, Shahrokhi, Tuzel, Bengio, Farajtabar",
+      year: "2024",
+      title: "GSM-Symbolic: Understanding the Limitations of Mathematical Reasoning in Large Language Models",
+      venue: "ICLR 2025",
+      url: "https://arxiv.org/abs/2410.05229",
+      relevance:
+        "Shows LLM 'reasoning' is partly pattern-matching, not formal deduction: accuracy drops when numeric values alone are re-randomized, and adding a single seemingly-relevant but irrelevant clause collapses accuracy up to 65% — the benchmark analogue of our used-vs-discarded retrieval grounding lens.",
+    },
+    {
+      authors: "Shojaee, Mirzadeh, Alizadeh, Horton, Bengio, Farajtabar",
+      year: "2025",
+      title: "The Illusion of Thinking: Understanding the Strengths and Limitations of Reasoning Models via the Lens of Problem Complexity",
+      venue: "NeurIPS 2025",
+      url: "https://arxiv.org/abs/2506.06941",
+      relevance:
+        "The companion finding to GSM-Symbolic: reasoning effort (inference-time thinking tokens) rises with problem complexity then declines near the collapse point, despite spare budget — an 'effort gives up' signature plus an overthinking regime (correct answer found early, then wasted exploration) that map directly onto our token-count, entropy-series, and trace-shape telemetry.",
     },
   ],
 };
