@@ -170,9 +170,10 @@ When the execution node speaks OpenAI-compat with `logprobs` enabled, the orches
 - **series** — per-token values, kept as the model's uncertainty timeline
 
 Stored on `TraceSession.token_entropy` (and per-step in step 6 metadata), surfaced as:
-- **UncertaintySparkline** — mini SVG sparkline in the trace output card
+- **EntropyTrajectoryChart** — full SVG line+area of the `series` over the generation (mean/p95 reference lines, peak marker mapped to its output word), rendered in the "Response Generation" TimelineStep; replaced `UncertaintySparkline` (2026-08-05)
 - **Decisiveness** axis on the personality fingerprint (low mean entropy = decisive)
 - **DualTimeline** entropy cards per stage
+- **EntropyCalibrationPanel** (analysis `memory` → `calibration`) — scatter of mean entropy vs DDC/LCC margin and intent confidence, Pearson r per metric, verdict gated at MIN_N=6 (2026-08-05)
 
 Entropy is **node-local** — values are only comparable across models served by nodes with the same tokenizer/logprob semantics. A canonical-fact trace ("capital of France") correctly shows near-zero entropy; that near-zero is the honest signal, not a bug.
 
@@ -589,6 +590,9 @@ Ollama's OpenAI-compat endpoint does not return per-token `logprobs`/`top_logpro
 - **[Backend] Local llama.cpp execution node.** `local_llm` service (`127.0.0.1:12435`, protocol `openai`) serves the local `qwen2.5:3b` execution model with logprobs so the primary node captures entropy. `config_manager.get_local_llm_config()` + `get_service_node()`. (2026-08-03)
 - **[Backend] Registry-driven model routing + node-qualified identity.** `_resolve_model_endpoint()` replaces the binary local/worker URL switch with ordered node chains from `network.json`; `session.model_used` is now `<node>/<model>` (e.g. `primary/qwen2.5:3b`). (2026-08-03)
 - **[Tooling] `restart_backend.sh` + `tools/start_local_llm.sh`.** Detached daemon start scripts using `setsid nohup … & disown` so the backend / llama.cpp node survive the launching shell (agent tooling kills process groups on timeout). (2026-08-03)
+- **[Frontend] Entropy trajectory chart.** `EntropyTrajectoryChart` renders the per-token entropy `series` as an SVG line+area in the "Response Generation" TimelineStep, with mean/p95 reference lines, an amber peak marker mapped to its output word, and a stats row. Replaces the `UncertaintySparkline` mini-sparkline. (2026-08-05)
+- **[Frontend] Entropy ↔ classifier-confidence calibration.** `EntropyCalibrationPanel` (analysis `memory` → `calibration`) plots mean entropy vs DDC prompt/response margin, LCC prompt margin, and intent confidence with Pearson r per metric, CSV export, and a MIN_N=6 anecdotal gate whose verdict self-upgrades with corpus size. Real data (n=9) shows r≈0 — entropy and classifier confidence are independent so far. (2026-08-05)
+- **[Backend + Frontend] Entropy-aware analysis prompts.** `_build_analysis_prompt` accepts an `entropy_summary` block (per-trace H/p95/n_tokens/high-entropy count, built client-side in RelationshipsPanel) and instructs the analysis model to treat high-entropy responses as uncertain generation and correlate them with relationship patterns — calibrated to sample size, silent about missing entropy data. (2026-08-05)
 
 ### Medium Priority
 

@@ -13,6 +13,7 @@ import SynesthCorrelationHeatmap from "./charts/SynesthCorrelationHeatmap";
 import SynesthTimelineEvolution from "./charts/SynesthTimelineEvolution";
 import SynesthSunburst from "./charts/SynesthSunburst";
 import MemoryEntropyPanel from "./charts/MemoryEntropyPanel";
+import EntropyCalibrationPanel from "./charts/EntropyCalibrationPanel";
 import type { TokenEntropy } from "@/types/trace";
 import { CHART_OPTIONS, DEFAULT_CHART } from "@/data/chartOptions";
 
@@ -673,6 +674,14 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
         .slice(0, 10)
         .map((t, i) => `=== Trace ${i + 1} ===\nPrompt: ${t.prompt}\nResponse: ${t.output}`)
         .join("\n\n");
+      const entropySummary = filteredTraces
+        .map((t, i) => {
+          const e = t.token_entropy;
+          if (!e || e.mean_entropy == null) return null;
+          return `  Trace ${i + 1} (${t.id.slice(0, 8)}): H=${e.mean_entropy.toFixed(3)} p95=${e.p95_entropy?.toFixed(3) ?? "—"} n_tokens=${e.token_count} high=${e.high_entropy_count}`;
+        })
+        .filter((s): s is string => s !== null)
+        .join("\n");
       let body: Record<string, unknown>;
       if (relType === "grammar") {
         const gp = getGrammarPaths(filteredTraces);
@@ -686,6 +695,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
           total_traces: filteredTraces.length,
           paths: gp.paths,
           samples: rawSamples,
+          entropy_summary: entropySummary || undefined,
         };
       } else {
         const pairs = topRelationships.map(r => ({
@@ -703,6 +713,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
           top_relationships: pairs,
           total_traces: filteredTraces.length,
           samples: rawSamples,
+          entropy_summary: entropySummary || undefined,
         };
       }
       const res = await fetch(`${API_BASE}/api/analyze/relationships`, {
@@ -1034,6 +1045,12 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
           }
 
           // Memory Grounding — entropy conditioned on chunk usage
+          if (relType === "memory" && chartType === "grounding") {
+            return <MemoryEntropyPanel traces={filteredTraces} />;
+          }
+          if (relType === "memory" && chartType === "calibration") {
+            return <EntropyCalibrationPanel traces={filteredTraces} />;
+          }
           if (relType === "memory") {
             return <MemoryEntropyPanel traces={filteredTraces} />;
           }

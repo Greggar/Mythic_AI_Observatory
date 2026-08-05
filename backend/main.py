@@ -1299,6 +1299,7 @@ class RelationshipAnalysisRequest(BaseModel):
     total_traces: int
     paths: str | None = None  # for grammar: pre-formatted 6-ring path lines
     samples: str | None = None  # raw prompt/response pairs for LLM to analyze directly
+    entropy_summary: str | None = None  # per-trace token-entropy summary for uncertainty-aware analysis
 
 
 def _sample_size_caveat(total: int) -> str:
@@ -1334,7 +1335,7 @@ def _sample_size_caveat(total: int) -> str:
         )
 
 
-def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int, paths: str | None = None, samples: str | None = None) -> str:
+def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_in: str, labels_out: str, pairs: str, total: int, paths: str | None = None, samples: str | None = None, entropy_summary: str | None = None) -> str:
     base = _sample_size_caveat(total) + "\n\n"
     base += (
         f"Title: {title}\n"
@@ -1355,6 +1356,20 @@ def _build_analysis_prompt(rel_type: str, title: str, description: str, labels_i
             "IMPORTANT — You MUST reference specific examples from these raw samples in your analysis. "
             "Quote or paraphrase actual prompts and responses. Do not rely solely on the aggregated "
             "category counts above — they can hide nuance that the raw text reveals.\n\n"
+        )
+
+    # Token-level uncertainty — the model's own generation entropy
+    if entropy_summary:
+        base += (
+            "UNCERTAINTY DATA — per-response token entropy (bits) on OpenAI-protocol workers:\n"
+            f"{entropy_summary}\n\n"
+            "Treat high entropy (roughly H >= 0.5 bits) as the model generating with more "
+            "competition between likely continuations — often where the relationship pattern is "
+            "weakest, the classification was borderline, or the response pivoted mid-generation. "
+            "Low entropy means the model produced near-canonical, self-assured text. "
+            "Correlate entropy with the relationship patterns above: do high-uncertainty responses "
+            "concentrate in particular input/output categories? If entropy data is absent for a "
+            "trace, say so rather than assuming. Keep claims calibrated to the sample size.\n\n"
         )
 
     # Sentence-level confidence calibration
@@ -1437,7 +1452,7 @@ async def api_analyze_relationships(body: RelationshipAnalysisRequest) -> dict:
             for p in body.top_relationships
         )
 
-        prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces, body.paths, body.samples)
+        prompt = _build_analysis_prompt(body.rel_type, body.title, body.description, labels_in, labels_out, pairs, body.total_traces, body.paths, body.samples, body.entropy_summary)
 
         analysis_model = get_analysis_model()
         response, _, _, _ = await _call_model("worker", prompt, model_name_override=analysis_model)

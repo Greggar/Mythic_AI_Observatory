@@ -33,6 +33,7 @@ export const CHART_OPTIONS: Record<string, ChartOption[]> = {
   ],
   memory: [
     { id: "grounding", label: "Entropy by Chunk Usage", description: "Response token entropy conditioned on used/discarded/absent memory chunks" },
+    { id: "calibration", label: "Entropy ↔ Confidence", description: "Response entropy vs DDC/LCC margin and intent confidence (Pearson r)" },
   ],
   distribution: [
     { id: "celestial", label: "Celestial Scatter", description: "Traces plotted by duration vs prompt length" },
