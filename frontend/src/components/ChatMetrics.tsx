@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { useMemo } from "react";
 import type { TraceSession } from "@/types/trace";
+import { findCorrections, CORRECTION_THRESHOLD } from "@/utils/correctionDetector";
 
 interface Props {
   exchanges: TraceSession[];
@@ -127,6 +128,7 @@ export default function ChatMetrics({ exchanges }: Props) {
       tokens: pts.reduce((s, p) => s + p.tokens, 0),
       duration: pts.reduce((s, p) => s + (p.dur ?? 0), 0),
       models: Array.from(new Set(pts.map((p) => p.model).filter((m): m is string => !!m))),
+      corrections: findCorrections(exchanges),
     };
   }, [exchanges]);
 
@@ -289,6 +291,23 @@ export default function ChatMetrics({ exchanges }: Props) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {M.corrections.length > 0 && (
+        <div className="mt-3 flex items-center gap-2 flex-wrap px-0.5">
+          <span className="text-[9px] font-mono tracking-wider text-amber-400/80 uppercase">
+            Correction{M.corrections.length === 1 ? "" : "s"} detected
+          </span>
+          {M.corrections.map((c) => (
+            <span
+              key={`${c.prevEx}-${c.ex}`}
+              className="text-[9px] font-mono text-amber-300/60 cursor-help"
+              title={c.result.signals.map((sg) => `${sg.key.replace(/-/g, " ")} — ${sg.detail}`).join("\n")}
+            >
+              EX{c.prevEx}→EX{c.ex} (score {c.result.score.toFixed(2)}, threshold {CORRECTION_THRESHOLD})
+            </span>
+          ))}
         </div>
       )}
     </motion.div>
