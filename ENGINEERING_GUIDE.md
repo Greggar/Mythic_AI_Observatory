@@ -360,49 +360,6 @@ A `TraceSession` (Python `backend/models/trace.py`, mirrored in `frontend/src/ty
 
 ---
 
-## 18. Diagram Generation Prompts (for image-generation models)
 
-These are prompts you can paste into an image model (Midjourney, DALL·E, Stable Diffusion, GPT-4o image, etc.) to produce presentation-ready diagrams.
-
-### Diagram 1 — System Topology Overview
-> "Clean flat-design system architecture diagram, dark navy background with teal and amber accents. Two computer machines drawn as simple rounded rectangles connected by a LAN line labeled 'home network'. Machine 1 labeled 'primary / primary-server' contains three connected service nodes inside it: 'Solar Interface (Next.js :3001)', 'Conductor (FastAPI :8001)', and 'Ollama (:11434, qwen2.5:3b)'. Machine 2 labeled 'backoffice (198.51.100.100)' contains 'Worker LLM (:12434, gpt-oss:20B on GPU)'. A third element, a small satellite icon labeled 'OpenClaw gateway (:18789)', hovers near machine 1 with a dashed connection. A dashed red box labeled 'Prometheus :9090 (disabled)' sits to the side, crossed out. Title at top: 'Mythic AI Observatory — Topology'. No text inside the machines beyond labels. White background, legible from a projector."
-
-### Diagram 2 — The 7-Stage Pipeline
-> "Horizontal flowchart, 7 rounded-rectangle boxes in a row connected by arrows, dark theme, teal gradient fill. Boxes numbered and labeled: 1 Request Received, 2 Intent Classification (embedding), 3 Model Router, 4 Memory Retrieval, 5 Context Assembly, 6 Response Generation (LLM) [this box drawn larger and highlighted with a glowing outline], 7 Output Packaging. Under the flow, a thin 'Telemetry + Trace Recording' bar spans the whole row. Under box 4 draw a small 'past trace database' cylinder feeding upward. Under box 6 draw a 'model provider' cloud feeding upward. Clean, minimal, text large enough to read at a distance."
-
-### Diagram 3 — Embedding Classification (DDC/LCC/Intent)
-> "Educational diagram showing text classification by cosine similarity. Left side: a text box labeled 'prompt text' with an arrow to a small sphere labeled 'embedding vector (all-minilm)'. Center: a 3D-style scatter plot of many colored points in a sphere, one point highlighted. Right: a list of three library labels 'DDC — Dewey Decimal', 'LCC — Library of Congress', 'Intent' with percentage bars. A bracket labeled 'cosine similarity, threshold 0.10, margin = winner − runner-up' connects the vector to the labels. Dark background, teal/violet/amber palette, clean vector style, title 'How the Observatory classifies text without an LLM'."
-
-### Diagram 4 — Memory Retrieval & Context Assembly
-> "Data-flow diagram, dark theme. Left: a search box labeled 'new prompt' pointing into a panel labeled 'memory store: past traces'. Inside the panel draw 6 small document cards; 3 colored teal with a checkmark labeled 'used (relevance ≥ 0.08)' and 3 grayed-out with an X labeled 'discarded'. Arrows carry the teal cards into a center panel labeled 'Context Assembly' alongside a smaller card labeled 'architecture context (reachable services)'. From the context panel an arrow flows into a highlighted box labeled 'LLM — Response Generation'. Title: 'Memory Retrieval → Context Assembly'. Clean vector, readable labels."
-
-### Diagram 5 — The Synesthesia 6-Ring Schema
-> "Concentric ring / sunburst diagram, 6 colored rings radiating outward from a center dot, dark background with vibrant gradient hues (blue, violet, teal, amber, pink, green). Each ring is labeled on an outer legend with a number and name: 1 Depth, 2 Mood, 3 Syntax, 4 Action Type, 5 Pragmatic Tone, 6 Output Form. Thin white separator lines divide each ring into 3–6 segments; segments have tiny white labels. Title: 'Synesthesia: 6-Ring Grammar Schema (prompt → response)'. High detail, infographic style, legible."
-
-### Diagram 6 — Model Personality Fingerprint Radar
-> "Radar / spider chart comparison, five-sided polygon, dark background. Two overlapping colored polygons (teal and violet) with distinct data-point dots and dashed outlines, representing two different AI models. The 5 axes labeled: Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty. A small legend in the corner: 'gpt-oss:20B (teal)' and 'qwen2.5:3b (violet)'. Clean analytical infographic style, title 'Model Personality Fingerprints'."
-
-### Diagram 7 — Dashboard Mockup
-> "Web dashboard UI mockup, dark-mode fintech style, teal and amber accent colors, glass-morphism cards with subtle blur. Layout: top header bar with tabs 'Systems / Traces / History'. Left column: prompt input box and an orbital animation circle of dots. Center: a 7-step vertical timeline with progress bars per stage. Right: a radar chart and confidence bars. Bottom: a dot-constellation map of hundreds of colored dots and a pivot table with colored badges. Title overlay: 'Solar Interface — the Observatory dashboard'. High fidelity, clean, no real text needed beyond labels."
-
-### Diagram 8 — The "Truth over Polish" Data Honesty Concept
-> "Conceptual infographic, dark background. Center: a single glowing data point labeled 'the margin (winner − runner-up)'. Around it three small callouts: a bar chart labeled 'confidence 58% — shown amber, not hidden', a document labeled 'anecdotal sample (N < 10) — disclosed', and a two-column card labeled 'Objective Trace vs LLM Self-Rationale'. A subtitle at the bottom: 'show the uncertainty — truth over polish'. Minimal, editorial, high contrast."
-
-### Diagram 9 — Trace Lifecycle / Data Flow
-> "Sequence diagram, dark theme, three swimlanes: 'User', 'Solar Interface (Next.js :3001)', 'Conductor (FastAPI :8001)'. Arrow sequence: User→UI 'types prompt'; UI→Conductor 'POST /api/orchestrate'; Conductor returns 'trace_id'; then a loop arrow labeled 'poll GET /api/traces/{id} every 1.5s' between UI and Conductor repeating 4 times with increasing progress dots; Conductor finally returns 'complete' and UI shows a 'completed trace with radar + timeline'. Title: 'Trace Lifecycle: submit → poll → visualize'. Clean vector, numbered steps."
-
----
-
-## 19. Suggested Talking-Point Answers (cheat sheet)
-
-- **"Is the LLM doing the classification?"** — No. Core labels (DDC/LCC/intent) come from embedding cosine similarity (`all-minilm:22m`) against category descriptions — fast, deterministic, drift-free. An optional background LLM does synesthesia grammar classification against an editable schema. LLMs are reserved for analysis and generation.
-- **"Why don't margins matter for DDC?"** — The 22M-parameter embedding space is compressed; winner and runner-up are often within 0.01. We dropped margin checks, kept an absolute 0.10 floor, and surface low confidence visibly.
-- **"How is memory implemented?"** — Past traces are embedded and matched by similarity; top chunks tagged used/discarded (relevance threshold 0.08); a vector graph shows trace-to-trace similarity.
-- **"How do you know the system is being honest?"** — We separate objective metrics from the model's self-reported reasoning (Dual-Timeline), detect when the model references system numbers (Ghost Reference), disclose small samples, and fail visibly.
-- **"What models are in play?"** — Three runners: **Ollama** (local embeddings, classifier, and fallback execution), **llama.cpp-server** on the primary node (`:12435`, local `qwen2.5:3b` execution — logprobs-capable), and **llama.cpp-server** on the backoffice GPU (`:12434`, `gpt-oss:20B` worker). The last two speak the same OpenAI-compatible protocol and both expose token logprobs, which is what makes entropy capture work everywhere. Analysis uses an independently configured model.
-- **"How does the frontend get live data?"** — HTTP polling every 1.5s with visibility-aware pause, not WebSockets — more reliable across a LAN.
-- **"What happens if Prometheus is down?"** — A 2s probe + circuit breaker marks it "unavailable (amber)" and the vitals panel responds in ~2s instead of hanging 20s.
-
----
 
 *End of engineering guide. For deeper detail: `ARCHITECTURE.md`, `CONFIGURATION.md`, `FUTURE_PLANS.md`, `backend/services/orchestrator.py`, `backend/main.py`.*
