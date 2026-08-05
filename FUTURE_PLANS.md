@@ -529,5 +529,51 @@ The single-prompt UI is great for exploration, but testing a model across 50-100
 - Cal's items 6 + 8 ("Observatory Watching Itself" + "Observatory Journal") are **one engine** — a scheduled analysis-model report — merged into item 9.
 - Item 6 is the capstone precisely because items 1–5 feed its feature vector.
 
+---
+
+## Phase 19 — AI Art Observatory (Generative Image Observability) (★★☆–★★★)
+
+*Status: **DEFERRED** — the LLM phases are the active workstream. Investigation complete; do not start until the LLM roadmap is finished. Full investigation notes + ComfyUI inventory + the LLM→diffusion mapping live in `RESEARCH.md` (see link below).*
+
+*Extend the observatory's "put the black box on a bench" philosophy from text LLMs to diffusion image/video models. The text trace pipeline becomes a second session kind: per-step denoising telemetry instead of per-token. Cross-attention entropy replaces token entropy; CLIP/T5 embedding probes replace DDC/intent classification; DAAM-style attribution replaces SynthesisBridge. The same truth-over-polish rule applies — scalars and downsampled maps, not raw tensors.*
+
+### Core Idea
+
+Where a text trace records tokens, an image trace records **denoising steps** (20–30 for SDXL/Flux, more for Wan video). The harness submits a workflow to ComfyUI (backoffice, RTX 5070 Ti 16 GB) and captures per-step scalars via the existing sampling-hook infrastructure (`advanced/hooks` in the 0.27.0 install), then routes them through the same `traces.jsonl`-style persistence + shared visualization spine. A generation gets a DDC/LCC/synesthesia-style fingerprint of its own: prompt-encoder dominance, per-step attention dispersion, noise-velocity divergence.
+
+### Pre-requisite
+
+- Backoffice ComfyUI reachable from primary over Tailscale (confirmed 2026-08-05). Addresses in `~/.config/opencode/AGENTS.md` — never in the repo (SECURITY.md scrub SOP).
+
+### Build Order (each phase ends at a verification boundary)
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **Decision: harness shape** — custom ComfyUI node vs `advanced/hooks` sampling hook vs external API+WebSocket harness. The API route needs zero ComfyUI modification but yields only node-level timing; true cross-attention entropy needs a hook/custom node. | ★★★ | research | First gate |
+| 2 | **Image trace model** — per-step scalars: step index, sigma, noise-pred divergence, cross-attention mean entropy, attention sparsity/focus, latent tensor norm. Separate `image_traces.jsonl` or `kind` discriminator on the existing file. | ★★☆ | 2 h | Foundation |
+| 3 | **Cross-attention entropy capture** — forward hook on UNet/DiT cross-attention layers; per-step mean entropy + 64×64 downsampled attention heatmaps (the one image artifact worth persisting). *Fresh math — `CrossAttentionEntropy`, not a port of `TokenEntropy`.* | ★★★ | 4–6 h | The hard 20% |
+| 4 | **Prompt-encoder probe** — pre-generation CLIP/T5 vector analysis: keyword dominance ("plum" → Fruit 0.82 vs Color 0.12), concept proximity/collision. The image analog of the intent/DDC stage. | ★★☆ | 2–3 h | Reuses embedding-classifier pattern |
+| 5 | **Persistence + API** — `/api/image-traces` list/detail mirroring `/api/traces`; scalars only + heatmap refs. Kilobytes, not gigabytes. | ★★☆ | 1.5 h | Plumbing |
+| 6 | **Denoising entropy curve** — `UncertaintySparkline` analog over steps; pin the exact timestep where composition locks in vs detail-guessing begins. | ★☆☆ | 45 min | Frontend |
+| 7 | **Attention heatmap scrubber** — slider across steps showing 64×64 maps; hover a heatmap cell → which prompt words drive it. The DAAM view. | ★★☆ | 2 h | Frontend |
+| 8 | **Diffusion Dual-Timeline** — Objective Trace (per-step scalars) vs Self-Rationale (which prompt tokens hold attention at step N). 1:1 port of the text DualTimeline. | ★★☆ | 2 h | Frontend |
+| 9 | **Conditioning/ControlNet influence** — measure injection weight of reference images, IP-Adapter, ControlNet depth/line maps into UNet/DiT layers. Image analog of Context Assembly used/discarded. | ★★★ | 3–4 h | Research-heavy |
+| 10 | **CLIP concept-space viz** — sunburst/scatter of prompt-word concept proximity; warn when words collide in latent space (the "Astronomy" misclassification equivalent). | ★★☆ | 2 h | Frontend |
+| 11 | **Image fingerprint radar** — TraceRadar analog per generation (attention focus, prompt adherence, structural coherence, detail richness, noise stability); comparative multi-seed/multi-model overlay. | ★★☆ | 2 h | Frontend |
+| 12 | **Image corpus analytics** — MemoryConstellation-style gallery over image traces, drift/confusion charts over seeds, models, LoRAs. | ★★☆ | 2 h | Frontend |
+| 13 | **Cloud-node parity** — partner API generations (Flux/BFL, Kling, Veo, etc.) through the same trace pipeline for comparative insight. | ★★☆ | 2 h | Extends registry pattern |
+
+### Verification & Regression Checks
+
+- Backend: pytest smoke tests stay green; image-trace endpoints independent of text pipeline (no regressions to `/api/traces`).
+- Frontend: `npx tsc --noEmit` clean; all 6 text tabs still render; image tabs are additive.
+- Telemetry honesty: absence of a signal (e.g. node without hooks) must render as an explicit empty state, never silently — the Ollama-drops-logprobs lesson applied verbatim.
+- Repo hygiene: scrub hook stays active; no Tailscale IPs / machine hostnames enter the repo (they live in AGENTS.md only).
+
+### Links
+
+- Full investigation + inventory + mapping: **`RESEARCH.md`**
+- Live infrastructure addresses: `~/.config/opencode/AGENTS.md` (never committed)
+
 
 
