@@ -258,10 +258,11 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
     else:
         base_url, model_name, protocol = _resolve_model_endpoint(model)
 
-    # Strip Docker registry prefix — the runner API expects the short name
-    if "/" in model_name:
-        model_name = model_name.split("/")[-1]
-
+    # Send the configured model name unchanged. The Docker Model Runner resolves
+    # FULL registry identifiers (e.g. docker.io/ai/qwen3:latest); stripping to
+    # the last path component ("qwen3:latest") fails with "model not found" for
+    # any model that isn't already resident. Ollama and llama.cpp use the name
+    # as configured too, so there is no runner that wants the stripped form.
     provider_for_ctx = provider_override or (ANALYSIS_PROVIDER if model_name_override else _MODEL_PROVIDER)
 
     if protocol == "openai":
