@@ -31,6 +31,7 @@ import TraceSummaryModal from "@/components/TraceSummaryModal";
 import RelationshipsPanel from "@/components/RelationshipsPanel";
 import TestRunner from "@/components/TestRunner";
 import TestComparison from "@/components/TestComparison";
+import ReasoningProbePanel from "@/components/ReasoningProbePanel";
 import LogTerminal from "@/components/LogTerminal";
 import ModelSwitcher from "@/components/ModelSwitcher";
 import ComparativeRadarPanel from "@/components/ComparativeRadarPanel";
@@ -538,6 +539,7 @@ export default function Home() {
             {testProbes.length > 0 && testModels.length > 0 && (
               <TestComparison probes={testProbes} models={testModels} />
             )}
+            <ReasoningProbePanel />
           </div>
         </ErrorBoundary>
       )}

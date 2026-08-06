@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import type { TokenEntropy } from "@/types/trace";
 import ResearchPopover from "./ResearchPopover";
@@ -16,12 +16,15 @@ const PAD = { l: 38, r: 14, t: 14, b: 22 };
 
 export default function EntropyTrajectoryChart({ entropy, output }: Props) {
   const [hover, setHover] = useState<{ x: number; y: number; idx: number; val: number } | null>(null);
+  const gradId = useId();
 
-  const { series, stats, maxIdx } = useMemo(() => {
+  const { series, branching, medianBranch, stats, maxIdx } = useMemo(() => {
     const raw = Array.isArray(entropy.series) && entropy.series.length >= 2 ? entropy.series : null;
     if (!raw) {
       return {
         series: null,
+        branching: null,
+        medianBranch: entropy.median_branching ?? 1,
         stats: {
           mean: entropy.mean_entropy,
           p95: entropy.p95_entropy,
@@ -33,8 +36,16 @@ export default function EntropyTrajectoryChart({ entropy, output }: Props) {
     }
     const max = Math.max(...raw);
     const maxIdx = raw.indexOf(max);
+    const br =
+      Array.isArray(entropy.branching_series) && entropy.branching_series.length === raw.length
+        ? entropy.branching_series
+        : raw.map((v) => Math.pow(2, v));
+    const sorted = [...br].sort((a, b) => a - b);
+    const med = entropy.median_branching ?? sorted[Math.floor(sorted.length / 2)];
     return {
       series: raw,
+      branching: br,
+      medianBranch: med,
       stats: { mean: entropy.mean_entropy, p95: entropy.p95_entropy, max, maxIdx },
       maxIdx,
     };
@@ -63,6 +74,26 @@ export default function EntropyTrajectoryChart({ entropy, output }: Props) {
   const meanY = yFor(Math.min(stats.mean ?? 0, maxY));
   const p95Y = stats.p95 != null ? yFor(Math.min(stats.p95, maxY)) : null;
 
+  // Branching fan: the stream "splits" at high-uncertainty tokens. Half-width at
+  // token i grows with (2**H_i − 1); deterministic tokens (2**H ≈ 1) collapse to a
+  // single thread around the mean line.
+  const maxBranch = branching ? Math.max(...branching) : 1;
+  const branchScale = branching ? (plotH * 0.32) / Math.max(1, maxBranch - 1) : 0;
+  const halfWidths = branching
+    ? branching.map((b) => Math.min(branchScale * (b - 1), plotH / 2))
+    : [];
+  const fanTop = halfWidths
+    .map((hw, i) => `${i === 0 ? "M" : "L"}${xFor(i).toFixed(1)},${(meanY - hw).toFixed(1)}`)
+    .join(" ");
+  const fanBottom = [...halfWidths]
+    .reverse()
+    .map((hw, i) => {
+      const idx = halfWidths.length - 1 - i;
+      return `L${xFor(idx).toFixed(1)},${(meanY + hw).toFixed(1)}`;
+    })
+    .join(" ");
+  const fanPath = halfWidths.length ? `${fanTop} ${fanBottom} Z` : null;
+
   // Second axis: which character of the output is the peak at?
   const peakFrac = n > 1 ? maxIdx / (n - 1) : 0.5;
   const outputLen = output?.length ?? 0;
@@ -74,6 +105,14 @@ export default function EntropyTrajectoryChart({ entropy, output }: Props) {
   return (
     <div className="space-y-1.5">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Entropy over the generation">
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#5eead4" stopOpacity="0.12" />
+            <stop offset="50%" stopColor="#5eead4" stopOpacity="0.03" />
+            <stop offset="100%" stopColor="#5eead4" stopOpacity="0.12" />
+          </linearGradient>
+        </defs>
+
         {/* Gridlines */}
         {gridVals.map((v) => (
           <g key={v}>
@@ -101,6 +140,9 @@ export default function EntropyTrajectoryChart({ entropy, output }: Props) {
         <text x={4} y={12} fill="#3f3f46" fontSize={7.5} fontFamily="ui-monospace, monospace">
           H (bits)
         </text>
+
+        {/* Branching fan — stream splits at high-uncertainty tokens */}
+        {fanPath && <path d={fanPath} fill={`url(#${gradId})`} />}
 
         {/* Area + line */}
         <path d={areaPath} fill="#a78bfa" fillOpacity={0.1} />
@@ -181,8 +223,13 @@ export default function EntropyTrajectoryChart({ entropy, output }: Props) {
         <span className="text-zinc-600">·</span>
         <span className="text-amber-500/70">p95 {stats.p95?.toFixed(3)}</span>
         <span className="text-zinc-600">·</span>
+        <span className="text-teal-400/80">2^H med {medianBranch.toFixed(2)}</span>
+        <span className="text-zinc-600">·</span>
         <span className="text-zinc-500">n={n}</span>
-        <ResearchPopover refKey="token-entropy" className="ml-auto" />
+        <span className="text-zinc-600 ml-auto" title="fan width grows with 2^H = live competing continuations">
+          fan ∝ 2^H
+        </span>
+        <ResearchPopover refKey="token-entropy" />
       </div>
 
       {hover && typeof document !== "undefined" && (
@@ -195,6 +242,11 @@ export default function EntropyTrajectoryChart({ entropy, output }: Props) {
               token {hover.idx} / {n - 1}
             </div>
             <div className="text-[10px] font-mono text-amber-400">H {hover.val.toFixed(4)} bits</div>
+            {branching && (
+              <div className="text-[9px] font-mono text-teal-400/80">
+                2^H {branching[hover.idx].toFixed(3)} live continuations
+              </div>
+            )}
             <div className="text-[8px] font-mono text-zinc-600">
               {hover.idx === maxIdx ? "← peak uncertainty" : hover.val > (stats.mean ?? 0) * 1.5 ? "above mean" : "around mean"}
             </div>

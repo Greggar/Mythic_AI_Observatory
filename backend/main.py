@@ -34,6 +34,7 @@ from services.vitals import collect_vitals
 from services import config_manager
 from services.classifier_agent import classifier_loop, merge_synesth
 from services.classify_task import start_classify_task, cancel_classify_task, get_classify_status, ClassifyTaskStatus, ClassifyCellResult
+from services.reasoning_probe import start_reasoning_probe, get_reasoning_probe, aggregate_reasoning_probe, ReasoningProbeStatus
 from services.log_broadcaster import get_broadcaster, install_handler
 
 
@@ -935,6 +936,41 @@ async def api_classify_cancel(task_id: str) -> dict:
     if not cancel_classify_task(task_id):
         raise HTTPException(status_code=404, detail="Task not found")
     return {"status": "cancelled"}
+
+
+# ── Reasoning fragility probe (GSM-Symbolic) ─────────────────
+class ReasoningProbeRequest(BaseModel):
+    models: list[TestModelConfig]
+    template_ids: list[str] | None = None
+    seed: int | None = None
+
+
+@app.post("/api/probe/reasoning")
+async def api_reasoning_probe_start(req: ReasoningProbeRequest) -> dict:
+    if not req.models:
+        raise HTTPException(status_code=400, detail="At least one model config required")
+    run = start_reasoning_probe(
+        [{"model": m.model, "provider": m.provider} for m in req.models],
+        template_ids=req.template_ids,
+        seed=req.seed,
+    )
+    return {"run_id": run.run_id, "total": run.total, "status": run.status, "seed": run.seed}
+
+
+@app.get("/api/probe/reasoning/{run_id}")
+async def api_reasoning_probe_status(run_id: str) -> ReasoningProbeStatus:
+    run = get_reasoning_probe(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Probe run not found")
+    return run
+
+
+@app.get("/api/probe/reasoning/{run_id}/summary")
+async def api_reasoning_probe_summary(run_id: str) -> dict:
+    agg = aggregate_reasoning_probe(run_id)
+    if not agg:
+        raise HTTPException(status_code=404, detail="Probe run not found")
+    return agg
 
 
 # ── Log streaming (SSE) ─────────────────────────────────────────

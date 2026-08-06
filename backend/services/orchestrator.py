@@ -296,12 +296,20 @@ def _compute_token_entropy(logprobs_content: list[dict], top_k: int = 5, thresho
     ordered = [round(v, 4) for v in per_token]
     sorted_vals = sorted(per_token)
     p95 = sorted_vals[min(len(sorted_vals) - 1, int(0.95 * len(sorted_vals)))]
+    # Branching factor: 2**H per token = effective number of competing
+    # continuations implied by that token's entropy. Median across the whole
+    # generation is the headline "how many paths were live" number.
+    branching = [2.0 ** e for e in per_token]
+    branch_sorted = sorted(branching)
+    median_branching = branch_sorted[len(branch_sorted) // 2] if branch_sorted else 0.0
     # Downsample temporal series to a bounded length for the sparkline.
     series: list[float] = []
+    branching_series: list[float] = []
     n = len(ordered)
     max_points = 60
     if n <= max_points:
         series = ordered
+        branching_series = [round(b, 4) for b in branching]
     else:
         step = n / max_points
         for i in range(max_points):
@@ -309,6 +317,8 @@ def _compute_token_entropy(logprobs_content: list[dict], top_k: int = 5, thresho
             hi = min(n - 1, int((i + 1) * step) or lo + 1)
             window = ordered[lo:hi + 1]
             series.append(round(sum(window) / len(window), 4))
+            bwin = branching[lo:hi + 1]
+            branching_series.append(round(sum(bwin) / len(bwin), 4))
     return {
         "mean_entropy": round(sum(per_token) / len(per_token), 4),
         "p95_entropy": round(p95, 4),
@@ -317,6 +327,8 @@ def _compute_token_entropy(logprobs_content: list[dict], top_k: int = 5, thresho
         "token_count": len(per_token),
         "top_k": top_k,
         "series": series,
+        "median_branching": round(median_branching, 4),
+        "branching_series": branching_series,
     }
 
 

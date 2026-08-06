@@ -81,6 +81,10 @@ class TokenEntropy(BaseModel):
     high_entropy_count: tokens with entropy > threshold (default 1.5 bits).
     token_count:   number of non-special tokens scored.
     top_k:         how many candidate logprobs were requested per token.
+    median_branching: median of 2**H over all scored tokens — how many
+                  competing continuations were plausibly live at the median
+                  token. ~1.0 = near-deterministic; >2 = a real fork.
+    branching_series: 2**H per downsampled token, aligned with 'series'.
     """
 
     mean_entropy: float | None = None
@@ -90,6 +94,8 @@ class TokenEntropy(BaseModel):
     token_count: int = 0
     top_k: int = 5
     series: list[float] = Field(default_factory=list)  # downsampled temporal entropy
+    median_branching: float | None = None
+    branching_series: list[float] = Field(default_factory=list)  # 2**H per token
 
 
 class TelemetryImpact(BaseModel):

@@ -78,6 +78,8 @@ export interface TokenEntropy {
   token_count: number;
   top_k: number;
   series?: number[];
+  median_branching?: number | null;
+  branching_series?: number[];
 }
 
 export interface TraceSession {
