@@ -46,6 +46,13 @@ def set_model_provider(value: str) -> None:
 
 LLM_TIMEOUT = 120.0  # reduced from 300s; model-too-large hangs surface in ~60s
 
+# Memory delivery: a chunk is "used" (content injected into the generator's
+# context) when its relevance meets this floor; the top-ranked chunk always wins.
+MEMORY_USE_THRESHOLD = float(os.environ.get("MEMORY_USE_THRESHOLD", "0.15"))
+CHUNK_INJECT_CHARS = int(os.environ.get("CHUNK_INJECT_CHARS", "700"))
+CHAT_HISTORY_EXCHANGES = int(os.environ.get("CHAT_HISTORY_EXCHANGES", "20"))
+CHAT_HISTORY_CHARS = int(os.environ.get("CHAT_HISTORY_CHARS", "2500"))
+
 MAX_HISTORY = 500
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "traces.jsonl")
 
@@ -160,8 +167,16 @@ async def warmup_model() -> None:
     except Exception as e:
         logger.warning("Model warm-up failed (non-fatal): %s", e)
 
-    # Warm up analysis model if different from execution model
-    if ANALYSIS_MODEL and ANALYSIS_MODEL != model_name:
+    # Warm up analysis model only if it differs from the execution model.
+    # The worker DMR is single-runner: warming a non-resident analysis model
+    # would try to spawn a second runner and hang startup ~60s (CUDA busy).
+    exec_model = model_name
+    if ANALYSIS_PROVIDER == "worker":
+        try:
+            exec_model = config_manager.get_service("worker_llm").get("model", "") or exec_model
+        except Exception:
+            pass
+    if ANALYSIS_MODEL and ANALYSIS_MODEL != exec_model:
         an_url = config_manager.get_worker_url() if ANALYSIS_PROVIDER == "worker" else base_url
         an_protocol = config_manager.get_worker_protocol() if ANALYSIS_PROVIDER == "worker" else "ollama"
         if an_url:
@@ -877,6 +892,34 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
     cpu_samples: list[float] = []
     mem_samples: list[float] = []
 
+    # Carry prior exchanges of this chat into context so the model can actually
+    # resolve references like "the topic we were discussing". Oldest first.
+    if session.chat_id and session.exchange_index is not None and session.exchange_index > 0:
+        prior = [
+            s for s in load_history(limit=500)
+            if s.chat_id == session.chat_id
+            and s.exchange_index is not None
+            and s.exchange_index < session.exchange_index
+        ]
+        prior.sort(key=lambda s: s.exchange_index)
+        prior = prior[-CHAT_HISTORY_EXCHANGES:]
+        if prior:
+            # Keep the NEWEST exchanges that fit the char budget (displayed oldest first).
+            selected: list[tuple[TraceSession, str]] = []
+            used = 0
+            for s in reversed(prior):
+                block = f"[User]: {s.prompt[:500]}\n[Assistant]: {(s.output or '')[:800]}"
+                if used + len(block) > CHAT_HISTORY_CHARS:
+                    continue
+                selected.append((s, block))
+                used += len(block)
+            if selected:
+                selected.reverse()
+                lines = ["[Chat History]: Prior exchanges in this conversation (oldest first):"]
+                lines += [b for _, b in selected]
+                context.append("\n".join(lines))
+
+
     if not headless:
         emit_event("session_start", "Orchestration started", trace_id, prompt[:80])
     if model_override:
@@ -981,9 +1024,8 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
                     })
                 chunks.sort(key=lambda c: c["relevance"], reverse=True)
                 top_chunks = chunks[:5]
-                threshold = 0.04
                 for ci, chunk in enumerate(top_chunks):
-                    chunk["used"] = ci == 0 or chunk["relevance"] >= threshold
+                    chunk["used"] = ci == 0 or chunk["relevance"] >= MEMORY_USE_THRESHOLD
 
                 # Build pairwise similarity matrix for vector graph
                 vector_points: list[dict] = []
@@ -1029,12 +1071,19 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
                 step.metadata["vector_graph"] = {"points": vector_points, "edges": edges}
                 used_count = sum(1 for c in top_chunks if c.get("used"))
                 if used_count > 0:
-                    scores = ", ".join(f"{c['relevance']:.2f}" for c in top_chunks[:used_count])
+                    scores = ", ".join(f"{c['relevance']:.2f}" for c in top_chunks)
                     context.append(
-                        f"[Memory Retrieval]: Found {len(top_chunks)} relevant past traces "
-                        f"({used_count} incorporated into context). "
-                        f"Semantic similarity scores (cosine similarity: 0=unrelated, 1=identical): {scores}"
+                        f"[Memory Retrieval]: Found {len(top_chunks)} candidate past traces; "
+                        f"{used_count} above relevance threshold (≥ {MEMORY_USE_THRESHOLD:.2f}) and "
+                        f"incorporated into context. Semantic similarity scores: {scores}"
                     )
+                    for chunk in top_chunks:
+                        if chunk.get("used"):
+                            content = (chunk.get("content") or "").strip().replace("\n", " ")
+                            context.append(
+                                f"[Memory Retrieval · rel {chunk['relevance']:.2f}]: "
+                                f"{content[:CHUNK_INJECT_CHARS]}"
+                            )
                 else:
                     context.append(
                         f"[Memory Retrieval]: Found {len(top_chunks)} candidate chunks but none used "
