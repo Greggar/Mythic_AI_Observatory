@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from models.trace import TraceSession
 from services.profile import compute_profile, ModelProfile
 from models.annotation import Annotation
-from services.orchestrator import orchestrate, get_trace, list_traces, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, get_analysis_model, set_analysis_model, get_analysis_provider, set_analysis_provider, warmup_model, next_exchange_index, _call_model, LOCAL_MODEL
+from services.orchestrator import orchestrate, get_trace, list_traces, summarize_trace, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, get_analysis_model, set_analysis_model, get_analysis_provider, set_analysis_provider, warmup_model, next_exchange_index, _call_model, LOCAL_MODEL
 from services import annotation_service
 from services.vitals import collect_vitals
 from services import config_manager
@@ -1014,9 +1014,12 @@ async def api_trace_profiles() -> list[ModelProfile]:
 
 
 @app.get("/api/traces", response_model=list[TraceSession])
-async def api_list_traces(limit: int = 50) -> list[TraceSession]:
+async def api_list_traces(limit: int = 50, view: str = "full") -> list[TraceSession]:
     traces = list_traces(limit)
-    return merge_synesth(traces)
+    traces = merge_synesth(traces)
+    if view != "full":
+        traces = [summarize_trace(t) for t in traces]
+    return traces
 
 
 from fastapi import HTTPException

@@ -212,7 +212,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!open || tab !== "delete" || deleteTabReady) return;
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/traces?limit=500`);
+        const res = await fetch(`${API_BASE}/api/traces?limit=500&view=summary`);
         if (!res.ok) return;
         const all: any[] = await res.json();
         setAllTraceMeta(all.map((t) => ({ id: t.id, model_used: t.model_used, ddc_prompt: t.ddc?.prompt?.code })));

@@ -78,7 +78,7 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
   - `GET /health` — liveness check
   - `GET /metrics` — Prometheus-formatted metrics
   - `POST /api/orchestrate` — submit a prompt, get a trace (see §3.1)
-  - `GET /api/traces` — list all traces (supports `?limit=`)
+  - `GET /api/traces` — list all traces (supports `?limit=`, and `?view=summary` for a light payload: strips embeddings, entropy/branching series, retrieved chunks, vector graph, context assemblies, rationales and LLM insights — used by the polling panels; detail views hit `/api/traces/{id}` for the full trace)
   - `GET /api/traces/{id}` — retrieve a persisted trace
   - `DELETE /api/traces/{id}` — delete a trace from the store and `traces.jsonl`
   - `GET /api/traces/{id}/annotations` — list annotations for a trace

@@ -81,7 +81,7 @@ export default function EngineStatusPanel({ telemetry }: Props) {
   const POLL_MS = 15000;
 
   const fetchTraces = useCallback(() => {
-    fetch(`${API_BASE}/api/traces?limit=40`)
+    fetch(`${API_BASE}/api/traces?limit=40&view=summary`)
       .then((r) => r.json())
       .then(setTraces)
       .catch(() => {});

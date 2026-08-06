@@ -39,7 +39,7 @@ export default function LatencyBreakdown({ refreshTrigger = 0, traceSteps }: { r
 
   const fetchData = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/traces?limit=50`);
+      const res = await fetch(`${API_BASE}/api/traces?limit=50&view=summary`);
       if (!res.ok) return;
       const traces = await res.json();
       if (!traces || traces.length === 0) return;

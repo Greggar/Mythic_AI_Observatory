@@ -44,7 +44,7 @@ export default function HistoryPanel({ onSelect, refreshTrigger }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`${API_BASE}/api/traces?limit=30`)
+    fetch(`${API_BASE}/api/traces?limit=30&view=summary`)
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled) setEntries(data);

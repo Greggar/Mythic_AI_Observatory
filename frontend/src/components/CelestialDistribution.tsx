@@ -59,7 +59,7 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   }, []);
 
   useEffect(() => {
-      fetch(`${API_BASE}/api/traces?limit=300`)
+      fetch(`${API_BASE}/api/traces?limit=300&view=summary`)
       .then((r) => r.json())
       .then((data) => setEntries(data))
       .catch(() => {});

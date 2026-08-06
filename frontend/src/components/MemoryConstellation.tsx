@@ -321,7 +321,7 @@ export default function MemoryConstellation({ onSelect, onCompare, refreshTrigge
 
   const fetchEntries = useRef(() => {});
   fetchEntries.current = () => {
-    fetch(`${API_BASE}/api/traces?limit=40`)
+    fetch(`${API_BASE}/api/traces?limit=40&view=summary`)
       .then((r) => r.json())
       .then((data) => {
         setEntries((prev) => {
@@ -339,7 +339,7 @@ export default function MemoryConstellation({ onSelect, onCompare, refreshTrigge
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`${API_BASE}/api/traces?limit=40`)
+    fetch(`${API_BASE}/api/traces?limit=40&view=summary`)
       .then((r) => r.json())
       .then((data) => {
         if (!cancelled) {

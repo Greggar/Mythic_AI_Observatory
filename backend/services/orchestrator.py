@@ -1250,6 +1250,55 @@ def list_traces(limit: int = 50) -> list[TraceSession]:
     return traces
 
 
+# Metadata keys too heavy for the list/summary view. They're only consumed by
+# per-trace detail panels (IntelligencePanel, DualTimeline, SynthesisBridge,
+# RelationshipsPanel, Chat components) which fetch the full trace or the full
+# list explicitly.
+_SUMMARY_HEAVY_META_KEYS = {
+    "retrieved_chunks", "vector_graph", "output", "model_response",
+    "prompt", "intent_probs", "token_entropy", "entropy_series",
+    "branching_series",
+}
+
+
+def summarize_trace(t: TraceSession) -> TraceSession:
+    """Light copy of a trace for list endpoints (drops per-token + per-step bulk).
+
+    Keeps everything the constellation/galaxy/history/status panels read: DDC/LCC
+    (incl. alternatives), synesth, token_entropy aggregates, step durations,
+    output, timestamps. Drops the heavy payloads that only detail views need:
+    embeddings, entropy/branching series, retrieved chunks, vector graph,
+    context assemblies, rationales, LLM insights, per-step model output.
+    """
+    token_entropy = None
+    if t.token_entropy is not None:
+        token_entropy = t.token_entropy.model_copy(
+            update={"series": [], "branching_series": []}
+        )
+    steps = [
+        s.model_copy(
+            update={
+                "metadata": {
+                    k: v for k, v in s.metadata.items()
+                    if k not in _SUMMARY_HEAVY_META_KEYS
+                },
+                "context_assembled": None,
+            }
+        )
+        for s in t.steps
+    ]
+    return t.model_copy(
+        update={
+            "embedding": None,
+            "response_rationale": None,
+            "trace_explanation": None,
+            "llm_insights": [],
+            "token_entropy": token_entropy,
+            "steps": steps,
+        }
+    )
+
+
 def next_exchange_index(chat_id: str) -> int:
     """Next exchange_index for a chat: max existing + 1, or 0 if none yet."""
     indices = [

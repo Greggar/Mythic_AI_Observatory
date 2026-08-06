@@ -109,7 +109,7 @@ export default function Galaxy3D({ onSelect, refreshTrigger }: Props) {
   const fetchTraces = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/traces`);
+      const res = await fetch(`${API_BASE}/api/traces?view=summary`);
       const data = await res.json();
       setEntries(Array.isArray(data) ? data : data.traces ?? []);
     } catch {
