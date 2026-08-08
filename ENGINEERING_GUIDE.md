@@ -22,7 +22,7 @@ The Observatory spans two machines on a home/LAN network, plus an optional agent
 | **Backend — "Conductor"** | `primary-server` (primary) | **8001** | FastAPI orchestrator + all logic + telemetry |
 | **Ollama (local models)** | `primary-server` | **11434** | Runs small local models (default `qwen2.5:3b`) |
 | **Local LLM (llama.cpp)** | `primary-server` | **12435** | Local execution model served via llama.cpp-server — OpenAI-compat + **logprobs** (Ollama can't expose them) |
-| **Worker LLM (GPU)** | `backoffice` machine | **12434** | Bigger model on GPU: `docker.io/ai/gpt-oss:20B` |
+| **Worker LLM (GPU)** | `backoffice` machine | **12434** | Bigger model on GPU: `docker.io/ai/gpt-oss:20B` [^dmr] |
 | **OpenClaw gateway** | `primary-server` | **18789** | Optional agent gateway (SSE) — currently enabled |
 | **Prometheus** | `backoffice` | **9090** | Optional metrics source — currently **disabled** (unreachable guard) |
 
@@ -30,7 +30,7 @@ The two machines are defined in a network topology file (`network.json`):
 - **`primary`** at `127.0.0.1` — hosts Ollama and OpenClaw.
 - **`backoffice`** at `198.51.100.100` — hosts the worker LLM.
 
-Because Prometheus is unreachable from `primary`, the Conductor uses a **circuit breaker**: it probes Prometheus for ~2s, and if unreachable it marks it "unavailable (amber)" and falls back to a healthy status, so the vitals panel responds quickly instead of hanging for 20 seconds.
+Because Prometheus is unreachable from `primary`, the Conductor uses a **circuit breaker** [^circuit]: it probes Prometheus for ~2s, and if unreachable it marks it "unavailable (amber)" and falls back to a healthy status, so the vitals panel responds quickly instead of hanging for 20 seconds.
 
 **Key concept — provider health probing:** the telemetry loop probes every configured LLM provider roughly every ~45 seconds and keeps a reachability flag per provider. Frontend reachability uses OS-level port probing with short timeouts.
 
@@ -73,19 +73,19 @@ Each stage records: its duration, status, and structured metadata (tokens, confi
 
 ## 4. Classification: How the System "Understands" Text
 
-The Observatory uses **embedding-based classification** rather than asking an LLM to label things (for the core classifiers). A **small embedding model (`all-minilm:22m`)** converts text into a vector; then cosine similarity against a fixed set of category descriptions picks the best match. This is fast, deterministic, and free of LLM drift.
+The Observatory uses **embedding-based classification** rather than asking an LLM to label things (for the core classifiers). A **small embedding model (`all-minilm:22m`)** [^sbert] converts text into a vector; then cosine similarity against a fixed set of category descriptions picks the best match. This is fast, deterministic, and free of LLM drift.
 
 > **Key honest-data fact:** all-minilm's 22M-parameter embedding space is *narrow* — typical similarity scores are compressed into the 0.05–0.25 range, and the top two candidates can be within 0.01 of each other. So the system reports a **margin** (winner minus runner-up) and a low **absolute threshold (0.10)**, and it treats low margins as low confidence — truth over polish.
 
 ### 4.1 DDC classification (Dewey Decimal Classification)
 
-- **`backend/services/ddc_embeddings.py`** — 55 DDC categories, each with an enriched plain-language description including concrete examples (so "rainbow" maps to Physics/QC, not Religion/200).
+- **`backend/services/ddc_embeddings.py`** — 55 DDC categories [^ddc], each with an enriched plain-language description including concrete examples (so "rainbow" maps to Physics/QC, not Religion/200).
 - Produces a primary label plus **top-5 candidate scores**.
 - Threshold 0.10, no margin requirement (the score distribution is too compressed for margin checks to be meaningful).
 
 ### 4.2 LCC classification (Library of Congress Classification)
 
-- **`backend/services/lcc_embeddings.py`** — 70+ LCC subclasses (e.g., HA = Statistics, HB = Economic Theory).
+- **`backend/services/lcc_embeddings.py`** — 70+ LCC subclasses [^lcc] (e.g., HA = Statistics, HB = Economic Theory).
 - **Single-letter main classes (Q, H, ...) were deliberately removed**: their generic descriptions matched nearly every prompt at 0.12–0.14 similarity. The main class is now derived from the *first letter* of the chosen subclass.
 
 ### 4.3 Intent classification
@@ -94,7 +94,7 @@ The Observatory uses **embedding-based classification** rather than asking an LL
 
 ### 4.4 Synesthesia grammar classification
 
-A **6-ring structural grammar schema** describes the *shape* of text, prompt→response:
+A **6-ring structural grammar schema** [^synesth] describes the *shape* of text, prompt→response:
 
 | Ring | Dimension | Categories |
 |---|---|---|
@@ -123,7 +123,7 @@ A dedicated `classify_multi()` returns the **top-3 categories above threshold**,
 This is the system's "memory." During stage 4:
 
 - The current prompt is embedded.
-- Past traces are compared by **word-overlap similarity** (and embedding cosine similarity for the vector graph).
+- Past traces are compared by **word-overlap similarity** [^ir] (and embedding cosine similarity for the vector graph).
 - The top chunks are tagged **`used`** (relevance ≥ 0.08) or **`discarded`**.
 - A **vector graph** is built: points (past traces) connected by edges weighted by embedding cosine similarity.
 
@@ -139,7 +139,7 @@ The Observatory computes a **behavioral fingerprint** per model over many traces
 
 - **Quick stats:** count, average latency, p50/p95/p99 latency, tokens, failure rate, confidence.
 - **Per-stage averages:** how long each orchestration stage takes for that model.
-- **Hedging patterns** (`HEDGE_PATTERNS`): counts of self-limiting/evasive language in outputs.
+- **Hedging patterns** (`HEDGE_PATTERNS`) [^hedge]: counts of self-limiting/evasive language in outputs.
 - Exposed via `GET /api/traces/profile` (frontend `PersonalityProfile` panel).
 
 These profiles power comparisons of how different models *behave*, not just how fast they are.
@@ -208,7 +208,7 @@ Chat is a **two-entry-point → shared render layer** design: Single Prompt and 
 | **ChatTrajectory** | Per-session entropy arc — mean entropy line (teal area) + p95 band, dots colored by intent, ΔH + peak summary, clickable intent strip, portaled tooltip. The 4-turn chat that inspired it: open 0.391 → tension 0.443 → meta-pivot 0.548 → reconnection 0.467 |
 | **ChatMetrics** | Per-session KPIs — intent consistency %, DDC main-class drift (prompt/response), mood volatility (client-side `classifyMood5`), context utilization + avg relevance per turn, entropy slope/direction sparkline, session summary (tokens, runtime, models) |
 | **ChatReferenceMap** | Cross-turn arc diagram — teal solid arcs show Memory Retrieval pulling a chunk from an earlier exchange in the same chat (ground truth); violet dashed arcs show a later exchange lexically echoing an earlier output (SynthesisBridge word-overlap lifted to conversation level). Hover an arc for sample + relevance/overlap; node hover dims non-involved arcs |
-| **ChatConversationTopology** | Topic-space landscape — per-exchange all-minilm embeddings → all-pairs cosine distances → MDS to 2D (shared `utils/mds.ts`). Intent-colored nodes sized by token count; an animated comet loops the EX0→…→EXn path (synced to session replay via a shared `progress` motion value); per-hop drift labels (`1 − cos`, teal/amber/pink by magnitude); click-through to the shared analysis surface. "Poetic No" projection: EX2↔EX3 nearest neighbours (sim 0.482, drift 0.518 — the correction stays grounded near the poem), EX0 diverges (0.784/0.856) |
+| **ChatConversationTopology** | Topic-space landscape — per-exchange all-minilm embeddings → all-pairs cosine distances → MDS [^mds] to 2D (shared `utils/mds.ts`). Intent-colored nodes sized by token count; an animated comet loops the EX0→…→EXn path (synced to session replay via a shared `progress` motion value); per-hop drift labels (`1 − cos`, teal/amber/pink by magnitude); click-through to the shared analysis surface. "Poetic No" projection: EX2↔EX3 nearest neighbours (sim 0.482, drift 0.518 — the correction stays grounded near the poem), EX0 diverges (0.784/0.856) |
 | **ChatContextComposition** | Per-exchange context-source stacked bar — fresh prompt vs history carry-over (chunks from earlier exchanges in the same chat) vs external memory (chunks from other traces), estimated token weights with used chunks solid and discarded hatched at 0.35× weight. Hover a segment for the source breakdown + chunk samples; aggregate avg bar across the session |
 | **ChatTimeline** | Horizontal exchange rail — intent-colored dots, EX labels, time + per-exchange entropy readout, click-to-load. "Replay session" paces every complete exchange into the shared analysis surface: the loop lives in `page.tsx` (`playChatReplay`, paced by each exchange's real step timings) because switching to the Trace tab unmounts the chat components; `useTraceReplay` then drives ForkInTheRoad/ThoughtStream/TokenVelocity per exchange |
 | **RelationshipsPanel** | The 6 relationship charts (below) + per-type "Analyze with AI" + classifier profile |
@@ -219,20 +219,20 @@ Chat is a **two-entry-point → shared render layer** design: Single Prompt and 
 | **TraceSummaryModal** | Full trace document viewer |
 | **LogTerminal** | Real-time log stream (`$_` button in header) — SSE-driven, filter/search/pause/auto-scroll |
 
-### 9.3 Chart gallery (in RelationshipsPanel)
+### 9.3 Chart gallery (in RelationshipsPanel) [^d3]
 
 - **Confusion Matrix** — 3-mode normalization (total/row/col), totals row+column, inline % toggle, CSV export.
-- **Sunburst** — 2- or 3-level radial treemap (DDC/LCC/multi-label), portaled tooltip, CSV export.
+- **Sunburst** [^sunburst] — 2- or 3-level radial treemap (DDC/LCC/multi-label), portaled tooltip, CSV export.
 - **Drift Heatmap / Drift Scatter** — temporal evolution of classification over time.
-- **Correlation Heatmap** — 24×24 Pearson matrix across the 6 grammar rings; reveals couplings like Imperative → Direct Execution.
-- **Sankey** — 7-column flow from Depth→Mood→Syntax→Action→Tone→Form→DDC.
+- **Correlation Heatmap** [^pearson] — 24×24 Pearson matrix across the 6 grammar rings; reveals couplings like Imperative → Direct Execution.
+- **Sankey** [^sankey] — 7-column flow from Depth→Mood→Syntax→Action→Tone→Form→DDC.
 - **Grouped bars / stacked bars / chord / timeline** per relationship type.
-- **Fingerprint radar** — multi-trace comparative radar (5/7 axes: Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty, + more).
+- **Fingerprint radar** [^radar] — multi-trace comparative radar (5/7 axes: Confidence, Context Relevance, Constraint Adherence, Output Substance, Honesty, + more).
 - **Token velocity, drift, embedding confusion profile** (margin-based near-tie analysis).
-- **Memory Grounding** (`MemoryEntropyPanel`, analysis type `memory`) — compares response **token entropy** conditioned on whether retrieved memory chunks were `used`, `discarded`, or absent. Grouped mean/p95 entropy bars with a Δ(used − discarded) readout and a verdict string that discloses small samples ("treat as anecdotal"). Lower entropy when chunks are used = evidence that memory grounds responses. CSV export + portaled per-group tooltip (traces, p95, surprisal, uncertain-token ratio, model mix). Honest-data rule: traces without `token_entropy` are excluded, and the empty state explains the corpus predates the feature.
-- **Entropy trajectory** (`EntropyTrajectoryChart`, in TimelineStep "Response Generation" step) — full SVG line+area of the per-token entropy `series` over the generation, with mean/p95 dashed reference lines, an amber peak marker mapped back to its output word, and a stats row (peak @ token, mean, p95, n). Replaces the old `UncertaintySparkline` mini-sparkline in the step view.
-- **Entropy ↔ classifier-confidence calibration** (`EntropyCalibrationPanel`, analysis type `memory` → `calibration`) — scatter mini-plots of mean entropy vs each classifier confidence metric (DDC prompt/response margin, LCC prompt margin, intent confidence), Pearson r per metric, CSV export, and a verdict that self-upgrades past the anecdotal gate (MIN_N=6). Real corpus (n=9): r≈+0.03 / −0.02 — correctly reports the two signals are independent so far.
-- **Research provenance** (`ResearchPopover` + `researchRefs.ts`) — a quiet ⓘ glyph on panel headers opens a portaled glass popover citing the paper(s) that ground each metric (Kadavath 2022 → entropy, Guo 2017 → calibration, Lewis 2020 → memory retrieval), with URL link and a relevance line written in our own words. Registry-driven: a missing key renders nothing. Rule: citations must be real and verified before commit.
+- **Memory Grounding** (`MemoryEntropyPanel`, analysis type `memory`) — compares response **token entropy** [^entropy] conditioned on whether retrieved memory chunks were `used`, `discarded`, or absent. Grouped mean/p95 entropy bars with a Δ(used − discarded) readout and a verdict string that discloses small samples ("treat as anecdotal"). Lower entropy when chunks are used = evidence that memory grounds responses. CSV export + portaled per-group tooltip (traces, p95, surprisal, uncertain-token ratio, model mix). Honest-data rule: traces without `token_entropy` are excluded, and the empty state explains the corpus predates the feature.
+- **Entropy trajectory** (`EntropyTrajectoryChart`, in TimelineStep "Response Generation" step) — full SVG line+area of the per-token entropy `series` [^perplexity] over the generation, with mean/p95 dashed reference lines, an amber peak marker mapped back to its output word, and a stats row (peak @ token, mean, p95, n). Replaces the old `UncertaintySparkline` mini-sparkline in the step view.
+- **Entropy ↔ classifier-confidence calibration** [^calib] (`EntropyCalibrationPanel`, analysis type `memory` → `calibration`) — scatter mini-plots of mean entropy vs each classifier confidence metric (DDC prompt/response margin, LCC prompt margin, intent confidence), Pearson r per metric, CSV export, and a verdict that self-upgrades past the anecdotal gate (MIN_N=6). Real corpus (n=9): r≈+0.03 / −0.02 — correctly reports the two signals are independent so far.
+- **Research provenance** [^refs] (`ResearchPopover` + `researchRefs.ts`) — a quiet ⓘ glyph on panel headers opens a portaled glass popover citing the paper(s) that ground each metric (Kadavath 2022 → entropy, Guo 2017 → calibration, Lewis 2020 → memory retrieval), with URL link and a relevance line written in our own words. Registry-driven: a missing key renders nothing. Rule: citations must be real and verified before commit.
 - **Correction detector** (`correctionDetector.ts`, surfaced in ChatMetrics) — flags transitions where the human corrects the model: `meta-language` (correction framing), `margin-collapse` (DDC prompt margin < 0.03), `self-ref-retrieval` (prior exchange retrieved as grounding), threshold 0.6. Renders as a self-nulling amber strip with per-event score and signal detail on hover. Key insight encoded: corrections reuse the topic surface, so topic-distance surprise *inverts* for them — the tell is classifier margin collapse + retrieval re-feeding the disputed artifact.
 
 Each chart type is registered in `frontend/src/data/chartOptions.ts` with a `DEFAULT_CHART` per relationship type.
@@ -264,11 +264,11 @@ Provider mapping: the `"worker"` provider maps to the `worker_llm` service via `
 
 Model execution nodes are resolved from the service registry, not a hardcoded pair:
 
-- **`local_llm`** — local llama.cpp-server (`127.0.0.1:12435`, protocol `openai`, model `qwen2.5:3b`). Logprobs-capable, so the primary node now captures token entropy. Started via `tools/start_local_llm.sh` (daemon logs to `~/llama-cpp/local_llm.log`).
+- **`local_llm`** — local llama.cpp-server [^llamacpp] (`127.0.0.1:12435`, protocol `openai`, model `qwen2.5:3b`). Logprobs-capable, so the primary node now captures token entropy. Started via `tools/start_local_llm.sh` (daemon logs to `~/llama-cpp/local_llm.log`).
 - **`worker_llm`** — backoffice GPU node (`198.51.100.100:12434`, protocol `openai`, model `docker.io/ai/gpt-oss:20B`).
-- **`ollama`** — fallback for the `local` provider (no logprobs) and used by embeddings/classifier/analysis.
+- **`ollama`** [^ollama] — fallback for the `local` provider (no logprobs) and used by embeddings/classifier/analysis.
 
-`_resolve_model_endpoint()` in the orchestrator prefers `local_llm` when enabled+reachable and falls back to Ollama, so the entropy signal survives node failures. Any machine that speaks OpenAI-compat + top-k logprobs (llama.cpp-server, vLLM, etc.) becomes a first-class node by adding a `network.json` service entry — no orchestrator changes.
+`_resolve_model_endpoint()` in the orchestrator prefers `local_llm` when enabled+reachable and falls back to Ollama, so the entropy signal survives node failures. Any machine that speaks OpenAI-compat + top-k logprobs [^logprobs] (llama.cpp-server, vLLM, etc.) becomes a first-class node by adding a `network.json` service entry — no orchestrator changes.
 
 **Node-qualified identity**: `session.model_used` is now `{node}/{model}` — e.g. `primary/qwen2.5:3b`, `backoffice/gpt-oss:20B` — via `_current_execution_model()` + `config_manager.get_service_node()`. Profiles and entropy comparisons therefore aggregate per model×node instead of merging same-named models across machines. Existing unqualified traces remain as-is (honest data; corpus turns over).
 
@@ -281,7 +281,7 @@ Model execution nodes are resolved from the service registry, not a hardcoded pa
 ## 12. Logging and Alerting
 
 - **LogBroadcaster** (`backend/services/log_broadcaster.py`): in-memory ring buffer (500 entries) + `RotatingFileHandler` (10MB × 3 backups) writing to `backend/logs/conductor.log`.
-- **`GET /api/logs/stream`** — SSE live stream (drives LogTerminal).
+- **`GET /api/logs/stream`** — SSE [^sse] live stream (drives LogTerminal).
 - **`GET /api/logs/recent`** — REST polling endpoint with `limit`/`level`/`since` filters and a summary block (error/warn counts over 5m/24h, entries/min, top loggers).
 - **`tools/log_alerter.sh`** — cron/systemd-timer script that polls `/api/logs/recent` and sends a **Telegram alert** if errors appear or warnings exceed 5 in 5 minutes. Uses direct Telegram Bot API (the OpenClaw CLI `message send` hangs locally, so it's avoided for cron alerts).
 
@@ -291,7 +291,7 @@ Model execution nodes are resolved from the service registry, not a hardcoded pa
 
 | Data | Location | Notes |
 |---|---|---|
-| Traces | `backend/data/traces.jsonl` | JSON Lines, trimmed at 5MB |
+| Traces | `backend/data/traces.jsonl` | JSON Lines [^jsonl], trimmed at 5MB |
 | Synesthesia cache | `backend/data/synesth_cache.json` | Merged at API layer |
 | Network config | `backend/data/network.json` | Runtime-editable |
 | Annotations | `backend/data/annotations.jsonl` | Via annotation_service |
@@ -368,6 +368,80 @@ A `TraceSession` (Python `backend/models/trace.py`, mirrored in `frontend/src/ty
 
 ---
 
+## 18. Footnotes & Bibliography
 
+Footnotes are referenced inline with `[^n]` markers (GitHub-flavoured markdown). Entries flagged **TODO (verify before publish)** have no recorded source — please confirm or replace them before sharing the guide. No entry here is invented; where a source is uncertain, it is a placeholder, not a guess.
+
+[^sbert]: **all-minilm embeddings.** The `all-minilm:22m` model is the Sentence-BERT model `sentence-transformers/all-MiniLM-L6-v2` (384-dim, 22M params): N. Reimers & I. Gurevych, *Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks*, EMNLP-IJCNLP 2019, arXiv:1908.10084; model card at https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2. The distilled backbone it is built on: W. Wang, F. Wei, L. Dong, H. Bao, N. Yang, M. Zhou, *MiniLM: Deep Self-Attention Distillation for Task-Agnostic Compression of Pre-Trained Transformers*, NeurIPS 2020, arXiv:2002.10957.
+
+[^ddc]: **Dewey Decimal Classification.** M. Dewey, *Dewey Decimal Classification*, 1876 (published and maintained by OCLC). https://www.oclc.org/en/dewey.html
+
+[^lcc]: **Library of Congress Classification.** Library of Congress, *Library of Congress Classification*, first published 1897. https://www.loc.gov/catdir/cpso/lcc.html
+
+[^synesth]: **6-ring grammar schema — TODO (verify before publish).** Original schema designed for this project; there is no published source. The ring categories (mood, sentence type, etc.) are drawn from traditional English grammar — insert a linguistic reference here if one is wanted.
+
+[^ir]: **Word-overlap / vector-space retrieval.** Stage-4 similarity is a simple internal heuristic (word overlap for retrieval; cosine similarity for the vector graph). The classical reference for term-overlap / vector-space retrieval is C. D. Manning, P. Raghavan & H. Schütze, *Introduction to Information Retrieval*, Cambridge University Press, 2008, ch. 6. The relevance thresholds (used ≥ 0.08) are our own tuning.
+
+[^hedge]: **Hedging patterns — TODO (verify before publish).** `HEDGE_PATTERNS` is an internal regex list of self-limiting/evasive phrases; no source recorded. Possible lead to check: K. Hyland, *Hedging in Scientific Research Articles*, John Benjamins, 1998 — verify before citing.
+
+[^circuit]: **Circuit-breaker pattern.** M. Nygard, *Release It!: Design and Deploy Production-Ready Software*, The Pragmatic Bookshelf, 2007. (Also documented on M. Fowler's bliki.)
+
+[^d3]: **D3.js.** M. Bostock, V. Ogievetsky & J. Heer, *D³: Data-Driven Documents*, IEEE Transactions on Visualization and Computer Graphics, 17(12), 2011.
+
+[^sunburst]: **Sunburst chart.** J. Stasko & E. Zhang, *Focus+Context Display and Navigation Techniques for Enhancing Radial, Space-Filling Hierarchy Visualizations*, IEEE Symposium on Information Visualization, 2000. Rendered with `d3-hierarchy`.
+
+[^pearson]: **Pearson correlation.** K. Pearson, *Notes on Regression and Inheritance in the Case of Two Parents*, Proceedings of the Royal Society of London, 58:240–242, 1895.
+
+[^sankey]: **Sankey diagram.** M. H. P. R. Sankey, *Introductory Note on the Thermal Efficiency of Steam-Engines*, Proceedings of the Institution of Mechanical Engineers, 1898.
+
+[^radar]: **Radar / spider chart — TODO (verify before publish).** The origin is disputed. Common attributions: G. von Mayr's polar-axis diagram (1877) and the "Kiviat diagram" used in performance analysis (1973). Verify and pick a reference.
+
+[^entropy]: **Token entropy.** Definition: C. E. Shannon, *A Mathematical Theory of Communication*, Bell System Technical Journal, 27, 1948 (379–423, 623–656). Reading per-token uncertainty directly from a language model's output log-probabilities follows A. Kadavath, T. Conerly, A. Askell et al., *Language Models (Mostly) Know What They Know*, arXiv:2207.05221, 2022.
+
+[^perplexity]: **Branching factor / perplexity (2^H).** The per-token effective branching factor 2^H is the exponential of entropy — i.e., perplexity. See Shannon 1948 [^entropy], and D. Jurafsky & J. H. Martin, *Speech and Language Processing*, 3rd ed. (draft), ch. 3 (N-gram models). The underlying math is in T. M. Cover & J. A. Thomas, *Elements of Information Theory*, Wiley, 1991.
+
+[^calib]: **Confidence calibration.** C. Guo, G. Pleiss, Y. Sun & K. Q. Weinberger, *On Calibration of Modern Neural Networks*, ICML 2017.
+
+[^refs]: **Research-provenance registry.** The ⓘ citations shown in the UI are maintained in `frontend/src/data/researchRefs.ts` — the single source of truth for what each panel claims to be grounded in. Keep footnotes here and that file in sync.
+
+[^mds]: **Multidimensional scaling.** The chat-topology projection is *classical metric* MDS (double-centering + eigendecomposition via power iteration, in `frontend/src/utils/mds.ts`): W. S. Torgerson, *Multidimensional Scaling: I. Theory and Method*, Psychometrika, 17(4):401–419, 1952.
+
+[^llamacpp]: **llama.cpp.** ggerganov/llama.cpp — the local LLM inference project whose `llama-server` serves the `local_llm` node (OpenAI-compat `/v1`, logprobs, timings). https://github.com/ggerganov/llama.cpp
+
+[^ollama]: **Ollama.** The local model runner used for embeddings/classifier/analysis and as the `local` fallback. https://github.com/ollama/ollama
+
+[^logprobs]: **Top-k logprobs.** The per-token `logprobs` / `top_logprobs` fields are part of the OpenAI Chat Completions API (https://platform.openai.com/docs) and are exposed by llama.cpp's OpenAI-compat server and Docker Model Runner. Note: Ollama's OpenAI-compat endpoint drops them silently — the reason the entropy-capable nodes route through llama.cpp / DMR.
+
+[^jsonl]: **JSON Lines.** The `traces.jsonl` store uses the JSON Lines text format (one JSON object per line). https://jsonlines.org/
+
+[^sse]: **Server-Sent Events.** The log stream uses the `EventSource` API / `text/event-stream` protocol, specified by WHATWG HTML ("Server-Sent Events").
+
+[^dmr]: **Docker Model Runner.** The backoffice GPU node is Docker Desktop's Model Runner; lifecycle and API documented at https://docs.docker.com/ai/model-runner/ — load-on-first-request, 5-minute idle unload, and holding in-flight requests when VRAM is contended (see FUTURE_PLANS Phase 14 item 11 for the full swap-forensics).
+
+### Internal heuristics (no external source)
+
+These are original to this project and deliberately have **no** citation: the 7-stage pipeline and its stage decomposition; the "truth over polish" ethos; DDC threshold tuning (0.10 absolute floor, no margin check); word-overlap retrieval thresholds (used ≥ 0.08); the correction detector (0.6 threshold, margin-collapse < 0.03); personality fingerprinting and its `HEDGE_PATTERNS` list; the failure root-cause heuristic. Note on naming: "causal tracing" here is **not** the causal-tracing technique for locating factual associations in LLMs (K. Meng, D. Bau, A. Andonian, Y. Belinkov, *Locating and Editing Factual Associations in GPT*, NeurIPS 2022) — if you want the name-collision cited, add it after verification.
+
+### Research corpus (probes and panel provenance)
+
+The reasoning-fragility probes and the ⓘ panel citations draw on this corpus (all verified, mirrored in `frontend/src/data/researchRefs.ts`):
+
+- C. E. Shannon, *A Mathematical Theory of Communication*, Bell System Technical Journal, 27, 1948.
+- A. Kadavath et al., *Language Models (Mostly) Know What They Know*, arXiv:2207.05221, 2022.
+- C. Guo, G. Pleiss, Y. Sun & K. Q. Weinberger, *On Calibration of Modern Neural Networks*, ICML 2017.
+- P. Lewis et al., *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks*, NeurIPS 2020, arXiv:2005.11401.
+- K. Cobbe et al., *Training Verifiers to Solve Math Word Problems* (GSM-8K), arXiv:2110.14168, 2021.
+- A. Mirzadeh, S. Alizadeh, H. Shahrokhi, O. Tuzel, S. Bengio, M. Farajtabar, *GSM-Symbolic: Understanding the Limitations of Mathematical Reasoning in Large Language Models*, arXiv:2410.05229, 2024 (ICLR 2025).
+- P. Shojaee, A. Mirzadeh, K. Alizadeh, M. Horton, S. Bengio, M. Farajtabar, *The Illusion of Thinking: Understanding the Strengths and Limitations of Reasoning Models via the Lens of Problem Complexity*, arXiv:2506.06941, 2025.
+- M. Tomasello, *A Natural History of Human Thinking*, Harvard University Press, 2014.
+
+### Placeholders — to verify before publishing
+
+1. **6-ring grammar schema** [^synesth] — original; optionally add a linguistics citation for the mood/sentence-type taxonomy.
+2. **Hedging** [^hedge] — lead: K. Hyland, *Hedging in Scientific Research Articles* (1998), unverified.
+3. **Radar/spider chart** [^radar] — lead: G. von Mayr (1877) polar-axis diagram; "Kiviat diagram" (1973), unverified.
+4. **Causal-tracing name collision** — lead: Meng et al. 2022 (see "Internal heuristics" above); decide whether to cite.
+
+---
 
 *End of engineering guide. For deeper detail: `ARCHITECTURE.md`, `CONFIGURATION.md`, `FUTURE_PLANS.md`, `backend/services/orchestrator.py`, `backend/main.py`.*
