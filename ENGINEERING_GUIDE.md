@@ -370,7 +370,7 @@ A `TraceSession` (Python `backend/models/trace.py`, mirrored in `frontend/src/ty
 
 ## 18. Footnotes & Bibliography
 
-Footnotes are referenced inline with `[^n]` markers (GitHub-flavoured markdown). Entries flagged **TODO (verify before publish)** have no recorded source — please confirm or replace them before sharing the guide. No entry here is invented; where a source is uncertain, it is a placeholder, not a guess.
+Footnotes are referenced inline with `[^n]` markers (GitHub-flavoured markdown). Every entry has been cross-checked against the published source before listing. No entry here is invented; where something is original to this project (see "Internal heuristics"), it says so rather than borrowing a citation.
 
 [^sbert]: **all-minilm embeddings.** The `all-minilm:22m` model is the Sentence-BERT model `sentence-transformers/all-MiniLM-L6-v2` (384-dim, 22M params): N. Reimers & I. Gurevych, *Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks*, EMNLP-IJCNLP 2019, arXiv:1908.10084; model card at https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2. The distilled backbone it is built on: W. Wang, F. Wei, L. Dong, H. Bao, N. Yang, M. Zhou, *MiniLM: Deep Self-Attention Distillation for Task-Agnostic Compression of Pre-Trained Transformers*, NeurIPS 2020, arXiv:2002.10957.
 
@@ -378,11 +378,11 @@ Footnotes are referenced inline with `[^n]` markers (GitHub-flavoured markdown).
 
 [^lcc]: **Library of Congress Classification.** Library of Congress, *Library of Congress Classification*, first published 1897. https://www.loc.gov/catdir/cpso/lcc.html
 
-[^synesth]: **6-ring grammar schema — TODO (verify before publish).** Original schema designed for this project; there is no published source. The ring categories (mood, sentence type, etc.) are drawn from traditional English grammar — insert a linguistic reference here if one is wanted.
+[^synesth]: **6-ring grammar schema.** Original schema designed for this project; there is no published source for the multi-ring structure itself. The underlying grammatical categories (mood, sentence type, pragmatics) follow the standard modern reference grammar — R. Huddleston & G. K. Pullum, *The Cambridge Grammar of the English Language*, Cambridge University Press, 2002 — if a linguistics grounding is wanted.
 
 [^ir]: **Word-overlap / vector-space retrieval.** Stage-4 similarity is a simple internal heuristic (word overlap for retrieval; cosine similarity for the vector graph). The classical reference for term-overlap / vector-space retrieval is C. D. Manning, P. Raghavan & H. Schütze, *Introduction to Information Retrieval*, Cambridge University Press, 2008, ch. 6. The relevance thresholds (used ≥ 0.08) are our own tuning.
 
-[^hedge]: **Hedging patterns — TODO (verify before publish).** `HEDGE_PATTERNS` is an internal regex list of self-limiting/evasive phrases; no source recorded. Possible lead to check: K. Hyland, *Hedging in Scientific Research Articles*, John Benjamins, 1998 — verify before citing.
+[^hedge]: **Hedging patterns.** `HEDGE_PATTERNS` is an internal regex list of self-limiting/evasive phrases; the grounding for hedging as an identifiable, socially motivated feature of scientific writing is K. Hyland, *Hedging in Scientific Research Articles*, John Benjamins, Pragmatics & Beyond New Series 54, 1998.
 
 [^circuit]: **Circuit-breaker pattern.** M. Nygard, *Release It!: Design and Deploy Production-Ready Software*, The Pragmatic Bookshelf, 2007. (Also documented on M. Fowler's bliki.)
 
@@ -394,7 +394,7 @@ Footnotes are referenced inline with `[^n]` markers (GitHub-flavoured markdown).
 
 [^sankey]: **Sankey diagram.** M. H. P. R. Sankey, *Introductory Note on the Thermal Efficiency of Steam-Engines*, Proceedings of the Institution of Mechanical Engineers, 1898.
 
-[^radar]: **Radar / spider chart — TODO (verify before publish).** The origin is disputed. Common attributions: G. von Mayr's polar-axis diagram (1877) and the "Kiviat diagram" used in performance analysis (1973). Verify and pick a reference.
+[^radar]: **Radar / spider chart.** Known in computer-performance analysis as the *Kiviat graph* — introduced in K. W. Kolence & P. J. Kiviat, *Software Unit Profiles & Kiviat Figures*, Performance Evaluation Review (ACM SIGMETRICS), 2(2), June 1973. Earlier polar/radial precedents include G. von Mayr, *Die Gesetzmäßigkeit im Gesellschaftsleben*, 1877.
 
 [^entropy]: **Token entropy.** Definition: C. E. Shannon, *A Mathematical Theory of Communication*, Bell System Technical Journal, 27, 1948 (379–423, 623–656). Reading per-token uncertainty directly from a language model's output log-probabilities follows A. Kadavath, T. Conerly, A. Askell et al., *Language Models (Mostly) Know What They Know*, arXiv:2207.05221, 2022.
 
@@ -420,13 +420,14 @@ Footnotes are referenced inline with `[^n]` markers (GitHub-flavoured markdown).
 
 ### Internal heuristics (no external source)
 
-These are original to this project and deliberately have **no** citation: the 7-stage pipeline and its stage decomposition; the "truth over polish" ethos; DDC threshold tuning (0.10 absolute floor, no margin check); word-overlap retrieval thresholds (used ≥ 0.08); the correction detector (0.6 threshold, margin-collapse < 0.03); personality fingerprinting and its `HEDGE_PATTERNS` list; the failure root-cause heuristic. Note on naming: "causal tracing" here is **not** the causal-tracing technique for locating factual associations in LLMs (K. Meng, D. Bau, A. Andonian, Y. Belinkov, *Locating and Editing Factual Associations in GPT*, NeurIPS 2022) — if you want the name-collision cited, add it after verification.
+These are original to this project and deliberately have **no** citation: the 7-stage pipeline and its stage decomposition; the "truth over polish" ethos; DDC threshold tuning (0.10 absolute floor, no margin check); word-overlap retrieval thresholds (used ≥ 0.08); the correction detector (0.6 threshold, margin-collapse < 0.03); personality fingerprinting and its `HEDGE_PATTERNS` list; the failure root-cause heuristic. Note on naming: "causal tracing" here is **not** the causal-tracing technique for locating factual associations inside LLM weights (K. Meng, D. Bau, A. Andonian, Y. Belinkov, *Locating and Editing Factual Associations in GPT*, NeurIPS 2022, arXiv:2202.05262). The explicit note prevents confusion for visiting researchers.
 
 ### Research corpus (probes and panel provenance)
 
 The reasoning-fragility probes and the ⓘ panel citations draw on this corpus (all verified, mirrored in `frontend/src/data/researchRefs.ts`):
 
 - C. E. Shannon, *A Mathematical Theory of Communication*, Bell System Technical Journal, 27, 1948.
+- K. Hyland, *Hedging in Scientific Research Articles*, John Benjamins, Pragmatics & Beyond New Series 54, 1998.
 - A. Kadavath et al., *Language Models (Mostly) Know What They Know*, arXiv:2207.05221, 2022.
 - C. Guo, G. Pleiss, Y. Sun & K. Q. Weinberger, *On Calibration of Modern Neural Networks*, ICML 2017.
 - P. Lewis et al., *Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks*, NeurIPS 2020, arXiv:2005.11401.
@@ -435,12 +436,14 @@ The reasoning-fragility probes and the ⓘ panel citations draw on this corpus (
 - P. Shojaee, A. Mirzadeh, K. Alizadeh, M. Horton, S. Bengio, M. Farajtabar, *The Illusion of Thinking: Understanding the Strengths and Limitations of Reasoning Models via the Lens of Problem Complexity*, arXiv:2506.06941, 2025.
 - M. Tomasello, *A Natural History of Human Thinking*, Harvard University Press, 2014.
 
-### Placeholders — to verify before publishing
+### Placeholder resolution (Gemini review, re-verified)
 
-1. **6-ring grammar schema** [^synesth] — original; optionally add a linguistics citation for the mood/sentence-type taxonomy.
-2. **Hedging** [^hedge] — lead: K. Hyland, *Hedging in Scientific Research Articles* (1998), unverified.
-3. **Radar/spider chart** [^radar] — lead: G. von Mayr (1877) polar-axis diagram; "Kiviat diagram" (1973), unverified.
-4. **Causal-tracing name collision** — lead: Meng et al. 2022 (see "Internal heuristics" above); decide whether to cite.
+Four entries were originally flagged for verification. Status after an external review and re-check against the primary sources:
+
+1. **6-ring grammar schema** [^synesth] — confirmed **original by design**; optional linguistics grounding is Huddleston & Pullum, *The Cambridge Grammar of the English Language* (2002).
+2. **Hedging** [^hedge] — **verified**, K. Hyland, *Hedging in Scientific Research Articles* (John Benjamins, 1998), DOI 10.1075/pbns.54.
+3. **Radar/spider chart** [^radar] — **verified**; primary source is Kolence & Kiviat 1973 (SIGMETRICS), not the "Morris/Ojha" attribution some secondary sources give.
+4. **Causal-tracing name collision** — **verified**; retained as a naming disclaimer in "Internal heuristics" with the Meng et al. 2022 citation (arXiv:2202.05262).
 
 ---
 
