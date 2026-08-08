@@ -1,6 +1,6 @@
 # Development Workflow
 
-**Known issue:** `pnpm dev` (Turbopack) is unstable on this machine due to slow filesystem I/O. The reliable testing path is `build + start` — see below.
+**Known issue:** `pnpm dev` (Turbopack [^turbopack]) is unstable on this machine due to slow filesystem I/O. The reliable testing path is `build + start` — see below.
 
 **⚠️ `next start` caches HTML in memory.** Rebuilding `.next` while the server runs has no effect — kill and restart to see changes. For active development, use `pnpm dev` (hot-reloads). Use `restart.sh` in the project root for a combined kill→build→start cycle.
 
@@ -288,6 +288,16 @@ Each trace step that calls a model stores `context_assembled` — the exact conc
 The split-pane shows:
 - **Left pane:** The stage's system prompt
 - **Right pane:** The assembled context (accumulated previous outputs + current user prompt)
-- **Token meter:** Estimated token count (`Math.round(text.length / 4)`) versus the model's context window (4096 for local 3B)
+- **Token meter:** Estimated token count (`Math.round(text.length / 4)` [^tokencount]) versus the model's context window (4096 for local 3B)
 
 This makes the opaque LLM call transparent and debuggable.
+
+---
+
+## 9. Footnotes
+
+[^turbopack]: **Turbopack.** The Rust-based incremental bundler that Next.js's dev server uses (replacing webpack in `next dev`). It is a build tool, not an algorithm — cite the official docs only: https://nextjs.org/docs/app/getting-started/development-and-production
+
+[^tokencount]: **~4 characters ≈ 1 token.** The `text.length / 4` estimate mirrors the common "4 characters per token" rule of thumb used by the OpenAI tokenizer (tiktoken): https://platform.openai.com/docs/concepts/tokens and https://github.com/openai/tiktoken. It is a display heuristic only — real tokenization is subword-based (byte-pair encoding), which is why per-token entropy in this project reads `logprobs`/`top_logprobs` from the model endpoint rather than estimating.
+
+For the full citation corpus (entropy, calibration, embeddings, MDS, chart types, etc.), see **§18 Footnotes & Bibliography** in `ENGINEERING_GUIDE.md` — the two references here are the only ones DEVELOPMENT.md itself needs, since the rest of this document is procedural.
