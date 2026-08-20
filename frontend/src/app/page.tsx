@@ -31,6 +31,7 @@ import TraceSummaryModal from "@/components/TraceSummaryModal";
 import RelationshipsPanel from "@/components/RelationshipsPanel";
 import TestRunner from "@/components/TestRunner";
 import TestComparison from "@/components/TestComparison";
+import TestSuiteManager from "@/components/TestSuiteManager";
 import ReasoningProbePanel from "@/components/ReasoningProbePanel";
 import LogTerminal from "@/components/LogTerminal";
 import ModelSwitcher from "@/components/ModelSwitcher";
@@ -532,6 +533,7 @@ export default function Home() {
       {activeTab === "tests" && (
         <ErrorBoundary key="tests">
           <div className="flex-1 max-w-4xl mx-auto w-full space-y-4">
+            <TestSuiteManager />
             <TestRunner
               onRun={(probes, models) => { setTestProbes(probes); setTestModels(models); }}
               hasResults={testProbes.length > 0}

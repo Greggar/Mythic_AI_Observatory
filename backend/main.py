@@ -900,6 +900,145 @@ async def api_test_status(test_batch_id: str) -> TestRunStatus:
     return status
 
 
+# ── Test Suites (saved prompt sets + run history) ──────────────
+
+from services.suite_manager import (
+    list_suites, get_suite, create_suite, update_suite, delete_suite,
+    create_run, update_run, get_run, seed_from_diagnostics,
+)
+
+_suite_run_semaphore = asyncio.Semaphore(2)
+
+
+class SuiteCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    tags: list[str] = Field(default_factory=list)
+    prompts: list[dict[str, str]] = Field(default_factory=list)
+
+
+class SuiteUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    tags: list[str] | None = None
+    prompts: list[dict[str, str]] | None = None
+
+
+class SuiteRunRequest(BaseModel):
+    models: list[TestModelConfig]
+
+
+@app.get("/api/suites")
+async def api_list_suites() -> list[dict]:
+    seed_from_diagnostics()
+    return list_suites()
+
+
+@app.post("/api/suites")
+async def api_create_suite(req: SuiteCreateRequest) -> dict:
+    if not req.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+    return create_suite(req.name, req.prompts, req.description, req.tags)
+
+
+@app.get("/api/suites/{suite_id}")
+async def api_get_suite(suite_id: str) -> dict:
+    suite = get_suite(suite_id)
+    if not suite:
+        raise HTTPException(status_code=404, detail="Suite not found")
+    return suite
+
+
+@app.put("/api/suites/{suite_id}")
+async def api_update_suite(suite_id: str, req: SuiteUpdateRequest) -> dict:
+    suite = update_suite(suite_id, req.name, req.description, req.tags, req.prompts)
+    if not suite:
+        raise HTTPException(status_code=404, detail="Suite not found")
+    return suite
+
+
+@app.delete("/api/suites/{suite_id}")
+async def api_delete_suite(suite_id: str) -> dict:
+    if not delete_suite(suite_id):
+        raise HTTPException(status_code=404, detail="Suite not found")
+    return {"status": "deleted"}
+
+
+async def _process_suite_run(suite_id: str, run_id: str, models: list[TestModelConfig]) -> None:
+    from services.orchestrator import orchestrate
+    suite = get_suite(suite_id)
+    if not suite:
+        return
+    prompts = suite.get("prompts", [])
+    completed = 0
+    failed = 0
+    trace_ids: list[str] = []
+
+    async def _run_one(prompt_text: str, cfg: TestModelConfig) -> None:
+        nonlocal completed, failed
+        tid = uuid.uuid4().hex[:12]
+        trace_ids.append(tid)
+        session = TraceSession(id=tid, prompt=prompt_text, test_batch_id=suite_id)
+        from services.orchestrator import _store
+        _store[session.id] = session
+        async with _suite_run_semaphore:
+            try:
+                await orchestrate(prompt_text, tid, headless=True,
+                                  model_override=cfg.model, provider_override=cfg.provider)
+                completed += 1
+            except Exception as e:
+                failed += 1
+                logger.error("Suite run %s cell failed: %s", run_id, e)
+        # Persist progress after each prompt completes (crash recovery)
+        update_run(suite_id, run_id, {
+            "completed_count": completed,
+            "failed_count": failed,
+            "trace_ids": list(trace_ids),
+        })
+
+    tasks = []
+    for p in prompts:
+        for cfg in models:
+            tasks.append(_run_one(p["text"], cfg))
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    update_run(suite_id, run_id, {
+        "status": "done",
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_count": completed,
+        "failed_count": failed,
+        "trace_ids": list(trace_ids),
+    })
+    logger.info("Suite run %s done: %d/%d completed", run_id, completed, len(trace_ids))
+
+
+@app.post("/api/suites/{suite_id}/run")
+async def api_run_suite(suite_id: str, req: SuiteRunRequest) -> dict:
+    suite = get_suite(suite_id)
+    if not suite:
+        raise HTTPException(status_code=404, detail="Suite not found")
+    if not req.models:
+        raise HTTPException(status_code=400, detail="At least one model required")
+    now = datetime.now(timezone.utc).isoformat()
+    total = len(suite.get("prompts", [])) * len(req.models)
+    run = create_run(suite_id, [{"provider": m.provider, "model": m.model} for m in req.models], total)
+    if not run:
+        raise HTTPException(status_code=500, detail="Failed to create run")
+    task = asyncio.create_task(_process_suite_run(suite_id, run["run_id"], req.models))
+    _async_tasks[f"suite-{run['run_id']}"] = task
+    task.add_done_callback(lambda _: _async_tasks.pop(f"suite-{run['run_id']}", None))
+    task.add_done_callback(_log_task_exception)
+    return {"run_id": run["run_id"], "status": "started"}
+
+
+@app.get("/api/suites/{suite_id}/runs/{run_id}")
+async def api_get_suite_run(suite_id: str, run_id: str) -> dict:
+    run = get_run(suite_id, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return run
+
+
 # ── Classify (what-if analysis) endpoints ────────────────────
 
 class ClassifyRequest(BaseModel):

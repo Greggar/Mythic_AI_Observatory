@@ -1,8 +1,10 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TraceSession } from "@/types/trace";
 import { detectContradiction } from "./StageDebate";
 import { createPortal } from "react-dom";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface RetrievedChunk {
   trace_id: string;
@@ -182,6 +184,19 @@ export default function HallucinationGauge({ trace }: { trace: TraceSession }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [modelTraceCount, setModelTraceCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!trace.model_used) return;
+    fetch(`${API_BASE}/api/traces/profile`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        const profile = data.find((p: { model: string }) => p.model === trace.model_used);
+        if (profile) setModelTraceCount(profile.trace_count);
+      })
+      .catch(() => {});
+  }, [trace.model_used]);
 
   // Gauge SVG dimensions
   const CX = 140, CY = 125, R = 95;
@@ -219,6 +234,12 @@ export default function HallucinationGauge({ trace }: { trace: TraceSession }) {
         )}
         <span className="ml-auto" style={{ color: levelColor }}>{total}/100 · {level}</span>
       </div>
+
+      {modelTraceCount !== null && modelTraceCount < 10 && (
+        <div className="text-[8px] font-mono text-amber-400/80 leading-relaxed">
+          Based on this single trace — model has {modelTraceCount} total trace{modelTraceCount !== 1 ? "s" : ""}. Treat as anecdotal, not a model-level prediction.
+        </div>
+      )}
 
       <svg width="100%" height="150" viewBox="0 0 280 150" className="overflow-visible">
         {/* Background arc track */}
