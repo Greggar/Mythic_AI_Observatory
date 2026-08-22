@@ -11,10 +11,8 @@ import logging
 import uuid
 from typing import Any
 
-import httpx
 from pydantic import BaseModel, Field
 from models.trace import TraceSession
-from services import config_manager
 
 logger = logging.getLogger("conductor")
 
@@ -237,41 +235,27 @@ async def _classify_call_model(
     model_name_override: str,
     provider_override: str,
 ) -> str:
-    """Call a model with retry for transient errors (502)."""
-    base_url = (
-        config_manager.get_ollama_url()
-        if provider_override == "local"
-        else config_manager.get_worker_url()
-    )
-    model_name = model_name_override
-    if "/" in model_name:
-        model_name = model_name.split("/")[-1]
-
-    payload: dict[str, Any] = {
-        "model": model_name,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"num_ctx": 4096 if provider_override == "local" else 16384},
-    }
-    if system:
-        payload["system"] = system
-
+    """Call a model via the orchestrator's routing (handles node prefixes, protocols)."""
+    from services.orchestrator import _call_model
     last_error: Exception | None = None
     for attempt in range(3):
         try:
-            async with httpx.AsyncClient(timeout=CLASSIFY_TIMEOUT) as client:
-                resp = await client.post(f"{base_url}/api/generate", json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                result = data.get("response", "").strip()
-                if not result:
-                    result = data.get("thinking", "").strip()
-                return result
-        except httpx.HTTPStatusError as e:
+            result, _eval_count, _duration, _entropy = await _call_model(
+                model_name_override,
+                prompt,
+                system=system,
+                model_name_override=model_name_override,
+                provider_override=provider_override,
+            )
+            text = (result or "").strip()
+            if not text:
+                text = result or ""
+            return text
+        except Exception as e:
             last_error = e
-            if e.response.status_code == 502:
-                logger.warning("Classify 502 (attempt %d/3) for %s", attempt + 1, model_name)
-                await asyncio.sleep(2 ** attempt)  # 1s, 2s, 4s backoff
+            if "502" in str(e) or "503" in str(e):
+                logger.warning("Classify %s (attempt %d/3) for %s", type(e).__name__, attempt + 1, model_name_override)
+                await asyncio.sleep(2 ** attempt)
                 continue
             raise
     raise last_error  # type: ignore[misc]

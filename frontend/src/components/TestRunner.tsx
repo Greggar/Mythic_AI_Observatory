@@ -45,11 +45,22 @@ export default function TestRunner({ onRun, hasResults }: Props) {
       const localSet = new Set(localModels);
       // Collect worker model names from network sources
       const workerSet = new Set<string>();
+      const workerBaseNames = new Set<string>();
       for (const src of netData.sources ?? []) {
         for (const m of src.models ?? []) {
           workerSet.add(m);
+          const base = m.includes("/") ? m.split("/").pop()! : m;
+          workerBaseNames.add(base);
         }
       }
+
+      const detectProvider = (name: string): "local" | "worker" => {
+        if (localSet.has(name)) return "local";
+        if (workerSet.has(name)) return "worker";
+        const base = name.includes("/") ? name.split("/").pop()! : name;
+        if (workerBaseNames.has(base)) return "worker";
+        return "local";
+      };
 
       // Unique model_used values from traces
       const seen = new Set<string>();
@@ -58,10 +69,7 @@ export default function TestRunner({ onRun, hasResults }: Props) {
         const name: string = t.model_used;
         if (!name || seen.has(name)) continue;
         seen.add(name);
-        // Determine provider: prefer worker if model exists there and not locally
-        const provider: "local" | "worker" =
-          localSet.has(name) ? "local" : workerSet.has(name) ? "worker" : "local";
-        models.push({ name, provider });
+        models.push({ name, provider: detectProvider(name) });
       }
       models.sort((a, b) => a.name.localeCompare(b.name));
       if (!cancelled) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Play, Plus, Trash2, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { Play, Plus, Trash2, ChevronDown, ChevronUp, ExternalLink, RefreshCw } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -146,9 +146,25 @@ export default function TestSuiteManager() {
 
       const localSet = new Set(localModels);
       const workerSet = new Set<string>();
+      const workerBaseNames = new Set<string>();
       for (const src of netData.sources ?? []) {
-        for (const m of src.models ?? []) workerSet.add(m);
+        for (const m of src.models ?? []) {
+          workerSet.add(m);
+          // Also track base names (strip node prefix and registry path) for matching
+          // e.g. "backoffice/qwen3:latest" should match "docker.io/ai/qwen3:latest"
+          const base = m.includes("/") ? m.split("/").pop()! : m;
+          workerBaseNames.add(base);
+        }
       }
+
+      const detectProvider = (name: string): "local" | "worker" => {
+        if (localSet.has(name)) return "local";
+        if (workerSet.has(name)) return "worker";
+        // Strip node prefix (e.g. "backoffice/" or "primary/") and check base name
+        const base = name.includes("/") ? name.split("/").pop()! : name;
+        if (workerBaseNames.has(base)) return "worker";
+        return "local";
+      };
 
       const seen = new Set<string>();
       const models: ModelOption[] = [];
@@ -156,10 +172,7 @@ export default function TestSuiteManager() {
         const name: string = t.model_used;
         if (!name || seen.has(name)) continue;
         seen.add(name);
-        models.push({
-          name,
-          provider: localSet.has(name) ? "local" : workerSet.has(name) ? "worker" : "local",
-        });
+        models.push({ name, provider: detectProvider(name) });
       }
       models.sort((a, b) => a.name.localeCompare(b.name));
       setAllModels(models);
@@ -459,7 +472,20 @@ export default function TestSuiteManager() {
               <div className="text-[9px] font-mono text-zinc-600">Discovering models...</div>
             ) : (
               <div className="space-y-1">
-                <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-wider">Select models</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-wider">Select models</div>
+                  <button
+                    onClick={loadModels}
+                    className="flex items-center gap-1 text-[8px] font-mono text-zinc-600 hover:text-teal-400 transition-colors"
+                    title="Refresh model list — discovers models from trace history, local Ollama/llama.cpp, and network workers"
+                  >
+                    <RefreshCw size={9} className={loadingModels ? "animate-spin" : ""} />
+                    refresh
+                  </button>
+                </div>
+                <div className="text-[8px] font-mono text-zinc-700 leading-relaxed">
+                  Models appear from trace history, local runners (Ollama, llama.cpp), and network workers. Pull or load a model on any node, then refresh to see it.
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {allModels.map((m) => (
                     <button

@@ -204,6 +204,22 @@ def _strip_registry_prefix(name: str) -> str:
     return name.split("/")[-1] if "/" in name else name
 
 
+_NODE_PREFIXES = ("backoffice/", "primary/")
+
+
+def _strip_node_prefix(name: str) -> str:
+    """'backoffice/qwen3:latest' -> 'qwen3:latest'.
+
+    Node prefixes (backoffice/, primary/) are routing metadata set by
+    orchestrate() for identity tracking. The inference server expects the
+    bare model name or full registry path, not the node qualifier.
+    """
+    for prefix in _NODE_PREFIXES:
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return name
+
+
 def _resolve_model_endpoint(model_key: str) -> tuple[str, str, str]:
     """Resolve the execution-model endpoint from the node registry.
 
@@ -254,7 +270,9 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
         else:
             base_url = config_manager.get_worker_url()
             protocol = config_manager.get_worker_protocol()
-        model_name = model_name_override
+        # Strip node prefix (e.g. "backoffice/" or "primary/") — it's routing
+        # metadata, not part of the model name the inference server recognizes.
+        model_name = _strip_node_prefix(model_name_override)
     else:
         base_url, model_name, protocol = _resolve_model_endpoint(model)
 
