@@ -69,6 +69,7 @@ interface ProbeSummary {
     drop_symbolic?: number;
     drop_noop?: number;
   }>;
+  narrative?: string;
 }
 
 const ACC_COLOR = (acc: number | null | undefined) => {
@@ -104,11 +105,14 @@ export default function ReasoningProbePanel() {
       const localSet = new Set(localModels);
       const workerSet = new Set<string>();
       const workerBaseNames = new Set<string>();
+      const workerFamilies = new Set<string>();
       for (const src of netData.sources ?? []) {
         for (const m of src.models ?? []) {
           workerSet.add(m);
           const base = m.includes("/") ? m.split("/").pop()! : m;
           workerBaseNames.add(base);
+          const family = base.split(":")[0];
+          if (family) workerFamilies.add(family);
         }
       }
       const detectProvider = (name: string): "local" | "worker" => {
@@ -116,6 +120,8 @@ export default function ReasoningProbePanel() {
         if (workerSet.has(name)) return "worker";
         const base = name.includes("/") ? name.split("/").pop()! : name;
         if (workerBaseNames.has(base)) return "worker";
+        const family = base.split(":")[0];
+        if (family && workerFamilies.has(family)) return "worker";
         return "local";
       };
       const seen = new Set<string>();
@@ -223,7 +229,7 @@ export default function ReasoningProbePanel() {
       </div>
 
       <p className="text-[10px] text-zinc-500 font-mono leading-relaxed">
-        GSM-Symbolic method (arXiv:2410.05229): each word problem runs in{" "}
+        GSM-Symbolic method (Mirzadeh et al., arXiv:2410.05229): each word problem runs in{" "}
         <span className="text-zinc-300">base</span>,{" "}
         <span className="text-zinc-300">symbolic</span> (re-rolled names + numbers, answer recomputed), and{" "}
         <span className="text-zinc-300">noop</span> (base + irrelevant distractor premise). The accuracy drop is the
@@ -390,6 +396,48 @@ export default function ReasoningProbePanel() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Narrative explanation */}
+      {summary?.narrative && (
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-4 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Interpretation</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => navigator.clipboard.writeText(summary.narrative || "")}
+                className="text-[9px] font-mono px-2 py-0.5 rounded border border-white/[0.08] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.15] transition-colors"
+              >
+                Copy
+              </button>
+              {run && (
+                <a
+                  href={`${API_BASE}/api/probe/reasoning/${run.run_id}/export.csv`}
+                  className="text-[9px] font-mono px-2 py-0.5 rounded border border-white/[0.08] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.15] transition-colors"
+                  download
+                >
+                  Export CSV
+                </a>
+              )}
+            </div>
+          </div>
+          <div className="text-[10px] font-mono text-zinc-400 leading-relaxed space-y-2 whitespace-pre-line">
+            {summary.narrative.split("\n\n").map((para, i) => {
+              const parts = para.split(/\*\*(.+?)\*\*/g);
+              return (
+                <p key={i}>
+                  {parts.map((part, j) =>
+                    j % 2 === 1 ? (
+                      <span key={j} className="text-zinc-200 font-semibold">{part}</span>
+                    ) : (
+                      <span key={j}>{part}</span>
+                    )
+                  )}
+                </p>
+              );
+            })}
+          </div>
         </div>
       )}
 

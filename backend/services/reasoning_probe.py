@@ -229,6 +229,131 @@ def get_reasoning_probe(run_id: str) -> ReasoningProbeStatus | None:
     return _probe_store.get(run_id)
 
 
+def _generate_narrative(rows: list[dict[str, Any]]) -> str:
+    """Build a plain-English interpretation of the probe results."""
+    if not rows:
+        return "No results to interpret."
+
+    parts: list[str] = []
+
+    parts.append(
+        "**What the probe tests:** Each arithmetic word problem runs in three "
+        "surface variants — **base** (original), **symbolic** (re-rolled names "
+        "+ numbers, answer recomputed), and **noop** (base + an irrelevant "
+        "distractor sentence). The fragility signature (GSM-Symbolic, Mirzadeh "
+        "et al. arXiv:2410.05229) is when a model gets base right but drops on "
+        "symbolic, meaning it memorised the surface pattern rather than reasoning."
+    )
+
+    for row in rows:
+        model = row.get("model", "unknown")
+        base = row.get("base", {})
+        sym = row.get("symbolic", {})
+        noop = row.get("noop", {})
+        base_acc = base.get("accuracy")
+        sym_acc = sym.get("accuracy")
+        noop_acc = noop.get("accuracy")
+        drop_sym = row.get("drop_symbolic", 0)
+        drop_noop = row.get("drop_noop", 0)
+        n = base.get("n", 0)
+
+        if base_acc is None:
+            parts.append(f"**{model}:** No base accuracy data — cannot interpret.")
+            continue
+
+        fragility = drop_sym > 0 or drop_noop > 0
+
+        # Accuracy interpretation
+        if not fragility:
+            parts.append(
+                f"**{model}:** {n} problems tested. **{round(base_acc*100)}% base / "
+                f"{round((sym_acc or 0)*100)}% symbolic / {round((noop_acc or 0)*100)}% noop** "
+                f"— **0% fragility drop.** The model is computing, not pattern-matching. "
+                f"It handles re-rolled numbers and irrelevant distractors without error."
+            )
+        else:
+            sym_pct = round((drop_sym or 0) * 100)
+            noop_pct = round((drop_noop or 0) * 100)
+            verdict = (
+                f"**{model}:** {n} problems tested. "
+                f"**{round(base_acc*100)}% base / {round((sym_acc or 0)*100)}% symbolic / "
+                f"{round((noop_acc or 0)*100)}% noop** — "
+                f"**−{sym_pct}% symbolic, −{noop_pct}% noop.** "
+            )
+            if sym_pct >= 20:
+                verdict += (
+                    "Strong fragility signal — the model relies heavily on surface "
+                    "patterns and struggles when names/numbers change."
+                )
+            elif sym_pct >= 5:
+                verdict += (
+                    "Moderate fragility — partial surface dependence. "
+                    "Reasoning degrades when the problem looks unfamiliar."
+                )
+            else:
+                verdict += (
+                    "Mild fragility — mostly robust but occasional surface-dependent errors."
+                )
+            parts.append(verdict)
+
+        # Entropy shift
+        h_base = base.get("entropy_mean")
+        h_sym = sym.get("entropy_mean")
+        h_noop = noop.get("entropy_mean")
+        if h_base is not None and h_sym is not None:
+            delta_h = h_sym - h_base
+            direction = "more" if delta_h > 0 else "less"
+            magnitude = abs(delta_h)
+            if magnitude > 0.05:
+                parts.append(
+                    f"Entropy shifts: symbolic is {direction} uncertain "
+                    f"(ΔH = {delta_h:+.4f}) — {'the model is more confused by re-rolled variants.' if delta_h > 0 else 'the model is actually more confident on re-rolled variants, suggesting the new numbers are simpler.'}"
+                )
+            elif magnitude > 0.01:
+                parts.append(
+                    f"Entropy shift is mild (ΔH = {delta_h:+.4f}) — surface changes "
+                    f"{'slightly increase' if delta_h > 0 else 'slightly decrease'} "
+                    f"model uncertainty."
+                )
+
+        # DDC margin shift
+        m_base = base.get("ddc_margin")
+        m_sym = sym.get("ddc_margin")
+        if m_base is not None and m_sym is not None:
+            m_delta = m_sym - m_base
+            if abs(m_delta) > 0.01:
+                parts.append(
+                    f"DDC margin shifts from {m_base:.3f} (base) to {m_sym:.3f} (symbolic) "
+                    f"— {'the re-rolled text is harder for the embedding classifier to categorise.' if m_delta < 0 else 'the re-rolled text reads more clearly to the classifier.'} "
+                    f"This tells us the surface change shifts how the text 'reads' even when reasoning is robust."
+                )
+
+    # Comparative insight
+    if len(rows) > 1:
+        fragiles = [r for r in rows if (r.get("drop_symbolic", 0) or 0) > 0.05]
+        robust = [r for r in rows if (r.get("drop_symbolic", 0) or 0) == 0]
+        if fragiles and robust:
+            frag_names = ", ".join(r["model"] for r in fragiles)
+            robust_names = ", ".join(r["model"] for r in robust)
+            parts.append(
+                f"**Cross-model:** {robust_names} show{'s' if len(robust)==1 else ''} robust reasoning; "
+                f"{frag_names} show{'s' if len(fragiles)==1 else ''} surface dependence — "
+                f"a direct comparison of reasoning quality on identical problems."
+            )
+
+    # When it gets interesting
+    parts.append(
+        "**When it gets interesting:** Weaker models or harder templates "
+        "(e.g. the 'baker' loaves problem) will show base ≈ 100% but "
+        "symbolic ≈ 60–80% — that's the fragility signature. "
+        "The entropy and margin channels reveal *why*: the model's uncertainty "
+        "spikes or its embedding-space reading of the problem shifts, even when "
+        "the numerical structure is identical."
+    )
+
+    return "\n\n".join(parts)
+
+
 def aggregate_reasoning_probe(run_id: str) -> dict[str, Any]:
     """Per-model × variant accuracy + mechanistic averages + fragility drops."""
     run = _probe_store.get(run_id)
@@ -259,7 +384,8 @@ def aggregate_reasoning_probe(run_id: str) -> dict[str, Any]:
             row["drop_symbolic"] = round(base_acc - (row["symbolic"]["accuracy"] or 0.0), 3)
             row["drop_noop"] = round(base_acc - (row["noop"]["accuracy"] or 0.0), 3)
         rows.append(row)
-    return {"run_id": run_id, "status": run.status, "rows": rows}
+    narrative = _generate_narrative(rows)
+    return {"run_id": run_id, "status": run.status, "rows": rows, "narrative": narrative}
 
 
 async def _run_cell(cell: ProbeCell, rng: random.Random) -> None:

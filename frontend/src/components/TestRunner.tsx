@@ -46,11 +46,14 @@ export default function TestRunner({ onRun, hasResults }: Props) {
       // Collect worker model names from network sources
       const workerSet = new Set<string>();
       const workerBaseNames = new Set<string>();
+      const workerFamilies = new Set<string>();
       for (const src of netData.sources ?? []) {
         for (const m of src.models ?? []) {
           workerSet.add(m);
           const base = m.includes("/") ? m.split("/").pop()! : m;
           workerBaseNames.add(base);
+          const family = base.split(":")[0];
+          if (family) workerFamilies.add(family);
         }
       }
 
@@ -59,6 +62,8 @@ export default function TestRunner({ onRun, hasResults }: Props) {
         if (workerSet.has(name)) return "worker";
         const base = name.includes("/") ? name.split("/").pop()! : name;
         if (workerBaseNames.has(base)) return "worker";
+        const family = base.split(":")[0];
+        if (family && workerFamilies.has(family)) return "worker";
         return "local";
       };
 

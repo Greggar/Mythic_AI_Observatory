@@ -1112,6 +1112,70 @@ async def api_reasoning_probe_summary(run_id: str) -> dict:
     return agg
 
 
+@app.get("/api/probe/reasoning/{run_id}/export.csv")
+async def api_reasoning_probe_export(run_id: str):
+    agg = aggregate_reasoning_probe(run_id)
+    if not agg:
+        raise HTTPException(status_code=404, detail="Probe run not found")
+
+    import csv
+    import io
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+
+    # Per-model summary rows
+    writer.writerow(["model", "variant", "n", "accuracy", "entropy_mean", "median_branching", "ddc_margin"])
+    for row in agg.get("rows", []):
+        model = row["model"]
+        for v in ("base", "symbolic", "noop"):
+            s = row.get(v, {})
+            writer.writerow([
+                model, v,
+                s.get("n", ""),
+                f"{s['accuracy']:.3f}" if s.get("accuracy") is not None else "",
+                f"{s['entropy_mean']:.4f}" if s.get("entropy_mean") is not None else "",
+                f"{s['median_branching']:.4f}" if s.get("median_branching") is not None else "",
+                f"{s['ddc_margin']:.4f}" if s.get("ddc_margin") is not None else "",
+            ])
+        writer.writerow([model, "drop_symbolic", f"{row.get('drop_symbolic', 0):.3f}"])
+        writer.writerow([model, "drop_noop", f"{row.get('drop_noop', 0):.3f}"])
+        writer.writerow([])
+
+    # Per-cell detail
+    run = get_reasoning_probe(run_id)
+    if run and run.cells:
+        writer.writerow(["--- cell detail ---"])
+        writer.writerow(["cell_id", "model", "template", "variant", "expected", "parsed", "correct", "entropy_mean", "ddc_margin", "tokens", "prompt", "response"])
+        for c in run.cells:
+            writer.writerow([
+                c.cell_id, c.model, c.title, c.variant,
+                c.expected if c.expected is not None else "",
+                c.parsed if c.parsed is not None else "",
+                c.correct if c.correct is not None else "",
+                f"{c.entropy_mean:.4f}" if c.entropy_mean is not None else "",
+                f"{c.ddc_margin:.4f}" if c.ddc_margin is not None else "",
+                c.tokens if c.tokens is not None else "",
+                c.prompt[:200],
+                c.response[:200],
+            ])
+
+    # Narrative
+    narrative = agg.get("narrative", "")
+    if narrative:
+        writer.writerow([])
+        writer.writerow(["--- interpretation ---"])
+        for line in narrative.split("\n"):
+            writer.writerow([line])
+
+    out.seek(0)
+    return StreamingResponse(
+        iter([out.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="reasoning-probe-{run_id}.csv"'},
+    )
+
+
 # ── Log streaming (SSE) ─────────────────────────────────────────
 
 from fastapi.responses import StreamingResponse

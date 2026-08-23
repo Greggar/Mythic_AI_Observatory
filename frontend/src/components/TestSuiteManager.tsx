@@ -147,22 +147,24 @@ export default function TestSuiteManager() {
       const localSet = new Set(localModels);
       const workerSet = new Set<string>();
       const workerBaseNames = new Set<string>();
+      const workerFamilies = new Set<string>();
       for (const src of netData.sources ?? []) {
         for (const m of src.models ?? []) {
           workerSet.add(m);
-          // Also track base names (strip node prefix and registry path) for matching
-          // e.g. "backoffice/qwen3:latest" should match "docker.io/ai/qwen3:latest"
           const base = m.includes("/") ? m.split("/").pop()! : m;
           workerBaseNames.add(base);
+          const family = base.split(":")[0];
+          if (family) workerFamilies.add(family);
         }
       }
 
       const detectProvider = (name: string): "local" | "worker" => {
         if (localSet.has(name)) return "local";
         if (workerSet.has(name)) return "worker";
-        // Strip node prefix (e.g. "backoffice/" or "primary/") and check base name
         const base = name.includes("/") ? name.split("/").pop()! : name;
         if (workerBaseNames.has(base)) return "worker";
+        const family = base.split(":")[0];
+        if (family && workerFamilies.has(family)) return "worker";
         return "local";
       };
 
