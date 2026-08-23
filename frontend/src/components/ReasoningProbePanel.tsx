@@ -406,7 +406,21 @@ export default function ReasoningProbePanel() {
             <span className="text-[9px] font-mono tracking-wider text-zinc-600 uppercase">Interpretation</span>
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => navigator.clipboard.writeText(summary.narrative || "")}
+                onClick={() => {
+                  const text = summary.narrative || "";
+                  if (navigator.clipboard?.writeText) {
+                    navigator.clipboard.writeText(text);
+                  } else {
+                    const ta = document.createElement("textarea");
+                    ta.value = text;
+                    ta.style.position = "fixed";
+                    ta.style.opacity = "0";
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                  }
+                }}
                 className="text-[9px] font-mono px-2 py-0.5 rounded border border-white/[0.08] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.15] transition-colors"
               >
                 Copy

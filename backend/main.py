@@ -1176,6 +1176,101 @@ async def api_reasoning_probe_export(run_id: str):
     )
 
 
+# ── Complexity-ladder probe (Illusion of Thinking) ────────────────
+class ComplexityProbeRequest(BaseModel):
+    models: list[TestModelConfig]
+    generators: list[str] | None = None
+    seed: int | None = None
+
+
+@app.post("/api/probe/complexity")
+async def api_complexity_probe_start(req: ComplexityProbeRequest) -> dict:
+    if not req.models:
+        raise HTTPException(status_code=400, detail="At least one model config required")
+    from services.complexity_probe import start_complexity_probe
+    run = start_complexity_probe(
+        [{"model": m.model, "provider": m.provider} for m in req.models],
+        generators=req.generators,
+        seed=req.seed,
+    )
+    return {"run_id": run.run_id, "total": run.total, "status": run.status, "seed": run.seed}
+
+
+@app.get("/api/probe/complexity/{run_id}")
+async def api_complexity_probe_status(run_id: str):
+    from services.complexity_probe import get_complexity_probe
+    run = get_complexity_probe(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Probe run not found")
+    return run
+
+
+@app.get("/api/probe/complexity/{run_id}/summary")
+async def api_complexity_probe_summary(run_id: str) -> dict:
+    from services.complexity_probe import aggregate_complexity_probe
+    agg = aggregate_complexity_probe(run_id)
+    if not agg:
+        raise HTTPException(status_code=404, detail="Probe run not found")
+    return agg
+
+
+@app.get("/api/probe/complexity/{run_id}/export.csv")
+async def api_complexity_probe_export(run_id: str):
+    from services.complexity_probe import get_complexity_probe, aggregate_complexity_probe
+    import csv
+    import io
+
+    agg = aggregate_complexity_probe(run_id)
+    if not agg:
+        raise HTTPException(status_code=404, detail="Probe run not found")
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+
+    writer.writerow(["--- summary ---"])
+    writer.writerow(["generator", "complexity", "model", "accuracy", "mean_tokens", "mean_entropy", "mean_branching", "efficiency_ratio", "optimal_tokens"])
+    for gen_name, levels in agg.get("generators", {}).items():
+        for lv in levels:
+            cx = lv["complexity"]
+            opt = lv["optimal_tokens"]
+            for model_name, md in lv.get("models", {}).items():
+                writer.writerow([
+                    gen_name, cx, model_name,
+                    f"{md['accuracy']:.3f}" if md.get("accuracy") is not None else "",
+                    f"{md['mean_tokens']:.1f}" if md.get("mean_tokens") is not None else "",
+                    f"{md['mean_entropy']:.4f}" if md.get("mean_entropy") is not None else "",
+                    f"{md['mean_branching']:.4f}" if md.get("mean_branching") is not None else "",
+                    f"{md['efficiency_ratio']:.2f}" if md.get("efficiency_ratio") is not None else "",
+                    opt,
+                ])
+
+    # Per-cell detail
+    run = get_complexity_probe(run_id)
+    if run and run.cells:
+        writer.writerow([])
+        writer.writerow(["--- cell detail ---"])
+        writer.writerow(["cell_id", "model", "generator", "complexity", "instance", "expected", "parsed", "correct", "entropy_mean", "tokens", "optimal_tokens", "prompt", "response"])
+        for c in run.cells:
+            writer.writerow([
+                c.cell_id, c.model, c.generator, c.complexity, c.instance,
+                c.expected if c.expected is not None else "",
+                c.parsed if c.parsed is not None else "",
+                c.correct if c.correct is not None else "",
+                f"{c.entropy_mean:.4f}" if c.entropy_mean is not None else "",
+                c.tokens if c.tokens is not None else "",
+                c.optimal_tokens if c.optimal_tokens is not None else "",
+                c.prompt[:200],
+                c.response[:200],
+            ])
+
+    out.seek(0)
+    return StreamingResponse(
+        iter([out.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="complexity-probe-{run_id}.csv"'},
+    )
+
+
 # ── Log streaming (SSE) ─────────────────────────────────────────
 
 from fastapi.responses import StreamingResponse

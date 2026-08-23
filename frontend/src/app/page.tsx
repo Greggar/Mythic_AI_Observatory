@@ -33,6 +33,7 @@ import TestRunner from "@/components/TestRunner";
 import TestComparison from "@/components/TestComparison";
 import TestSuiteManager from "@/components/TestSuiteManager";
 import ReasoningProbePanel from "@/components/ReasoningProbePanel";
+import ComplexityLadderPanel from "@/components/ComplexityLadderPanel";
 import LogTerminal from "@/components/LogTerminal";
 import ModelSwitcher from "@/components/ModelSwitcher";
 import ComparativeRadarPanel from "@/components/ComparativeRadarPanel";
@@ -542,6 +543,7 @@ export default function Home() {
               <TestComparison probes={testProbes} models={testModels} />
             )}
             <ReasoningProbePanel />
+            <ComplexityLadderPanel />
           </div>
         </ErrorBoundary>
       )}

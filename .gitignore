@@ -30,6 +30,7 @@ backend/data/traces.jsonl
 backend/data/synesth_cache.json
 backend/data/annotations.jsonl
 backend/data/model_profiles/
+backend/data/test_suites/
 
 # Build artifacts
 dist/
