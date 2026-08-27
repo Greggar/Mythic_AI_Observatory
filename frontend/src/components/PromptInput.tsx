@@ -2,15 +2,27 @@
 
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   onSubmit: (prompt: string) => void;
   loading: boolean;
+  /** Pre-populate the box with a trace's prompt (e.g. when replaying a historic trace). */
+  initialValue?: string;
 }
 
-export default function PromptInput({ onSubmit, loading }: Props) {
-  const [value, setValue] = useState("");
+export default function PromptInput({ onSubmit, loading, initialValue }: Props) {
+  const [value, setValue] = useState(initialValue ?? "");
+  const focusedRef = useRef(false);
+  const lastAppliedRef = useRef<string | undefined>(initialValue);
+
+  useEffect(() => {
+    if (initialValue === undefined) return;
+    if (initialValue !== lastAppliedRef.current && !focusedRef.current) {
+      setValue(initialValue);
+      lastAppliedRef.current = initialValue;
+    }
+  }, [initialValue]);
 
   const handleSubmit = () => {
     const trimmed = value.trim();
@@ -30,6 +42,8 @@ export default function PromptInput({ onSubmit, loading }: Props) {
       <textarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onFocus={() => (focusedRef.current = true)}
+        onBlur={() => (focusedRef.current = false)}
         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit(); }}
         placeholder="e.g. Summarize current orchestration status"
         rows={2}

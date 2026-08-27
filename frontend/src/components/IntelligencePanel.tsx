@@ -22,6 +22,7 @@ import TokenVelocity from "@/components/TokenVelocity";
 import DualTimeline from "@/components/charts/DualTimeline";
 import HallucinationGauge from "@/components/HallucinationGauge";
 import SynthesisBridge from "@/components/SynthesisBridge";
+import MythicLayer from "@/components/MythicLayer";
 
 interface Props {
   telemetry: Telemetry | null;
@@ -830,6 +831,9 @@ function findRootCause(session: TraceSession): { index: number; reason: string }
               </div>
             </div>
           )}
+
+          {/* Mythic Layer — named phenomena from live telemetry */}
+          <MythicLayer trace={trace} />
 
           {/* Dual-Timeline Workspace */}
           <DualTimeline trace={trace} />

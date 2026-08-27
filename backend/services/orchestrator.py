@@ -44,7 +44,7 @@ def set_model_provider(value: str) -> None:
     config_manager.set_model_provider_config(value)
     logger.info("Model provider switched to: %s", value)
 
-LLM_TIMEOUT = 120.0  # reduced from 300s; model-too-large hangs surface in ~60s
+LLM_TIMEOUT = 300.0  # 5 min for CPU inference; model-too-large hangs surface in ~60s
 
 # Memory delivery: a chunk is "used" (content injected into the generator's
 # context) when its relevance meets this floor; the top-ranked chunk always wins.
@@ -264,15 +264,19 @@ async def _call_model(model: str, prompt: str, system: str | None = None, *, mod
             if llm["enabled"] and llm["url"]:
                 base_url = llm["url"]
                 protocol = llm["protocol"]
+                # Use the config model name (llama.cpp GGUF path) instead of
+                # the probe's override — llama.cpp only recognizes its own path.
+                model_name = llm["model"] or _strip_node_prefix(model_name_override)
             else:
                 base_url = config_manager.get_ollama_url()
                 protocol = "ollama"
+                model_name = _strip_node_prefix(model_name_override)
         else:
             base_url = config_manager.get_worker_url()
             protocol = config_manager.get_worker_protocol()
-        # Strip node prefix (e.g. "backoffice/" or "primary/") — it's routing
-        # metadata, not part of the model name the inference server recognizes.
-        model_name = _strip_node_prefix(model_name_override)
+            # Strip node prefix (e.g. "backoffice/" or "primary/") — it's
+            # routing metadata, not part of the model name the server recognizes.
+            model_name = _strip_node_prefix(model_name_override)
     else:
         base_url, model_name, protocol = _resolve_model_endpoint(model)
 
@@ -399,8 +403,9 @@ async def _call_ollama(base_url: str, model_name: str, prompt: str, system: str 
             logger.error("Model call failed: %s", msg)
             return f"[{model_name} error: {msg}]", None, None, None
         except Exception as e:
-            logger.error("Model call failed: %s", e)
-            return f"[{model_name} error: {e}]", None, None, None
+            err_str = str(e) or repr(e) or f"type={type(e).__name__}"
+            logger.error("Model call failed (%s -> %s): %s", model_name, base_url, err_str)
+            return f"[{model_name} error: {err_str}]", None, None, None
 
 
 async def _call_openai(base_url: str, model_name: str, prompt: str, system: str | None, provider_for_ctx: str) -> tuple[str, int | None, int | None, dict | None]:
@@ -460,8 +465,9 @@ async def _call_openai(base_url: str, model_name: str, prompt: str, system: str 
             logger.error("OpenAI-compatible call failed: %s", msg)
             return f"[{model_name} error: {msg}]", None, None, None
         except Exception as e:
-            logger.error("OpenAI-compatible call failed: %s", e)
-            return f"[{model_name} error: {e}]", None, None, None
+            err_str = str(e) or repr(e) or f"type={type(e).__name__}"
+            logger.error("OpenAI-compatible call failed (%s -> %s): %s", model_name, base_url, err_str)
+            return f"[{model_name} error: {err_str}]", None, None, None
 
 
 def _compute_confidence(session: TraceSession) -> float:

@@ -400,6 +400,11 @@ async def _run_cell(cell: ProbeCell, rng: random.Random) -> None:
             )
         cell.response = (result or "")[:600]
         cell.tokens = eval_count
+        # Detect error responses from _call_model (returns "[model error: ...]")
+        if cell.response.startswith("[") and "error:" in cell.response:
+            cell.status = "error"
+            cell.error = cell.response[:200]
+            return
         if entropy:
             cell.entropy_mean = entropy.get("mean_entropy")
             cell.entropy_p95 = entropy.get("p95_entropy")

@@ -162,11 +162,12 @@ async function generateDoc(id: string): Promise<void> {
 
 interface Props {
   refreshTrigger: number;
+  onPlay?: (traceId: string) => void;
 }
 
 type SortKey = "id" | "prompt" | "output" | "ddcLabel" | "ddcScore" | "lccLabel" | "lccScore";
 
-export default function TraceTable({ refreshTrigger }: Props) {
+export default function TraceTable({ refreshTrigger, onPlay }: Props) {
   const [rows, setRows] = useState<TraceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState<string | null>(null);
@@ -328,6 +329,17 @@ export default function TraceTable({ refreshTrigger }: Props) {
                     title={r.lccScore !== null ? `score: ${r.lccScore.toFixed(3)} margin: ${(r.lccMargin ?? 0).toFixed(3)}` : "—"} />
                 </td>
                 <td className="px-2 py-1.5">
+                  {onPlay && (
+                    <button
+                      onClick={() => onPlay(r.id)}
+                      className="text-teal-mystic/60 hover:text-teal-mystic transition-colors mr-1.5"
+                      title="Play — replay this trace in the analysis surface"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </button>
+                  )}
                   <button
                     onClick={() => handleGenerate(r.id)}
                     disabled={generating === r.id}

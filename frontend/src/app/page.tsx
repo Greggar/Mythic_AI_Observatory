@@ -416,7 +416,7 @@ export default function Home() {
                 {batchMode ? (
                   <BatchInput onBatchComplete={() => setHistoryRefresh((n) => n + 1)} />
                 ) : (
-                  <PromptInput onSubmit={handleSubmit} loading={loading} />
+                  <PromptInput onSubmit={handleSubmit} loading={loading} initialValue={activeTrace?.prompt} />
                 )}
               </div>
 
@@ -524,7 +524,7 @@ export default function Home() {
                   onClose={() => setCompareTraces([])}
                 />
               )}
-              <TraceTable refreshTrigger={historyRefresh} />
+              <TraceTable refreshTrigger={historyRefresh} onPlay={handleHistorySelect} />
             </div>
           </div>
         </ErrorBoundary>

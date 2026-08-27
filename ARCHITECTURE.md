@@ -33,8 +33,8 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 │  └──────────┘  └──────────────┘  └──────────┘  └──────────┘  └─────────────────┘ │
 │                                       │                         │
 │  ┌────────────────────────────────────┘                         │
-│  │  Prometheus Snap :9090    Node Exporter :9100                │
-│  │  (currently down — see §6 Troubleshooting)                    │
+│  │  Prometheus :9090           Node Exporter :9100               │
+│  │  (system service, both machines scraped)                       │
 │  └──────────────────────────────────────────────────────────────┘
 │                           │
 │                           ▼ LAN
@@ -46,6 +46,9 @@ The Mythic AI Observatory is a distributed agentic AI monitoring and orchestrati
 │              │  :12434                   │
 │              │  ┌─ qwen2.5:7b (11GB)   │
 │              │  └─ qwen2.5:7b (5.5GB)   │
+│              │                           │
+│              │  Prometheus Node :9100    │
+│              │  (scraped by primary)     │
 │              │                           │
 │              │  Hermes Bridge :9119      │
 │              │  ComfyUI :8188            │
@@ -479,7 +482,35 @@ Docker Model Runner (port 12434) supports chat and completion models but not the
 
 When a restart/daemon command is run through an agent tool (opencode, CI), the tool **kills the entire process group when its command times out or the shell exits** — so `uvicorn ... &` started inline dies the moment the tool returns. The fix is a dedicated script that fully detaches: `setsid nohup <cmd> >log 2>&1 & disown` (see `restart_backend.sh` and `tools/start_local_llm.sh`). Verify with `ss -ltn` on the port afterward, and confirm the backend actually restarted (not a zombie) by curling `/health`.
 
-### 6.13 Ollama Does Not Expose Logprobs
+### 6.13 Prometheus Circuit Breaker Can Latch Across Config Changes
+
+`vitals.py` uses a module-level `_PROM_DEADLINE` (line 89) as a circuit breaker: when Prometheus is unreachable, `_prom_reachable()` sets `deadline = now + 30s` and returns `False` for 30 seconds. This works for transient failures but has a subtle failure mode: if the backend process starts **while Prometheus is disabled** (e.g. `prometheus.enabled: false` in `network.json`), the first `_prom_reachable()` call fails (no service URL → returns `""` → `prom_ok = False`), and the `is_remote` flag on line 225 kicks in:
+
+```python
+is_remote = not prom_ok and mid != LOCAL_HOSTNAME and ...
+```
+
+When `prom_ok` is `False`, every non-local machine gets the "unavailable" vitals stub — even after Prometheus is later enabled. The deadline resets every 30s, but the process-level state (`_PROM_DEADLINE = 0.0` initially) only resets on process restart. If Prometheus was unreachable when the backend started and was enabled later, the breaker never gets a clean retry because the next `_prom_reachable()` call succeeds but the cached `_PROM_DEADLINE` from a prior failure can interfere with the query path.
+
+**Fix:** Restart the backend after enabling Prometheus in `network.json`. A cleaner fix would be to reset `_PROM_DEADLINE` when the Prometheus URL changes (detect via `config_manager.get_prometheus_url()` != last-seen URL).
+
+### 6.14 WSL Portproxy Rules Are Not Durable
+
+`netsh interface portproxy` rules on Windows bridge WSL services to the LAN (e.g. `listenport=9100 listenaddress=0.0.0.0 connectport=9100 connectaddress=127.0.0.1`). These rules **disappear after WSL restart or Docker Desktop reboot**. They must be re-created each time. Consider a startup script or a Windows scheduled task that re-applies the rules.
+
+### 6.15 Adding a Remote Machine to System Vitals (Full Dependency Chain)
+
+For a remote machine to appear with live CPU/RAM/disk data in System Vitals, **all five** of these must be true simultaneously:
+
+1. `prometheus.enabled: true` and `prometheus.host: "127.0.0.1"` in `network.json`
+2. `node_exporter` running on the remote machine, bridged to the LAN via portproxy (if WSL) or bound to a LAN-accessible interface
+3. Firewall allows inbound TCP on port 9100 from the Prometheus server
+4. Scrape target added to `/etc/prometheus/prometheus.yml` under a `job_name` with `targets: ["<ip>:9100"]`
+5. Backend restarted after step 1 (circuit breaker reset — see §6.13)
+
+If any step is missing, the machine appears as "unavailable" in the UI. The most common failure is step 5: enabling Prometheus in the config without restarting the backend.
+
+### 6.16 Ollama Does Not Expose Logprobs
 
 Ollama's OpenAI-compat endpoint does not return per-token `logprobs`/`top_logprobs`, so no entropy can be captured through it (requests silently come back without the field). To get token-level uncertainty on a node, serve the model via llama.cpp-server (or vLLM/TGI/LM Studio), which returns `logprobs` + a `timings` block. This is why the `local_llm` node exists — the execution model is routed to it when it's up, and falls back to Ollama (entropy silently lost) only when it isn't.
 
@@ -553,6 +584,12 @@ Ollama's OpenAI-compat endpoint does not return per-token `logprobs`/`top_logpro
 
 27. **Registry-driven routing beats a binary local/worker switch.** A hardcoded `if provider == "local"` check can't express "try this node, fall back to that one" or admit a new node without code changes. Resolving a model key to an ordered chain of `network.json` services means adding a node (llama.cpp, vLLM, …) is pure config. (2026-08-03)
 
+28. **Circuit breaker stale state outlives config changes.** The `_PROM_DEADLINE` global in `vitals.py` latches "Prometheus unreachable" for 30s per failure, but the process-level state persists for hours if the backend was started while Prometheus was disabled. Enabling Prometheus in `network.json` without restarting the backend leaves BackOffice permanently "unavailable." The fix was a single `systemctl --user restart mythic-conductor`. Lesson: module-level globals that cache external-service state need invalidation when the config that controls them changes. (2026-08-26)
+
+29. **WSL portproxy rules are ephemeral.** `netsh interface portproxy` bridges WSL services (node_exporter on 9100) to the LAN, but the rules vanish on WSL restart or Docker Desktop reboot. A startup script or scheduled task is needed for persistence. (2026-08-26)
+
+30. **Adding a remote machine to vitals is a five-step chain, not a one-line config.** The full dependency: Prometheus enabled → node_exporter running and bridged → firewall open → scrape target in prometheus.yml → backend restarted. Missing any step produces "unavailable." The most common miss is step 5 (the backend restart). (2026-08-26)
+
 ## 8. Future Considerations
 
 ### High Priority
@@ -612,6 +649,11 @@ Ollama's OpenAI-compat endpoint does not return per-token `logprobs`/`top_logpro
 - **[Backend] Memory + chat delivery fix (2026-08-06).** Step-4 now injects the used chunks' content into the generator's context as `[Memory Retrieval · rel x.xx]` lines (700-char cap), with `used` redefined at `MEMORY_USE_THRESHOLD=0.15` (top-ranked chunk always used) and a truthful summary line. Chat traces additionally carry prior exchanges into context as a `[Chat History]` block (newest-first within `CHAT_HISTORY_CHARS=2500` / `CHAT_HISTORY_EXCHANGES=20` budgets — the DMR clamps to `context_window 4096`). Verified live: an elliptical "poem on that topic now" after a topic-setting exchange produced a Prometheus-grounded poem ("The Titan's Flame"), where pre-fix it produced an unrelated "Celestial Weave". Open: retrieval-rank hygiene (cross-chat poems still outranked the topic chunk — rescued only by the history block). (2026-08-06)
 - **[Live finding] Chat grounding — post-fix resolution gap (chat `1e8f0f2b`, 2026-08-08).** The 2026-08-06 delivery fix is confirmed working, but a second, distinct live failure remains at the *generation* stage. EX2 "What style of poetry would most suit them?" (`7dc55a3f09c5`) received EX1's full Saturn output in context — verified in `steps[5].context_assembled` (5538 chars): the `[Chat History]` block carries the rings-of-Saturn overview ("seven main rings (A, B, C, D, E, F, G)", "Cassini Division") plus `[Memory Retrieval · rel x.xx]` lines — yet responded with a clarification request ("…are you asking about a specific topic (like the rings of Saturn or cosmic themes)…"). The generator even NAMED the referent in its own question but did not resolve "them" → rings. This is the opposite failure site from `53f3b337`: content was delivered **and acknowledged**, but referent resolution failed. The 5 retrieved chunks (0.658 moons-of-Mars / 0.647 Cartographer of Shadows / 0.567 Titan's Flame / 0.551 Epic Lyricism / 0.545 Celestial Weapon) were all cross-chat celestial poems, making "them" genuinely multi-valued; the model's hedged "could you clarify" move (self-limiting-phrases axis) won over the immediate prior-turn context. EX3 "…about my first question about **saturn**…" (`7ed57c0e4c98`) bridged correctly — naming the referent still rescues it (Saturn chunk surfaced 0.589). Open items: retrieval-rank hygiene + anaphora→prior-subject binding. Traces: EX0 `269e5197800b`, EX1 `b622c2a2a70b`, EX2 `7dc55a3f09c5`, EX3 `7ed57c0e4c98`. (2026-08-08)
 - **[Tool] Backoffice freeze watcher (2026-08-06).** `tools/backoffice_watch.py` samples the backoffice GPU util/mem + load1/5 + mem avail from Prometheus (prom URL via `PROMETHEUS_URL` env) and the worker DMR `/v1/models` latency every 2 s → CSV. Used during the fix verification: DMR stayed responsive (15–32 ms) with load1 ≤ 0.5 across both generations — the earlier "freeze" (49.7 s poem, 20 s probe silence) was a single-slot queue stall, not a hang. **Gotcha:** the backoffice `gpu_usage_percent` reads 0% *during active generation* (≈50 tok/s on the 9B Q4 model proves the GPU is used) — the exporter does not capture the Docker/WSL GPU device, so GPU% is an unreliable freeze signal; use DMR latency + load instead. (2026-08-06)
+- **[Frontend] Mythic Layer (Phase 18 #8).** `frontend/src/components/MythicLayer.tsx` — a self-nulling strip in the IntelligencePanel completed state (after the trace explanation, before DualTimeline) that names a trace's measurable phenomena from already-captured telemetry, with the technical definition always inline (truth over polish: the name is garnish, the number is the law). Phenomena: **The Whispering Forest** (high-entropy token ratio, severity tiers whisper/surge/torrent calibrated to the live corpus — surge ≥0.08, torrent ≥0.15, vs corpus median ~0.07 and cap ~0.28); **The Burning Bush** (median branching 2^H ≥ 4); **The Serpent's Crown** (single-token entropy peak ≥ 2.0, normally ~1.0); **The Still Waters** (median 2^H ≤ 1.05, near-deterministic); **The Mirror Pool** (memory retrieval recovered this trace's own earlier artifact — reuses the correction detector's self-ref signal). Exports `derivePhenomena(trace)` for reuse. Derives only from captured data; self-nulls silently when the trace has no entropy (e.g. through Ollama, which drops logprobs). Verified against 50 real traces + fabricated edge cases. (2026-08-27)
+- **[Frontend] Play button per trace (Phase 1 #45).** `TraceTable.tsx` gains an `onPlay?: (traceId) => void` prop; a small teal ▶ button per row (before Generate Doc) calls it. `page.tsx` wires `onPlay={handleHistorySelect}`, reusing the existing History→Trace bridge (fetch full trace → set replay → switch to Trace tab). One click to re-open any historic trace's full analysis surface. (2026-08-27)
+- **[Frontend] PromptInput pre-fills from active trace.** `PromptInput.tsx` gains `initialValue?: string`; an effect syncs it into the textarea only when the value *changes while the input is not focused* (focus-guard via `useRef`, so it never steals focus or clobbers mid-typed input). `page.tsx` passes `activeTrace?.prompt`, so replaying a historic trace now shows its original orchestration prompt in the top box (previously stayed blank/leftover). (2026-08-27)
+- **[Backend production serving gotcha] `mythic-nexus.service` runs `next start` (production), not `next dev`.** The systemd user service serves the pre-compiled `.next` build with `NODE_ENV=production` and `Restart=always` — it never reads source edits. A frontend change is invisible until `pnpm build` + `systemctl --user restart mythic-nexus`. Kills are futile (`Restart=always` respawns the stale server). This is the 2026-08-27 manifestation of the historical "next start caches HTML" lesson (§6.3), now enforced by the service manager. (2026-08-27)
+- **[Docs] Phase 21 — Interpretation / Diagnosis workstream.** Added to FUTURE_PLANS.md (DEFERRED/planned). Attacks the Observatory's core measurement↔meaning gap: the "so what?" verdict card (conflicting signals → one structured diagnosis with measurement, carrying stage, and a recommended action), calibration grounding of every headline metric, correlation-not-causation gating, published-reproduction standing discipline, and the input-side branch factor. Guardrail: no flowing-prose LLM narration — stories must bottom out in a verifiable number + an action. (2026-08-27)
 
 ### Medium Priority
 
