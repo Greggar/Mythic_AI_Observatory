@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import ResearchPopover from "./ResearchPopover";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet, apiPost, apiUrl } from "@/lib/api";
+import { pollUntil, type PollHandle } from "@/lib/usePoll";
+import type { TraceSummary } from "@/types/trace";
 
 const TEMPLATES = [
   { id: "clips", title: "Half-as-many second month" },
@@ -88,21 +89,18 @@ export default function ReasoningProbePanel() {
   const [run, setRun] = useState<ProbeRun | null>(null);
   const [summary, setSummary] = useState<ProbeSummary | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<PollHandle<ProbeRun> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoadingModels(true);
-      const [traceRes, localRes, netRes] = await Promise.all([
-        fetch(`${API_BASE}/api/traces?limit=200`),
-        fetch(`${API_BASE}/api/models`),
-        fetch(`${API_BASE}/api/models/network`),
+      const [traces, localModels, netData] = await Promise.all([
+        apiGet<TraceSummary[]>("/api/traces?limit=200").catch(() => []),
+        apiGet<{ models?: string[] }>("/api/models").catch(() => ({ models: [] })),
+        apiGet<{ sources: { models: string[] }[] }>("/api/models/network").catch(() => ({ sources: [] })),
       ]);
-      const traces: any[] = traceRes.ok ? await traceRes.json() : [];
-      const localModels: string[] = localRes.ok ? (await localRes.json()).models ?? [] : [];
-      const netData: { sources: any[] } = netRes.ok ? await netRes.json() : { sources: [] };
-      const localSet = new Set(localModels);
+      const localSet = new Set(localModels.models ?? []);
       const workerSet = new Set<string>();
       const workerBaseNames = new Set<string>();
       const workerFamilies = new Set<string>();
@@ -127,8 +125,9 @@ export default function ReasoningProbePanel() {
       const seen = new Set<string>();
       const models: ModelOption[] = [];
       for (const t of traces) {
-        const name: string = t.model_used;
-        if (!name || seen.has(name)) continue;
+        const name = t.model_used;
+        if (!name) continue;
+        if (seen.has(name)) continue;
         seen.add(name);
         models.push({ name, provider: detectProvider(name) });
       }
@@ -144,7 +143,7 @@ export default function ReasoningProbePanel() {
   }, []);
 
   useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => { pollRef.current?.stop(); };
   }, []);
 
   const toggleModel = (name: string) => {
@@ -165,27 +164,28 @@ export default function ReasoningProbePanel() {
     });
   };
 
-  const pollRun = async (runId: string) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/probe/reasoning/${runId}`);
-        if (!res.ok) throw new Error("status fetch failed");
-        const data: ProbeRun = await res.json();
-        setRun(data);
-        if (data.status === "done") {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          const sumRes = await fetch(`${API_BASE}/api/probe/reasoning/${runId}/summary`);
-          if (sumRes.ok) setSummary(await sumRes.json());
-          setRunning(false);
-        }
-      } catch {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null;
-        setRunning(false);
-      }
-    }, 2000);
+  const pollRun = (runId: string) => {
+    pollRef.current?.stop();
+    const handle = pollUntil<ProbeRun>(
+      () => apiGet<ProbeRun>(`/api/probe/reasoning/${runId}`),
+      (data) => data.status === "done",
+      {
+        intervalMs: 2000,
+        onTick: (data) => {
+          setRun(data);
+          if (data.status === "done") {
+            apiGet<ProbeSummary>(`/api/probe/reasoning/${runId}/summary`)
+              .then(setSummary)
+              .catch(() => {});
+            setRunning(false);
+          }
+        },
+      },
+    );
+    pollRef.current = handle;
+    handle.promise.catch(() => {
+      setRunning(false);
+    });
   };
 
   const handleRun = async () => {
@@ -195,13 +195,10 @@ export default function ReasoningProbePanel() {
     setSummary(null);
     setRun(null);
     try {
-      const res = await fetch(`${API_BASE}/api/probe/reasoning`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ models, template_ids: [...selectedTemplates] }),
+      const { run_id } = await apiPost<{ run_id: string }>("/api/probe/reasoning", {
+        models,
+        template_ids: [...selectedTemplates],
       });
-      if (!res.ok) throw new Error("run start failed");
-      const { run_id } = await res.json();
       pollRun(run_id);
     } catch {
       setRunning(false);
@@ -427,7 +424,7 @@ export default function ReasoningProbePanel() {
               </button>
               {run && (
                 <a
-                  href={`${API_BASE}/api/probe/reasoning/${run.run_id}/export.csv`}
+                  href={apiUrl(`/api/probe/reasoning/${run.run_id}/export.csv`)}
                   className="text-[9px] font-mono px-2 py-0.5 rounded border border-white/[0.08] text-zinc-500 hover:text-zinc-300 hover:border-white/[0.15] transition-colors"
                   download
                 >

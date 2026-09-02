@@ -1,67 +1,61 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TraceSession } from "@/types/trace";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-const POLL_INTERVAL = 1500;
+import { apiGet, apiPost } from "@/lib/api";
+import { pollUntil, type PollHandle } from "@/lib/usePoll";
 
 export function useOrchestrate() {
   const [trace, setTrace] = useState<TraceSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<PollHandle<TraceSession> | null>(null);
 
   const stopPolling = useCallback(() => {
-    if (pollTimer.current) {
-      clearInterval(pollTimer.current);
-      pollTimer.current = null;
-    }
+    pollRef.current?.stop();
+    pollRef.current = null;
   }, []);
 
-  const submit = useCallback(async (prompt: string) => {
-    setLoading(true);
-    setError(null);
-    setTrace(null);
-    stopPolling();
+  // Abort any in-flight poll when the hook unmounts.
+  useEffect(() => stopPolling, [stopPolling]);
 
-    try {
-      const res = await fetch(`${API_BASE}/api/orchestrate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
-      });
+  const submit = useCallback(
+    async (prompt: string) => {
+      setLoading(true);
+      setError(null);
+      setTrace(null);
+      stopPolling();
 
-      if (!res.ok) {
-        throw new Error(`Server responded ${res.status}`);
-      }
+      try {
+        const { trace_id } = await apiPost<{ trace_id: string }>("/api/orchestrate", {
+          prompt,
+        });
 
-      const { trace_id } = await res.json();
-
-      // Poll for the trace until complete
-      const poll = async () => {
-        try {
-          const pollRes = await fetch(`${API_BASE}/api/traces/${trace_id}`);
-          if (pollRes.ok) {
-            const data: TraceSession = await pollRes.json();
-            setTrace(data);
-            if (data.status === "complete" || data.status === "error") {
-              setLoading(false);
-              return; // stop polling
+        const handle = pollUntil<TraceSession>(
+          () => apiGet<TraceSession>(`/api/traces/${trace_id}`),
+          (d) => d.status === "complete" || d.status === "error",
+          {
+            onTick: (d) => setTrace(d),
+          },
+        );
+        pollRef.current = handle;
+        handle.promise
+          .then(() => setLoading(false))
+          .catch((err: unknown) => {
+            if (err instanceof DOMException && err.name === "AbortError") {
+              // stopped by unmount/reset — not an error
+            } else {
+              setError(err instanceof Error ? err.message : "Unknown error");
             }
-          }
-        } catch {
-          // keep polling
-        }
-        pollTimer.current = setTimeout(poll, POLL_INTERVAL);
-      };
-
-      poll();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setLoading(false);
-    }
-  }, [stopPolling]);
+            setLoading(false);
+          });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+        setLoading(false);
+      }
+    },
+    [stopPolling],
+  );
 
   return { trace, loading, error, submit };
 }

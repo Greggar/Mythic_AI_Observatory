@@ -4,8 +4,9 @@ import { Upload, FileText, Play, Check, X, AlertCircle } from "lucide-react";
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { BatchStatus } from "@/types/trace";
 import { useToast } from "@/lib/ToastContext";
+import { apiGet, apiPost } from "@/lib/api";
+import { pollUntil, type PollHandle } from "@/lib/usePoll";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const POLL_MS = 2000;
 
 interface Props {
@@ -22,19 +23,17 @@ export default function BatchInput({ onBatchComplete }: Props) {
   const [status, setStatus] = useState<BatchStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<PollHandle<BatchStatus> | null>(null);
 
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      pollRef.current?.stop();
     };
   }, []);
 
   const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+    pollRef.current?.stop();
+    pollRef.current = null;
   }, []);
 
   const parseFile = useCallback((f: File) => {
@@ -79,20 +78,15 @@ export default function BatchInput({ onBatchComplete }: Props) {
     setError(null);
     setStatus(null);
     try {
-      const res = await fetch(`${API_BASE}/api/traces/batch`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompts: lines }),
-      });
-      if (!res.ok) throw new Error(`Server responded ${res.status}`);
-      const data = await res.json();
+      const data = await apiPost<{ batch_id: string }>("/api/traces/batch", { prompts: lines });
       setBatchId(data.batch_id);
       // Start polling
-      const poll = async () => {
-        try {
-          const pr = await fetch(`${API_BASE}/api/traces/batch/${data.batch_id}`);
-          if (pr.ok) {
-            const ps: BatchStatus = await pr.json();
+      const handle = pollUntil<BatchStatus>(
+        () => apiGet<BatchStatus>(`/api/traces/batch/${data.batch_id}`),
+        (ps) => ps.status === "done",
+        {
+          intervalMs: POLL_MS,
+          onTick: (ps) => {
             setStatus(ps);
             if (ps.status === "done") {
               stopPolling();
@@ -112,13 +106,13 @@ export default function BatchInput({ onBatchComplete }: Props) {
                 );
               }
             }
-          }
-        } catch {
-          // keep polling
-        }
-      };
-      poll();
-      pollRef.current = setInterval(poll, POLL_MS);
+          },
+        },
+      );
+      pollRef.current = handle;
+      handle.promise.catch(() => {
+        // keep polling silently; done-handled in onTick
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Batch request failed");
       setRunning(false);

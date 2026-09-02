@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Save, Server, Wifi, Cpu, RefreshCw, Plus, Trash2, Check, AlertTriangle, FileText, Search } from "lucide-react";
+import { apiGet, apiPost, apiPut } from "@/lib/api";
+import type { TraceSummary } from "@/types/trace";
 
 interface ServiceConfig {
   label: string;
@@ -44,8 +46,6 @@ interface DiscoveredMachine {
   hostname: string | null;
   services: DiscoveredService[];
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 function maskIp(ip: string): string {
   if (!ip || ip === "127.0.0.1" || ip === "localhost") return ip;
@@ -107,8 +107,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/network-config`);
-      const data = await res.json();
+      const data = await apiGet<NetworkConfig>("/api/network-config");
       setConfig(data);
     } catch {
       // silently fail
@@ -119,8 +118,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
 
   const fetchModelProvider = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/config/model`);
-      const data = await res.json();
+      const data = await apiGet<{ provider?: string; model?: string }>("/api/config/model");
       setModelProvider(data.provider || "local");
       if (data.provider === "local" && data.model) {
         setCurrentModel(data.model);
@@ -135,20 +133,15 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const fetchModels = useCallback(async () => {
     setModelsLoading(true);
     try {
-      const [listRes, currentRes, analysisRes] = await Promise.all([
-        fetch(`${API_BASE}/api/models`),
-        fetch(`${API_BASE}/api/models/current`),
-        fetch(`${API_BASE}/api/config/analysis-model`),
+      const [list, cur, analysisData] = await Promise.all([
+        apiGet<{ models?: string[] }>("/api/models"),
+        apiGet<{ model?: string }>("/api/models/current"),
+        apiGet<{ model?: string; provider?: string }>("/api/config/analysis-model"),
       ]);
-      const list = await listRes.json();
-      const cur = await currentRes.json();
       if (list.models) setAvailableModels(list.models);
       if (cur.model) setCurrentModel(cur.model);
-      if (analysisRes.ok) {
-        const analysisData = await analysisRes.json();
-        if (analysisData.model) setAnalysisModel(analysisData.model);
-        if (analysisData.provider) setAnalysisProvider(analysisData.provider);
-      }
+      if (analysisData.model) setAnalysisModel(analysisData.model);
+      if (analysisData.provider) setAnalysisProvider(analysisData.provider);
     } catch {
       // silently fail
     } finally {
@@ -160,9 +153,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (networkSources.length > 0) return;
     setNetworkSourcesLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/models/network`);
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await apiGet<{ sources?: { id: string; label: string; host: string; port: number; configured_model: string; models: string[]; error: string | null }[] }>("/api/models/network");
       if (data.sources) {
         setNetworkSources(data.sources);
         if (data.sources.length > 0 && !networkSourceId) {
@@ -181,9 +172,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     setSchemaLoading(true);
     setSchemaError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/schema`);
-      if (!res.ok) throw new Error("Failed to load schema");
-      const data = await res.json();
+      const data = await apiGet<{ content?: string }>("/api/schema");
       setSchemaContent(data.content || "");
     } catch (e) {
       setSchemaError(e instanceof Error ? e.message : "Unknown error");
@@ -212,9 +201,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     if (!open || tab !== "delete" || deleteTabReady) return;
     (async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/traces?limit=500&view=summary`);
-        if (!res.ok) return;
-        const all: any[] = await res.json();
+        const all: TraceSummary[] = await apiGet<TraceSummary[]>("/api/traces?limit=500&view=summary");
         setAllTraceMeta(all.map((t) => ({ id: t.id, model_used: t.model_used, ddc_prompt: t.ddc?.prompt?.code })));
         setDeleteTabReady(true);
       } catch { /* ignore */ }
@@ -341,8 +328,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
     setScanningNetwork(true);
     setScanError("");
     try {
-      const res = await fetch(`${API_BASE}/api/network/scan`, { method: "POST" });
-      const data = await res.json();
+      const data = await apiPost<{ machines?: DiscoveredMachine[]; error?: string }>("/api/network/scan", {});
       if (data.error) setScanError(data.error);
       setDiscoveredMachines(data.machines || []);
     } catch (e) {
@@ -406,15 +392,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
         },
         analysis: { model: resolvedModel, provider: analysisProvider },
       };
-      const res = await fetch(`${API_BASE}/api/network-config`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: mergedConfig }),
-      });
-      if (res.ok) {
-        setSaved(true);
-        setTimeout(() => onClose(), 1200);
-      }
+      await apiPut(`/api/network-config`, { config: mergedConfig });
+      setSaved(true);
+      setTimeout(() => onClose(), 1200);
     } catch {
       // silently fail
     } finally {
@@ -733,15 +713,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                 setCurrentModel(e.target.value);
                                 setModelSaved(false);
                                 try {
-                                  const res = await fetch(`${API_BASE}/api/models/select`, {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ model: e.target.value }),
-                                  });
-                                  if (res.ok) {
-                                    setModelSaved(true);
-                                    setTimeout(() => setModelSaved(false), 2000);
-                                  }
+                                  await apiPost(`/api/models/select`, { model: e.target.value });
+                                  setModelSaved(true);
+                                  setTimeout(() => setModelSaved(false), 2000);
                                 } catch { /* ignore */ }
                               }}
                               className="mt-2 w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
@@ -818,15 +792,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                         setNetworkModelName(val);
                                         setNetModelSaved(false);
                                         try {
-                                          const r = await fetch(`${API_BASE}/api/config/model`, {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ provider: "worker", model: val }),
-                                          });
-                                          if (r.ok) {
-                                            setNetModelSaved(true);
-                                            setTimeout(() => setNetModelSaved(false), 2000);
-                                          }
+                                          await apiPost(`/api/config/model`, { provider: "worker", model: val });
+                                          setNetModelSaved(true);
+                                          setTimeout(() => setNetModelSaved(false), 2000);
                                         } catch { /* ignore */ }
                                       }}
                                       className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
@@ -866,14 +834,10 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                             },
                                           } : prev);
                                           try {
-                                            await fetch(`${API_BASE}/api/config/services`, {
-                                              method: "POST",
-                                              headers: { "Content-Type": "application/json" },
-                                              body: JSON.stringify({
-                                                services: {
-                                                  worker_llm: { ...(config?.services?.worker_llm || {}), protocol: val },
-                                                },
-                                              }),
+                                            await apiPost(`/api/config/services`, {
+                                              services: {
+                                                worker_llm: { ...(config?.services?.worker_llm || {}), protocol: val },
+                                              },
                                             });
                                           } catch { /* ignore */ }
                                         }}
@@ -901,26 +865,20 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                           if (modelProvider === "worker" && networkModelName) {
                             payload.model = networkModelName;
                           }
-                          const res = await fetch(`${API_BASE}/api/config/model`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify(payload),
+                          await apiPost(`/api/config/model`, payload);
+                          await fetchModelProvider();
+                          setConfig((prev) => {
+                            if (!prev) return prev;
+                            return {
+                              ...prev,
+                              model_provider: {
+                                provider: modelProvider,
+                                model: modelProvider === "worker" ? networkModelName : currentModel,
+                              },
+                            };
                           });
-                          if (res.ok) {
-                            await fetchModelProvider();
-                            setConfig((prev) => {
-                              if (!prev) return prev;
-                              return {
-                                ...prev,
-                                model_provider: {
-                                  provider: modelProvider,
-                                  model: modelProvider === "worker" ? networkModelName : currentModel,
-                                },
-                              };
-                            });
-                            setSaved(true);
-                            setTimeout(() => setSaved(false), 2000);
-                          }
+                          setSaved(true);
+                          setTimeout(() => setSaved(false), 2000);
                         } catch {
                           // silently fail
                         } finally {
@@ -977,15 +935,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                 setAnalysisModel(e.target.value);
                                 setAnalysisModelSaved(false);
                                 try {
-                                  const res = await fetch(`${API_BASE}/api/config/analysis-model`, {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ model: e.target.value, provider: "local" }),
-                                  });
-                                  if (res.ok) {
-                                    setAnalysisModelSaved(true);
-                                    setTimeout(() => setAnalysisModelSaved(false), 2000);
-                                  }
+                                  await apiPost(`/api/config/analysis-model`, { model: e.target.value, provider: "local" });
+                                  setAnalysisModelSaved(true);
+                                  setTimeout(() => setAnalysisModelSaved(false), 2000);
                                 } catch { /* ignore */ }
                               }}
                               className="mt-2 w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
@@ -1063,15 +1015,9 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                                         setAnalysisModel(val);
                                         setAnalysisModelSaved(false);
                                         try {
-                                          const res = await fetch(`${API_BASE}/api/config/analysis-model`, {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json" },
-                                            body: JSON.stringify({ model: val, provider: "worker" }),
-                                          });
-                                          if (res.ok) {
-                                            setAnalysisModelSaved(true);
-                                            setTimeout(() => setAnalysisModelSaved(false), 2000);
-                                          }
+                                          await apiPost(`/api/config/analysis-model`, { model: val, provider: "worker" });
+                                          setAnalysisModelSaved(true);
+                                          setTimeout(() => setAnalysisModelSaved(false), 2000);
                                         } catch { /* ignore */ }
                                       }}
                                       className="w-full bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-teal-mystic/50 transition-colors"
@@ -1225,13 +1171,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                               let ids: string[] = allTraceMeta.map((t) => t.id);
                               if (deleteCriteria === "model") ids = allTraceMeta.filter((t) => t.model_used === deleteModel).map((t) => t.id);
                               else if (deleteCriteria === "ddc") ids = allTraceMeta.filter((t) => t.ddc_prompt?.[0] === deleteDdc).map((t) => t.id);
-                              const res = await fetch(`${API_BASE}/api/traces/bulk-delete`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ ids }),
-                              });
-                              if (!res.ok) throw new Error("Failed");
-                              const data = await res.json();
+                              const data = await apiPost<{ deleted?: number }>(`/api/traces/bulk-delete`, { ids });
                               setDeleteResult(`Deleted ${data.deleted} trace${data.deleted !== 1 ? "s" : ""}.`);
                             } catch {
                               setDeleteResult("Deletion failed — check the backend logs.");
@@ -1391,12 +1331,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                               setSchemaSaved(false);
                               setSchemaError(null);
                               try {
-                                const res = await fetch(`${API_BASE}/api/schema`, {
-                                  method: "PUT",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ content: schemaContent }),
-                                });
-                                if (!res.ok) throw new Error("Save failed");
+                                await apiPut(`/api/schema`, { content: schemaContent });
                                 setSchemaSaved(true);
                                 setTimeout(() => setSchemaSaved(false), 2000);
                               } catch (e) {

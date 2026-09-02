@@ -42,8 +42,7 @@ import Galaxy3D from "@/components/Galaxy3D";
 import ChatPanel from "@/components/ChatPanel";
 import type { Probe, ModelOption, TraceSession } from "@/types/trace";
 import { DEFAULT_CHART } from "@/data/chartOptions";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
 
 export default function Home() {
   const { data: telemetry, connected } = useWebSocket();
@@ -75,9 +74,8 @@ export default function Home() {
 
   // Check first-run on mount
   useEffect(() => {
-    fetch(`${API_BASE}/api/config/first-run`)
-      .then((r) => r.json())
-      .then((data) => setFirstRun(data.firstRun))
+    apiGet<{ firstRun?: boolean }>("/api/config/first-run")
+      .then((data) => setFirstRun(data.firstRun ?? false))
       .catch(() => setFirstRun(false));
   }, []);
 
@@ -129,8 +127,7 @@ export default function Home() {
   // Handle history replay — load trace and switch to Trace tab
   const handleHistorySelect = useCallback(async (traceId: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/traces/${traceId}`);
-      const data = await res.json();
+      const data = await apiGet<TraceSession>(`/api/traces/${traceId}`);
       setReplayTrace(data);
       setActiveTab("trace");
     } catch {
@@ -142,9 +139,7 @@ export default function Home() {
   const handleCompare = useCallback(async (traceIds: string[]) => {
     try {
       const results = await Promise.all(
-        traceIds.map((id) =>
-          fetch(`${API_BASE}/api/traces/${id}`).then((r) => r.json())
-        )
+        traceIds.map((id) => apiGet<TraceSession>(`/api/traces/${id}`))
       );
       setCompareTraces(results);
     } catch {

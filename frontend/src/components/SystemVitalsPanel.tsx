@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
+import { usePoll } from "@/lib/usePoll";
 
 interface Vital {
   id: string;
@@ -164,28 +164,11 @@ function MachineCard({ machine, onMachineClick, onVitalClick }: {
 }
 
 export default function SystemVitalsPanel() {
-  const [data, setData] = useState<VitalsData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [drill, setDrill] = useState<DrillView>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/vitals`);
-        const json = await res.json();
-        if (!cancelled) {
-          setData(json);
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    poll();
-    const interval = setInterval(poll, 1500);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, []);
+  const { data, loading } = usePoll<VitalsData>(
+    () => apiGet<VitalsData>("/api/vitals"),
+    1500,
+  );
 
   const activeMachine = drill ? data?.machines.find((m) => m.id === drill.machineId) ?? null : null;
   const activeVital = drill?.kind === "vital" && activeMachine

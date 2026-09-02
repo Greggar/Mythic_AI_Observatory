@@ -4,8 +4,8 @@ import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Activity } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
+import { usePoll } from "@/lib/usePoll";
 
 interface Vital {
   id: string;
@@ -91,32 +91,15 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
   // Fetch vitals (polling)
   useEffect(() => {
     setMounted(true);
-    let cancelled = false;
-    let interval: ReturnType<typeof setInterval>;
-
-    async function poll() {
-      try {
-        const res = await fetch(`${API_BASE}/api/vitals`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (!cancelled) setData(json);
-      } catch {
-        // silently fail
-      }
-      if (!cancelled) interval = setTimeout(poll, 3000);
-    }
-    poll();
-
-    return () => {
-      cancelled = true;
-      clearTimeout(interval);
-    };
   }, []);
+
+  usePoll<VitalsData>(() => apiGet<VitalsData>("/api/vitals"), 3000, {
+    onResult: setData,
+  });
 
   // Fetch services (manual trigger via servicesKey)
   useEffect(() => {
-    fetch(`${API_BASE}/api/services`)
-      .then((r) => r.json())
+    apiGet<Record<string, ServiceDef[]>>("/api/services")
       .then(setServices)
       .catch(() => {});
   }, [servicesKey]);

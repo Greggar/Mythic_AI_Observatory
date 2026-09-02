@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
 
 interface ClassDisplay {
   code: string;
@@ -43,8 +42,7 @@ function confDot(margin: number | null): string {
 
 async function generateDoc(id: string): Promise<void> {
   try {
-    const res = await fetch(`${API_BASE}/api/traces/${id}`);
-    const trace = await res.json();
+    const trace = await apiGet<any>(`/api/traces/${id}`);
     const lines: string[] = [];
     lines.push("=".repeat(60));
     lines.push(`TRACE DOCUMENT — ${id}`);
@@ -178,11 +176,10 @@ export default function TraceTable({ refreshTrigger, onPlay }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`${API_BASE}/api/traces?limit=40`)
-      .then((r) => r.json())
+    apiGet<any[]>("/api/traces?limit=40")
       .then((data) => {
         if (cancelled) return;
-        const mapped: TraceRow[] = (data as any[])
+        const mapped: TraceRow[] = data
           .map((t) => ({
             id: t.id,
             prompt: t.prompt || "",

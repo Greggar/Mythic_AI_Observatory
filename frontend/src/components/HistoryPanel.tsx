@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { History, Clock, CheckCircle, XCircle, ChevronRight } from "lucide-react";
+import { apiGet } from "@/lib/api";
 
 interface HistoryEntry {
   id: string;
@@ -18,8 +19,6 @@ interface Props {
   onSelect: (traceId: string) => void;
   refreshTrigger: number;
 }
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 function formatDuration(steps: { duration_ms: number | null }[]): string {
   const total = steps.reduce((acc, s) => acc + (s.duration_ms || 0), 0);
@@ -44,8 +43,7 @@ export default function HistoryPanel({ onSelect, refreshTrigger }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`${API_BASE}/api/traces?limit=30&view=summary`)
-      .then((r) => r.json())
+    apiGet<HistoryEntry[]>("/api/traces?limit=30&view=summary")
       .then((data) => {
         if (!cancelled) setEntries(data);
       })

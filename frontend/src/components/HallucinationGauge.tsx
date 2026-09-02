@@ -3,8 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TraceSession } from "@/types/trace";
 import { detectContradiction } from "./StageDebate";
 import { createPortal } from "react-dom";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
 
 interface RetrievedChunk {
   trace_id: string;
@@ -188,11 +187,10 @@ export default function HallucinationGauge({ trace }: { trace: TraceSession }) {
 
   useEffect(() => {
     if (!trace.model_used) return;
-    fetch(`${API_BASE}/api/traces/profile`)
-      .then((r) => r.json())
+    apiGet<{ model: string; trace_count: number }[]>("/api/traces/profile")
       .then((data) => {
         if (!Array.isArray(data)) return;
-        const profile = data.find((p: { model: string }) => p.model === trace.model_used);
+        const profile = data.find((p) => p.model === trace.model_used);
         if (profile) setModelTraceCount(profile.trace_count);
       })
       .catch(() => {});

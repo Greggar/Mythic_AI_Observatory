@@ -4,8 +4,8 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { Download } from "lucide-react";
 import type { Probe } from "@/types/trace";
 import { useToast } from "@/lib/ToastContext";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet, apiPost } from "@/lib/api";
+import { pollUntil, type PollHandle } from "@/lib/usePoll";
 
 interface ModelOption {
   name: string;
@@ -48,7 +48,7 @@ export default function TestComparison({ probes, models }: Props) {
   const [warmupStatus, setWarmupStatus] = useState<string | null>(null);
   const [activeProbeIdx, setActiveProbeIdx] = useState(0);
   const [wasCancelled, setWasCancelled] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<PollHandle<ClassifyTaskStatus> | null>(null);
 
   // Start classify task when probes+models change
   useEffect(() => {
@@ -60,16 +60,11 @@ export default function TestComparison({ probes, models }: Props) {
     setActiveProbeIdx(0);
     setWasCancelled(false);
 
-    fetch(`${API_BASE}/api/tests/classify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        probes: probes.map((p) => ({ action: p.action, attribute: p.attribute, artefact: p.artefact })),
-        models: models.map((m) => ({ model: m.name, provider: m.provider })),
-        max_traces: 50,
-      }),
+    apiPost<{ task_id: string; total_cells: number }>("/api/tests/classify", {
+      probes: probes.map((p) => ({ action: p.action, attribute: p.attribute, artefact: p.artefact })),
+      models: models.map((m) => ({ model: m.name, provider: m.provider })),
+      max_traces: 50,
     })
-      .then((r) => r.ok ? r.json() : Promise.reject("Classify request failed"))
       .then((data) => {
         if (!cancelled) {
           setTaskId(data.task_id);
@@ -86,29 +81,30 @@ export default function TestComparison({ probes, models }: Props) {
   // Poll for results every 2s
   useEffect(() => {
     if (!taskId) return;
-    if (pollRef.current) clearInterval(pollRef.current);
-
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/tests/classify/${taskId}`);
-        if (!r.ok) { clearInterval(pollRef.current!); setStatus("error"); return; }
-        const data: ClassifyTaskStatus = await r.json();
-        setResults(data.results);
-        setCompletedCells(data.completed_cells);
-        if (data.warmup_status) setWarmupStatus(data.warmup_status);
-        if (data.status === "done" || data.status === "cancelled") {
-          clearInterval(pollRef.current!);
-          if (data.status === "cancelled") setWasCancelled(true);
-          setStatus("done");
-          addToastRef.current("Classification complete", "success", 3000);
-        }
-      } catch (e) {
-        clearInterval(pollRef.current!);
-        setStatus("error");
-      }
-    }, 2000);
-
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    pollRef.current?.stop();
+    const handle = pollUntil<ClassifyTaskStatus>(
+      () => apiGet<ClassifyTaskStatus>(`/api/tests/classify/${taskId}`),
+      (data) => data.status === "done" || data.status === "cancelled",
+      {
+        intervalMs: 2000,
+        onTick: (data) => {
+          setResults(data.results);
+          setCompletedCells(data.completed_cells);
+          if (data.warmup_status) setWarmupStatus(data.warmup_status);
+        },
+      },
+    );
+    pollRef.current = handle;
+    handle.promise
+      .then((data) => {
+        if (data.status === "cancelled") setWasCancelled(true);
+        setStatus("done");
+        addToastRef.current("Classification complete", "success", 3000);
+      })
+      .catch((e) => {
+        if (!(e instanceof DOMException)) setStatus("error");
+      });
+    return () => handle.stop();
   }, [taskId]);
 
   // Unique trace IDs and model names from results/props
@@ -132,9 +128,7 @@ export default function TestComparison({ probes, models }: Props) {
   // Generate a trace document
   const handleGenerateDoc = useCallback(async (traceId: string) => {
     try {
-      const r = await fetch(`${API_BASE}/api/traces/${traceId}`);
-      if (!r.ok) throw new Error("Trace not found");
-      const trace = await r.json();
+      const trace = await apiGet<any>(`/api/traces/${traceId}`);
       const doc = [
         `Trace: ${trace.id}`,
         `Model: ${trace.model_used || "unknown"}`,
@@ -250,8 +244,9 @@ export default function TestComparison({ probes, models }: Props) {
 
   const handleCancel = useCallback(async () => {
     if (!taskId) return;
+    pollRef.current?.stop();
     try {
-      await fetch(`${API_BASE}/api/tests/classify/${taskId}/cancel`, { method: "POST" });
+      await apiPost(`/api/tests/classify/${taskId}/cancel`);
       addToastRef.current("Analysis stopped", "info", 2000);
     } catch {
       addToastRef.current("Failed to cancel", "error", 2000);

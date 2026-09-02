@@ -1,20 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { apiBlob, apiGet } from "@/lib/api";
+import { usePoll } from "@/lib/usePoll";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-
-function downloadCSV(url: string, filename: string) {
-  fetch(url)
-    .then((r) => r.blob())
-    .then((blob) => {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    })
-    .catch(() => {});
+async function downloadCSV(url: string, filename: string) {
+  try {
+    const blob = await apiBlob(url);
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    // ignore
+  }
 }
 
 interface ModelProfileData {
@@ -169,35 +170,11 @@ export default function PersonalityProfile() {
   const [profiles, setProfiles] = useState<ModelProfileData[]>([]);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showPerf, setShowPerf] = useState<number | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchProfiles = () => {
-    fetch(`${API_BASE}/api/traces/profile`)
-      .then((r) => r.json())
-      .then((data) => setProfiles(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  };
-
-  useEffect(() => {
-    fetchProfiles();
-    pollRef.current = setInterval(fetchProfiles, 30000);
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        if (!pollRef.current) {
-          fetchProfiles();
-          pollRef.current = setInterval(fetchProfiles, 30000);
-        }
-      } else {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
+  usePoll<ModelProfileData[]>(() => apiGet<ModelProfileData[]>("/api/traces/profile"), 30000, {
+    pauseOnHidden: true,
+    onResult: (data) => setProfiles(Array.isArray(data) ? data : []),
+  });
 
   const maxLatency = useMemo(
     () => Math.max(...profiles.map((p) => p.avg_latency_ms), 1),
@@ -220,7 +197,7 @@ export default function PersonalityProfile() {
           Linguistic style and cognitive fingerprints computed per model from completed trace outputs.
         </p>
         <button
-          onClick={() => downloadCSV(`${API_BASE}/api/export/profiles.csv`, "profiles.csv")}
+          onClick={() => downloadCSV("/api/export/profiles.csv", "profiles.csv")}
           className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
           title="Download profiles as CSV"
         >

@@ -152,6 +152,15 @@ export interface ModelOption {
   provider: "local" | "worker";
 }
 
+/** Lightweight shape of a summary-list trace entry (`/api/traces?view=summary`). */
+export interface TraceSummary {
+  id: string;
+  model_used?: string | null;
+  prompt?: string;
+  status?: string;
+  ddc?: { prompt?: { code?: string } | null } | null;
+}
+
 export interface TestModelConfig {
   provider: "local" | "worker";
   model: string;

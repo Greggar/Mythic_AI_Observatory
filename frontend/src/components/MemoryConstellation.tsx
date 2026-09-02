@@ -4,8 +4,8 @@ import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHover } from "@/lib/HoverContext";
 import SunburstChart from "@/components/SunburstChart";
+import { apiGet, apiPost, apiDelete } from "@/lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const W = 280;
 const H = 280;
 const CX = W / 2;
@@ -300,8 +300,7 @@ export default function MemoryConstellation({ onSelect, onCompare, refreshTrigge
 
   const fetchAnnotations = useCallback(async (traceId: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/traces/${traceId}/annotations`);
-      const data: Annotation[] = await res.json();
+      const data = await apiGet<Annotation[]>(`/api/traces/${traceId}/annotations`);
       setAnnotations((prev) => {
         const next = new Map(prev);
         next.set(traceId, data);
@@ -321,8 +320,7 @@ export default function MemoryConstellation({ onSelect, onCompare, refreshTrigge
 
   const fetchEntries = useRef(() => {});
   fetchEntries.current = () => {
-    fetch(`${API_BASE}/api/traces?limit=40&view=summary`)
-      .then((r) => r.json())
+    apiGet<HistoryEntry[]>("/api/traces?limit=40&view=summary")
       .then((data) => {
         setEntries((prev) => {
           if (data.length > prev.length) {
@@ -339,8 +337,7 @@ export default function MemoryConstellation({ onSelect, onCompare, refreshTrigge
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch(`${API_BASE}/api/traces?limit=40&view=summary`)
-      .then((r) => r.json())
+    apiGet<HistoryEntry[]>("/api/traces?limit=40&view=summary")
       .then((data) => {
         if (!cancelled) {
           setEntries((prev) => {
@@ -407,7 +404,7 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
 
   const handleDelete = async (traceId: string) => {
     setHovered(null);
-    await fetch(`${API_BASE}/api/traces/${traceId}`, { method: "DELETE" });
+    await apiDelete(`/api/traces/${traceId}`);
     setEntries((prev) => prev.filter((e) => e.id !== traceId));
   };
 
@@ -445,29 +442,23 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
     if (!selectedTraceId || !noteText.trim()) return;
     const tags = noteTags.split(",").map((t) => t.trim()).filter(Boolean);
     try {
-      const res = await fetch(`${API_BASE}/api/traces/${selectedTraceId}/annotations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: noteText.trim(),
-          tags,
-          rating: noteRating || null,
-          author: "human",
-        }),
+      await apiPost(`/api/traces/${selectedTraceId}/annotations`, {
+        content: noteText.trim(),
+        tags,
+        rating: noteRating || null,
+        author: "human",
       });
-      if (res.ok) {
-        setNoteText("");
-        setNoteTags("");
-        setNoteRating(0);
-        fetchAnnotations(selectedTraceId);
-      }
+      setNoteText("");
+      setNoteTags("");
+      setNoteRating(0);
+      fetchAnnotations(selectedTraceId);
     } catch {}
   };
 
   const handleDeleteAnnotation = async (annotationId: string) => {
     if (!selectedTraceId) return;
     try {
-      await fetch(`${API_BASE}/api/traces/${selectedTraceId}/annotations/${annotationId}`, { method: "DELETE" });
+      await apiDelete(`/api/traces/${selectedTraceId}/annotations/${annotationId}`);
       fetchAnnotations(selectedTraceId);
     } catch {}
   };

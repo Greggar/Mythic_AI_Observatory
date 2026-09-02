@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { X, Terminal, Pause, Play, Trash2, Search } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiUrl } from "@/lib/api";
 
 interface LogEntry {
   ts: string;
@@ -38,7 +37,7 @@ export default function LogTerminal({ onClose }: Props) {
 
   // Connect to SSE
   useEffect(() => {
-    const es = new EventSource(`${API_BASE}/api/logs/stream`);
+    const es = new EventSource(apiUrl("/api/logs/stream"));
     es.onmessage = (e) => {
       try {
         const entry: LogEntry = JSON.parse(e.data);

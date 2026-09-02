@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TraceSession } from "@/types/trace";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-const POLL_INTERVAL = 1500;
+import { apiGet, apiPost } from "@/lib/api";
+import { pollUntil, type PollHandle } from "@/lib/usePoll";
 
 function generateId(): string {
   // crypto.randomUUID only exists in secure contexts (HTTPS/localhost) —
@@ -32,89 +31,83 @@ export function useChat() {
   const [exchanges, setExchanges] = useState<TraceSession[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<PollHandle<TraceSession> | null>(null);
 
   const stopPolling = useCallback(() => {
-    if (pollTimer.current) {
-      clearInterval(pollTimer.current);
-      pollTimer.current = null;
-    }
+    pollRef.current?.stop();
+    pollRef.current = null;
   }, []);
 
-  const send = useCallback(async (prompt: string) => {
-    const cid = chatId ?? generateId();
-    if (cid !== chatId) setChatId(cid);
-    setSending(true);
-    setError(null);
-    stopPolling();
+  // Abort any in-flight poll when the hook unmounts.
+  useEffect(() => stopPolling, [stopPolling]);
 
-    try {
-      const res = await fetch(`${API_BASE}/api/orchestrate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, chat_id: cid }),
-      });
+  const send = useCallback(
+    async (prompt: string) => {
+      const cid = chatId ?? generateId();
+      if (cid !== chatId) setChatId(cid);
+      setSending(true);
+      setError(null);
+      stopPolling();
 
-      if (!res.ok) {
-        throw new Error(`Server responded ${res.status}`);
-      }
-
-      const { trace_id } = await res.json();
-
-      // Optimistic placeholder so the exchange appears immediately
-      setExchanges((prev) => [
-        ...prev,
-        {
-          id: trace_id,
+      try {
+        const { trace_id } = await apiPost<{ trace_id: string }>("/api/orchestrate", {
           prompt,
           chat_id: cid,
-          status: "processing",
-          steps: [],
-          output: null,
-          confidence: null,
-          insight_tags: [],
-          created_at: new Date().toISOString(),
-          completed_at: null,
-          model_used: null,
-          agent_used: null,
-          telemetry_impact: null,
-        },
-      ]);
+        });
 
-      // Poll for the exchange until it completes
-      const poll = async () => {
-        try {
-          const pollRes = await fetch(`${API_BASE}/api/traces/${trace_id}`);
-          if (pollRes.ok) {
-            const data: TraceSession = await pollRes.json();
-            setExchanges((prev) => prev.map((e) => (e.id === trace_id ? data : e)));
-            if (data.status === "complete" || data.status === "error") {
-              setSending(false);
-              return; // stop polling
+        // Optimistic placeholder so the exchange appears immediately
+        setExchanges((prev) => [
+          ...prev,
+          {
+            id: trace_id,
+            prompt,
+            chat_id: cid,
+            status: "processing",
+            steps: [],
+            output: null,
+            confidence: null,
+            insight_tags: [],
+            created_at: new Date().toISOString(),
+            completed_at: null,
+            model_used: null,
+            agent_used: null,
+            telemetry_impact: null,
+          },
+        ]);
+
+        const handle = pollUntil<TraceSession>(
+          () => apiGet<TraceSession>(`/api/traces/${trace_id}`),
+          (d) => d.status === "complete" || d.status === "error",
+          {
+            onTick: (d) =>
+              setExchanges((prev) => prev.map((e) => (e.id === trace_id ? d : e))),
+          },
+        );
+        pollRef.current = handle;
+        handle.promise
+          .then(() => setSending(false))
+          .catch((err: unknown) => {
+            if (err instanceof DOMException && err.name === "AbortError") {
+              // stopped by reset/unmount — not an error
+            } else {
+              setError(err instanceof Error ? err.message : "Unknown error");
             }
-          }
-        } catch {
-          // keep polling
-        }
-        pollTimer.current = setTimeout(poll, POLL_INTERVAL);
-      };
-
-      poll();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unknown error");
-      setSending(false);
-    }
-  }, [chatId, stopPolling]);
+            setSending(false);
+          });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+        setSending(false);
+      }
+    },
+    [chatId, stopPolling],
+  );
 
   const loadChat = useCallback(async (id: string) => {
     try {
-      const res = await fetch(`${API_BASE}/api/chats/${id}`);
-      if (res.ok) {
-        const data: TraceSession[] = await res.json();
-        setChatId(id);
-        setExchanges(data);
-        setError(null);
-      }
+      const data = await apiGet<TraceSession[]>(`/api/chats/${id}`);
+      setChatId(id);
+      setExchanges(data);
+      setError(null);
     } catch {
       // ignore
     }

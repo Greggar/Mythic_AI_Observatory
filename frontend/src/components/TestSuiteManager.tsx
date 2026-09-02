@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Play, Plus, Trash2, ChevronDown, ChevronUp, ExternalLink, RefreshCw } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
+import { pollUntil, type PollHandle } from "@/lib/usePoll";
+import type { TraceSummary } from "@/types/trace";
 
 interface SuitePrompt {
   id: string;
@@ -78,13 +79,12 @@ export default function TestSuiteManager() {
   // Active run polling
   const [activeRun, setActiveRun] = useState<{ suiteId: string; runId: string } | null>(null);
   const [activeRunStatus, setActiveRunStatus] = useState<SuiteRun | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<PollHandle<SuiteRun> | null>(null);
 
   const fetchSuites = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/suites`);
-      if (res.ok) setSuites(await res.json());
+      setSuites(await apiGet<Suite[]>("/api/suites"));
     } catch {}
     setLoading(false);
   }, []);
@@ -94,30 +94,31 @@ export default function TestSuiteManager() {
   // Poll active run
   useEffect(() => {
     if (!activeRun) return;
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/suites/${activeRun.suiteId}/runs/${activeRun.runId}`);
-        if (res.ok) {
-          const data: SuiteRun = await res.json();
+    pollRef.current?.stop();
+    const handle = pollUntil<SuiteRun>(
+      () => apiGet<SuiteRun>(`/api/suites/${activeRun.suiteId}/runs/${activeRun.runId}`),
+      (data) => data.status === "done",
+      {
+        intervalMs: 2000,
+        onTick: (data) => {
           setActiveRunStatus(data);
           if (data.status === "done") {
-            if (pollRef.current) clearInterval(pollRef.current);
             setActiveRun(null);
             fetchSuites();
             // Refresh detail if viewing this suite
             if (expandedSuite === activeRun.suiteId) loadDetail(activeRun.suiteId);
           }
-        }
-      } catch {}
-    }, 2000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+        },
+      },
+    );
+    pollRef.current = handle;
+    return () => handle.stop();
   }, [activeRun, expandedSuite, fetchSuites]);
 
   const loadDetail = async (suiteId: string) => {
     setDetailLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/suites/${suiteId}`);
-      if (res.ok) setDetail(await res.json());
+      setDetail(await apiGet<SuiteDetail>(`/api/suites/${suiteId}`));
     } catch {}
     setDetailLoading(false);
   };
@@ -135,16 +136,12 @@ export default function TestSuiteManager() {
   const loadModels = async () => {
     setLoadingModels(true);
     try {
-      const [traceRes, localRes, netRes] = await Promise.all([
-        fetch(`${API_BASE}/api/traces?limit=200`),
-        fetch(`${API_BASE}/api/models`),
-        fetch(`${API_BASE}/api/models/network`),
+      const [traces, localModels, netData] = await Promise.all([
+        apiGet<TraceSummary[]>("/api/traces?limit=200").catch(() => []),
+        apiGet<{ models?: string[] }>("/api/models").catch(() => ({ models: [] })),
+        apiGet<{ sources: { models: string[] }[] }>("/api/models/network").catch(() => ({ sources: [] })),
       ]);
-      const traces: any[] = traceRes.ok ? await traceRes.json() : [];
-      const localModels: string[] = localRes.ok ? (await localRes.json()).models ?? [] : [];
-      const netData: { sources: any[] } = netRes.ok ? await netRes.json() : { sources: [] };
-
-      const localSet = new Set(localModels);
+      const localSet = new Set(localModels.models ?? []);
       const workerSet = new Set<string>();
       const workerBaseNames = new Set<string>();
       const workerFamilies = new Set<string>();
@@ -171,8 +168,9 @@ export default function TestSuiteManager() {
       const seen = new Set<string>();
       const models: ModelOption[] = [];
       for (const t of traces) {
-        const name: string = t.model_used;
-        if (!name || seen.has(name)) continue;
+        const name = t.model_used;
+        if (!name) continue;
+        if (seen.has(name)) continue;
         seen.add(name);
         models.push({ name, provider: detectProvider(name) });
       }
@@ -189,17 +187,9 @@ export default function TestSuiteManager() {
     const tags = formTags.split(",").map((t) => t.trim()).filter(Boolean);
     const body = { name: formName, description: formDesc, tags, prompts };
     if (editingId) {
-      await fetch(`${API_BASE}/api/suites/${editingId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      await apiPut(`/api/suites/${editingId}`, body);
     } else {
-      await fetch(`${API_BASE}/api/suites`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      await apiPost("/api/suites", body);
     }
     setCreating(false);
     setEditingId(null);
@@ -212,7 +202,7 @@ export default function TestSuiteManager() {
 
   const handleDelete = async (suiteId: string) => {
     if (!confirm("Delete this suite and all its run history?")) return;
-    await fetch(`${API_BASE}/api/suites/${suiteId}`, { method: "DELETE" });
+    await apiDelete(`/api/suites/${suiteId}`);
     if (expandedSuite === suiteId) { setExpandedSuite(null); setDetail(null); }
     fetchSuites();
   };
@@ -239,26 +229,19 @@ export default function TestSuiteManager() {
       return { provider: opt?.provider ?? "local", model: name };
     });
     try {
-      const res = await fetch(`${API_BASE}/api/suites/${runModalSuite.id}/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ models }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setActiveRun({ suiteId: runModalSuite.id, runId: data.run_id });
+      const data = await apiPost<{ run_id: string }>(`/api/suites/${runModalSuite.id}/run`, { models });
+      setActiveRun({ suiteId: runModalSuite.id, runId: data.run_id });
         setActiveRunStatus({
-          run_id: data.run_id,
-          models,
-          status: "running",
-          started_at: new Date().toISOString(),
-          completed_at: null,
-          total: (runModalSuite.prompts?.length ?? 0) * models.length,
-          completed_count: 0,
-          failed_count: 0,
-          trace_ids: [],
-        });
-      }
+        run_id: data.run_id,
+        models,
+        status: "running",
+        started_at: new Date().toISOString(),
+        completed_at: null,
+        total: (runModalSuite.prompts?.length ?? 0) * models.length,
+        completed_count: 0,
+        failed_count: 0,
+        trace_ids: [],
+      });
     } catch {}
     setRunning(false);
     setRunModalSuite(null);

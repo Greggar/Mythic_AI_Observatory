@@ -1,21 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { apiBlob, apiGet } from "@/lib/api";
+import { usePoll } from "@/lib/usePoll";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const MAX_BARS = 16;
 
-function downloadCSV(url: string, filename: string) {
-  fetch(url)
-    .then((r) => r.blob())
-    .then((blob) => {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(a.href);
-    })
-    .catch(() => {});
+async function downloadCSV(url: string, filename: string) {
+  try {
+    const blob = await apiBlob(url);
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(objectUrl);
+  } catch {
+    // ignore
+  }
 }
 
 interface TelemetryRemote {
@@ -77,39 +79,16 @@ export default function EngineStatusPanel({ telemetry }: Props) {
     if (healthHistory.current.length > 30) healthHistory.current.shift();
   }, [telemetry]);
 
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const POLL_MS = 15000;
-
-  const fetchTraces = useCallback(() => {
-    fetch(`${API_BASE}/api/traces?limit=40&view=summary`)
-      .then((r) => r.json())
-      .then(setTraces)
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetchTraces();
-    pollRef.current = setInterval(fetchTraces, POLL_MS);
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        if (!pollRef.current) {
-          fetchTraces();
-          pollRef.current = setInterval(fetchTraces, POLL_MS);
-        }
-      } else {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [fetchTraces]);
+  usePoll<TraceEntry[] | null>(
+    () => apiGet<TraceEntry[] | null>("/api/traces?limit=40&view=summary"),
+    15000,
+    {
+      pauseOnHidden: true,
+      onResult: (d) => {
+        if (Array.isArray(d)) setTraces(d);
+      },
+    },
+  );
 
   const metrics = useMemo(() => {
     const completed = traces.filter((t) => t.status === "complete");
@@ -175,21 +154,21 @@ export default function EngineStatusPanel({ telemetry }: Props) {
         </span>
         <div className="flex gap-2">
           <button
-            onClick={() => downloadCSV(`${API_BASE}/api/export/traces.csv?limit=500`, "traces.csv")}
+            onClick={() => downloadCSV("/api/export/traces.csv?limit=500", "traces.csv")}
             className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
             title="Download traces as CSV"
           >
             [ traces.csv ]
           </button>
           <button
-            onClick={() => downloadCSV(`${API_BASE}/api/export/stages.csv?limit=500`, "stages.csv")}
+            onClick={() => downloadCSV("/api/export/stages.csv?limit=500", "stages.csv")}
             className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
             title="Download stage breakdown as CSV"
           >
             [ stages.csv ]
           </button>
           <button
-            onClick={() => downloadCSV(`${API_BASE}/api/export/traces_with_steps.csv?limit=500`, "traces_with_steps.csv")}
+            onClick={() => downloadCSV("/api/export/traces_with_steps.csv?limit=500", "traces_with_steps.csv")}
             className="text-[7px] font-mono tracking-wider text-zinc-600 hover:text-teal-mystic/70 transition-colors"
             title="Download traces with per-step latencies as CSV"
           >

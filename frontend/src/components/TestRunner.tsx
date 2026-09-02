@@ -2,10 +2,10 @@
 
 import { Play, Plus, X } from "lucide-react";
 import { useState, useCallback, useEffect } from "react";
-import type { Probe, ProbeAttribute, ProbeArtefact } from "@/types/trace";
+import type { Probe, ProbeAttribute, ProbeArtefact, TraceSummary } from "@/types/trace";
 import { PROBE_ATTRIBUTE_LABELS, PROBE_ARTEFACT_OPTIONS } from "@/types/trace";
+import { apiGet } from "@/lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const ATTRIBUTES = Object.keys(PROBE_ATTRIBUTE_LABELS) as ProbeAttribute[];
 
 interface ModelOption {
@@ -30,20 +30,13 @@ export default function TestRunner({ onRun, hasResults }: Props) {
     let cancelled = false;
     async function load() {
       setLoadingModels(true);
-      // Fetch model names from traces
-      const [traceRes, localRes, netRes] = await Promise.all([
-        fetch(`${API_BASE}/api/traces?limit=200`),
-        fetch(`${API_BASE}/api/models`),
-        fetch(`${API_BASE}/api/models/network`),
+      const [traces, localModels, netData] = await Promise.all([
+        apiGet<TraceSummary[]>("/api/traces?limit=200").catch(() => []),
+        apiGet<{ models?: string[] }>("/api/models").catch(() => ({ models: [] })),
+        apiGet<{ sources: { models: string[] }[] }>("/api/models/network").catch(() => ({ sources: [] })),
       ]);
-      const traces: any[] = traceRes.ok ? await traceRes.json() : [];
-      const localModels: string[] = localRes.ok
-        ? (await localRes.json()).models ?? []
-        : [];
-      const netData: { sources: any[] } = netRes.ok ? await netRes.json() : { sources: [] };
-
-      const localSet = new Set(localModels);
-      // Collect worker model names from network sources
+      const localModelsList = localModels.models ?? [];
+      const localSet = new Set(localModelsList);
       const workerSet = new Set<string>();
       const workerBaseNames = new Set<string>();
       const workerFamilies = new Set<string>();
@@ -71,8 +64,9 @@ export default function TestRunner({ onRun, hasResults }: Props) {
       const seen = new Set<string>();
       const models: ModelOption[] = [];
       for (const t of traces) {
-        const name: string = t.model_used;
-        if (!name || seen.has(name)) continue;
+        const name = t.model_used;
+        if (!name) continue;
+        if (seen.has(name)) continue;
         seen.add(name);
         models.push({ name, provider: detectProvider(name) });
       }

@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
 
 const DDC_COLORS: Record<string, string> = {
   "0": "#6b7280", "1": "#a78bfa", "2": "#f87171",
@@ -109,8 +108,7 @@ export default function Galaxy3D({ onSelect, refreshTrigger }: Props) {
   const fetchTraces = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/traces?view=summary`);
-      const data = await res.json();
+      const data = await apiGet<HistoryEntry[] | { traces?: HistoryEntry[] }>("/api/traces?view=summary");
       setEntries(Array.isArray(data) ? data : data.traces ?? []);
     } catch {
       // silent

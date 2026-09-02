@@ -264,12 +264,31 @@ layout.tsx          — Root layout, Geist fonts, dark background
 
 | Hook | Purpose |
 |---|---|
-| `useWebSocket(url)` | Polls `http://{server}:8001/api/telemetry` every 1.5s via `fetch()`, returns `{data, connected}` |
-| `useOrchestrate()` | POSTs prompt, receives `trace_id`, polls `GET /api/traces/{id}` every 1.5s for incremental updates. Stops polling when status is `complete` or `error`. |
+| `useWebSocket(url)` | Polls `http://{server}:8001/api/telemetry` every 1.5s via the shared `apiGet` client (hooked into `usePoll`), returns `{data, connected}` |
+| `useOrchestrate()` | POSTs prompt via `apiPost`, receives `trace_id`, polls `GET /api/traces/{id}` (`pollUntil`) every 1.5s for incremental updates. Stops polling when status is `complete` or `error`. |
 | `useTraceReplay(trace)` | Animates through steps sequentially using each step's `duration_ms` as delay. Returns `{activeStepIndex, phase}`. Used for history replay; live traces bypass replay and use live step index. |
 | `useChat()` | Multi-turn chat state machine. Generates the `chat_id` UUID on the first message (`generateId()` — `crypto.randomUUID` only exists in secure contexts, so it falls back to `getRandomValues`-based v4), POSTs `{prompt, chat_id}` to `/api/orchestrate`, polls the exchange via `/api/traces/{id}` until complete, exposes `reset()` for a new session. Backend assigns `exchange_index` (0,1,2…) server-side. |
 
 **Note on transport:** Despite its name, `useWebSocket` **does not use WebSocket**. See §6.7 for why. The hook polls the HTTP endpoint `GET /api/telemetry` every 1.5 seconds. The `connected` field is `true` when the last poll succeeded.
+
+### Shared Network Layer (`src/lib/api.ts` + `src/lib/usePoll.ts`)
+
+All frontend↔backend traffic flows through two shared modules — components never call `fetch()` directly (grep-verified: zero raw `fetch(` outside `src/lib/api.ts`, and the only non-fetch network call is the SSE `EventSource` in `LogTerminal`).
+
+**`src/lib/api.ts`** — the single network client:
+
+- `API_BASE` (from `NEXT_PUBLIC_API_URL`, default `""` → same-origin via Next proxy) and `apiUrl(path)` for relative paths (used by `EventSource` and CSV `<a href>` links).
+- `apiGet / apiPost / apiPut / apiDelete<T>(path, body?)` — uniform request shaping: JSON content-type only when a body is present, typed response.
+- `ApiError` — thrown on non-2xx with `.status` and the backend `detail` parsed into `.message`; replaces the old per-file `if (!res.ok)` drift.
+- `apiBlob(path)` and `download(url, filename)` for CSV/export links.
+- Behavioural note: some backend endpoints return `data.error` as a *success-body* field (network scan/setup) rather than an HTTP status — those responses intentionally bypass `ApiError` and are handled by the caller.
+
+**`src/lib/usePoll.ts`** — the two polling primitives every dashboard loop was re-implementing:
+
+- `usePoll<T>(fetcher, intervalMs, opts)` — continuous loop with `pauseOnHidden` (stops while tab hidden, resumes + immediate tick on return), `onResult` (per-tick side effect — e.g. `EngineStatusPanel` copies polled trace data into local state without an effect), and `enabled`. Fetcher interval changes and `refresh()` restart the loop with a fresh tick.
+- `pollUntil<T>(run, done, opts)` — poll-until-done for job endpoints (orchestrate/orchestration, chat exchanges, probe runs, test suites/batches). Returns a `PollHandle<T>` with `.promise` (settles with the final result, rejects on `AbortError`/timeout) and `.stop()`. Transient fetch failures are swallowed (keep polling).
+
+Legacy per-file `API_BASE` constants and bespoke `setTimeout` loops were consolidated into these two modules as part of the 2026-09-02 network-layer refactor (FUTURE_PLANS Phase 1 #47). Verified: `tsc --noEmit` clean, `pnpm build` clean, ESLint regression-free (−12 problems vs the same files at HEAD, all four rule families equal-or-improved), production service restarted and serving.
 
 ### Type Definitions (`src/types/trace.ts`)
 

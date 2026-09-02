@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useMemo } from "react";
 import { Clock4 } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
+import { usePoll } from "@/lib/usePoll";
 
 const STAGES = [
   "Request Received",
@@ -25,60 +25,53 @@ const STAGE_COLORS = [
   "bg-zinc-400",
 ];
 
+interface SummaryTrace {
+  steps?: { label: string; duration_ms: number | null }[];
+}
+
 function fmt(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
+interface StageAverages {
+  averages: number[];
+  total: number;
+  count: number;
+}
+
 export default function LatencyBreakdown({ refreshTrigger = 0, traceSteps }: { refreshTrigger?: number; traceSteps?: Array<{ label: string; duration_ms: number | null }> }) {
-  const [averages, setAverages] = useState<number[]>(STAGES.map(() => 0));
-  const [total, setTotal] = useState(0);
-  const [count, setCount] = useState(0);
-  const [hasData, setHasData] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const enabled = refreshTrigger > 0;
 
-  const fetchData = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/traces?limit=50&view=summary`);
-      if (!res.ok) return;
-      const traces = await res.json();
-      if (!traces || traces.length === 0) return;
-
-      const sums = STAGES.map(() => 0);
-      let n = 0;
-      for (const t of traces) {
-        for (const step of t.steps || []) {
-          const idx = STAGES.indexOf(step.label);
-          if (idx !== -1 && step.duration_ms != null) {
-            sums[idx] += step.duration_ms;
+  const { data } = usePoll<StageAverages>(
+    () =>
+      apiGet<SummaryTrace[]>("/api/traces?limit=50&view=summary").then((traces) => {
+        const sums = STAGES.map(() => 0);
+        let n = 0;
+        for (const t of traces || []) {
+          for (const step of t.steps || []) {
+            const idx = STAGES.indexOf(step.label);
+            if (idx !== -1 && step.duration_ms != null) {
+              sums[idx] += step.duration_ms;
+            }
           }
+          n++;
         }
-        n++;
-      }
-      const avgs = sums.map((s) => (n > 0 ? s / n : 0));
-      setAverages(avgs);
-      setTotal(avgs.reduce((a, b) => a + b, 0));
-      setCount(n);
-      setHasData(true);
-    } catch {
-      // silently retry on next interval
-    }
-  };
+        const avgs = sums.map((s) => (n > 0 ? s / n : 0));
+        return {
+          averages: avgs,
+          total: avgs.reduce((a, b) => a + b, 0),
+          count: n,
+        };
+      }),
+    5000,
+    { enabled },
+  );
 
-  useEffect(() => {
-    if (refreshTrigger > 0) {
-      fetchData();
-      if (!intervalRef.current) {
-        intervalRef.current = setInterval(fetchData, 5000);
-      }
-    }
-    return () => {
-      if (refreshTrigger === 0 && intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [refreshTrigger]);
+  const hasData = useMemo(() => data !== null && data.count > 0, [data]);
+  const averages = data?.averages ?? STAGES.map(() => 0);
+  const total = data?.total ?? 0;
+  const count = data?.count ?? 0;
 
   return (
     <div className="glass-panel p-4 space-y-3">

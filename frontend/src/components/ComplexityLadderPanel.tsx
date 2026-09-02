@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Play, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import ResearchPopover from "./ResearchPopover";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet, apiPost } from "@/lib/api";
+import { pollUntil, type PollHandle } from "@/lib/usePoll";
+import type { TraceSummary } from "@/types/trace";
 
 const GENERATORS = [
   { id: "arithmetic_chain", label: "Arithmetic Chain", desc: "Sequential +/- operations, 2–10 ops" },
@@ -199,21 +200,18 @@ export default function ComplexityLadderPanel() {
   const [run, setRun] = useState<ProbeRun | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<PollHandle<ProbeRun> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setLoadingModels(true);
-      const [traceRes, localRes, netRes] = await Promise.all([
-        fetch(`${API_BASE}/api/traces?limit=200`),
-        fetch(`${API_BASE}/api/models`),
-        fetch(`${API_BASE}/api/models/network`),
+      const [traces, localModels, netData] = await Promise.all([
+        apiGet<TraceSummary[]>("/api/traces?limit=200").catch(() => []),
+        apiGet<{ models?: string[] }>("/api/models").catch(() => ({ models: [] })),
+        apiGet<{ sources: { models: string[] }[] }>("/api/models/network").catch(() => ({ sources: [] })),
       ]);
-      const traces: any[] = traceRes.ok ? await traceRes.json() : [];
-      const localModels: string[] = localRes.ok ? (await localRes.json()).models ?? [] : [];
-      const netData: { sources: any[] } = netRes.ok ? await netRes.json() : { sources: [] };
-      const localSet = new Set(localModels);
+      const localSet = new Set(localModels.models ?? []);
       const workerSet = new Set<string>();
       const workerBaseNames = new Set<string>();
       const workerFamilies = new Set<string>();
@@ -238,8 +236,9 @@ export default function ComplexityLadderPanel() {
       const seen = new Set<string>();
       const models: ModelOption[] = [];
       for (const t of traces) {
-        const name: string = t.model_used;
-        if (!name || seen.has(name)) continue;
+        const name = t.model_used;
+        if (!name) continue;
+        if (seen.has(name)) continue;
         seen.add(name);
         models.push({ name, provider: detectProvider(name) });
       }
@@ -255,7 +254,7 @@ export default function ComplexityLadderPanel() {
   }, []);
 
   useEffect(() => {
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => { pollRef.current?.stop(); };
   }, []);
 
   const toggleModel = (name: string) => {
@@ -265,27 +264,28 @@ export default function ComplexityLadderPanel() {
     setSelectedGens(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
 
-  const pollRun = async (runId: string) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/probe/complexity/${runId}`);
-        if (!res.ok) throw new Error("status fetch failed");
-        const data: ProbeRun = await res.json();
-        setRun(data);
-        if (data.status === "done") {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          const sumRes = await fetch(`${API_BASE}/api/probe/complexity/${runId}/summary`);
-          if (sumRes.ok) setSummary(await sumRes.json());
-          setRunning(false);
-        }
-      } catch {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null;
-        setRunning(false);
-      }
-    }, 2000);
+  const pollRun = (runId: string) => {
+    pollRef.current?.stop();
+    const handle = pollUntil<ProbeRun>(
+      () => apiGet<ProbeRun>(`/api/probe/complexity/${runId}`),
+      (data) => data.status === "done",
+      {
+        intervalMs: 2000,
+        onTick: (data) => {
+          setRun(data);
+          if (data.status === "done") {
+            apiGet<Summary>(`/api/probe/complexity/${runId}/summary`)
+              .then(setSummary)
+              .catch(() => {});
+            setRunning(false);
+          }
+        },
+      },
+    );
+    pollRef.current = handle;
+    handle.promise.catch(() => {
+      setRunning(false);
+    });
   };
 
   const handleRun = async () => {
@@ -295,13 +295,10 @@ export default function ComplexityLadderPanel() {
     setSummary(null);
     setRun(null);
     try {
-      const res = await fetch(`${API_BASE}/api/probe/complexity`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ models, generators: [...selectedGens] }),
+      const { run_id } = await apiPost<{ run_id: string }>("/api/probe/complexity", {
+        models,
+        generators: [...selectedGens],
       });
-      if (!res.ok) throw new Error("run start failed");
-      const { run_id } = await res.json();
       pollRun(run_id);
     } catch {
       setRunning(false);

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo } from "react";
+import { apiGet } from "@/lib/api";
+import { usePoll } from "@/lib/usePoll";
 
 export interface Telemetry {
   timestamp: string;
@@ -13,59 +15,16 @@ export interface Telemetry {
   remotes: { status: string; target: string }[];
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-const POLL_URL = `${API_BASE}/api/telemetry`;
-const POLL_INTERVAL = 1500;
-
 export function useWebSocket(_url?: string) {
-  const [data, setData] = useState<Telemetry | null>(null);
-  const [connected, setConnected] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const stoppedRef = useRef(false);
+  const { data, error } = usePoll<Telemetry>(
+    () => apiGet<Telemetry>("/api/telemetry"),
+    1500,
+    { pauseOnHidden: true },
+  );
 
-  async function pollOnce() {
-    try {
-      const res = await fetch(POLL_URL);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (!stoppedRef.current) {
-        setData(json);
-        setConnected(true);
-      }
-    } catch {
-      if (!stoppedRef.current) setConnected(false);
-    }
-  }
-
-  function schedule() {
-    timerRef.current = setTimeout(async () => {
-      if (stoppedRef.current) return;
-      await pollOnce();
-      if (!stoppedRef.current) schedule();
-    }, POLL_INTERVAL);
-  }
-
-  useEffect(() => {
-    stoppedRef.current = false;
-    pollOnce();
-    schedule();
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        pollOnce();
-        schedule();
-      } else {
-        if (timerRef.current) clearTimeout(timerRef.current);
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      stoppedRef.current = true;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
+  // Successfully received at least one payload and the most recent poll did
+  // not fail — mirrors the old connected/disconnected boolean.
+  const connected = useMemo(() => data !== null && !error, [data, error]);
 
   return { data, connected };
 }

@@ -3,8 +3,8 @@
 import { motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHover } from "@/lib/HoverContext";
+import { apiGet } from "@/lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const W = 280;
 const H = 160;
 const PAD = { left: 40, right: 15, top: 15, bottom: 22 };
@@ -59,9 +59,9 @@ export default function CelestialDistribution({ refreshTrigger, onSelect }: Prop
   }, []);
 
   useEffect(() => {
-      fetch(`${API_BASE}/api/traces?limit=300&view=summary`)
-      .then((r) => r.json())
-      .then((data) => setEntries(data))
+    apiGet<HistoryEntry[]>("/api/traces?limit=300&view=summary")
+      .then(setEntries)
+      .then(() => setMounted(true))
       .catch(() => {});
   }, [refreshTrigger]);
 

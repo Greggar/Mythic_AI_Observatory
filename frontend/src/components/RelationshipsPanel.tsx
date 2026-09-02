@@ -16,8 +16,8 @@ import MemoryEntropyPanel from "./charts/MemoryEntropyPanel";
 import EntropyCalibrationPanel from "./charts/EntropyCalibrationPanel";
 import type { TokenEntropy } from "@/types/trace";
 import { CHART_OPTIONS, DEFAULT_CHART } from "@/data/chartOptions";
+import { apiGet, apiPost } from "@/lib/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const W = 420;
 const H = 420;
 const CX = W / 2;
@@ -629,9 +629,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
 
   const fetchTraces = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/traces?limit=200`);
-      if (!res.ok) return;
-      setTraces(await res.json() as TraceData[]);
+      setTraces(await apiGet<TraceData[]>("/api/traces?limit=200"));
     } catch { /* ignore */ }
   }, []);
 
@@ -716,15 +714,9 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
           entropy_summary: entropySummary || undefined,
         };
       }
-      const res = await fetch(`${API_BASE}/api/analyze/relationships`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || data.response || `HTTP ${res.status}`);
-      setAnalysis(data.response);
-      setAnalysisModel(data.model || null);
+      const data = await apiPost<{ response?: string; model?: string | null }>("/api/analyze/relationships", body);
+      setAnalysis(data.response ?? "");
+      setAnalysisModel(data.model ?? null);
     } catch (err) {
       setAnalysis(`Analysis request failed: ${err instanceof Error ? err.message : "Unknown error"}`);
       setAnalysisModel(null);

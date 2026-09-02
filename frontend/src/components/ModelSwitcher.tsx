@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Cpu, Server } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet, apiPost } from "@/lib/api";
 
 interface Provider {
   id: string;
@@ -22,9 +21,8 @@ export default function ModelSwitcher() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/config/providers`)
-      .then((r) => r.json())
-      .then((list: Provider[]) => setProviders(list))
+    apiGet<Provider[]>("/api/config/providers")
+      .then(setProviders)
       .catch(() =>
         setProviders([
           { id: "local", label: "Local CPU", icon: "cpu" },
@@ -34,8 +32,7 @@ export default function ModelSwitcher() {
   }, []);
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/config/model`)
-      .then((r) => r.json())
+    apiGet<{ provider: string }>("/api/config/model")
       .then((d) => setProvider(d.provider || "local"))
       .catch(() => setProvider("local"));
   }, []);
@@ -55,13 +52,10 @@ export default function ModelSwitcher() {
     if (id === provider) { setOpen(false); return; }
     setSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/api/config/model`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: id, model: "" }),
+      const data = await apiPost<{ provider: string }>("/api/config/model", {
+        provider: id,
+        model: "",
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
       setProvider(data.provider);
     } catch {
       // silently fail

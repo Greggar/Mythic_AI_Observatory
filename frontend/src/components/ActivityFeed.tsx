@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Activity, Zap, Cpu, Brain, Network, CheckCircle, Sparkles } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet } from "@/lib/api";
+import { usePoll } from "@/lib/usePoll";
 
 interface ActivityEvent {
   id: string;
@@ -35,30 +35,17 @@ export default function ActivityFeed() {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const fetchEvents = async () => {
-    try {
-      const since = events.length > 0 ? events[events.length - 1].id : undefined;
-      const params = since ? `?since=${encodeURIComponent(since)}` : "";
-      const res = await fetch(`${API_BASE}/api/activity${params}`);
-      const data: ActivityEvent[] = await res.json();
-      if (data.length > 0) {
-        setEvents((prev) => {
-          const existing = new Set(prev.map((e) => e.id));
-          const newEvents = data.filter((e) => !existing.has(e.id));
-          if (newEvents.length === 0) return prev;
-          return [...prev, ...newEvents].slice(-100);
-        });
-      }
-    } catch {
-      // silently fail
-    }
-  };
-
-  useEffect(() => {
-    fetchEvents();
-    const interval = setInterval(fetchEvents, 2000);
-    return () => clearInterval(interval);
-  }, []);
+  usePoll<ActivityEvent[]>(() => apiGet<ActivityEvent[]>("/api/activity"), 2000, {
+    onResult: (fresh) => {
+      if (fresh.length === 0) return;
+      setEvents((prev) => {
+        const existing = new Set(prev.map((e) => e.id));
+        const newEvents = fresh.filter((e) => !existing.has(e.id));
+        if (newEvents.length === 0) return prev;
+        return [...prev, ...newEvents].slice(-100);
+      });
+    },
+  });
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

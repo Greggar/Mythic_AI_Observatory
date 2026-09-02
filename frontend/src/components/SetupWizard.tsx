@@ -2,8 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, ChevronRight, Server, Wifi, Cpu, Plus, Trash2, Sparkles, Search, Loader2 } from "lucide-react";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import { apiGet, apiPost } from "@/lib/api";
 
 interface DiscoveredService {
   type: "ollama" | "docker_model_runner" | "vllm" | "observatory";
@@ -54,8 +53,7 @@ export default function SetupWizard({ onComplete }: Props) {
     setScanning(true);
     setScanError("");
     try {
-      const res = await fetch(`${API_BASE}/api/network/scan`, { method: "POST" });
-      const data = await res.json();
+      const data = await apiPost<{ error?: string; machines?: DiscoveredMachine[] }>("/api/network/scan");
       if (data.error) {
         setScanError(data.error);
       }
@@ -115,27 +113,19 @@ export default function SetupWizard({ onComplete }: Props) {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/config/setup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          primary_name: primaryName || "Primary Server",
-          ollama_host: ollamaHost,
-          ollama_port: parseInt(ollamaPort, 10) || 11434,
-          workers: workers.map((w) => ({
-            id: w.id,
-            name: w.name,
-            host: w.host,
-            desc: w.desc,
-            protocol: w.protocol,
-            services: w.services,
-          })),
-        }),
+      await apiPost<{ error?: string }>("/api/config/setup", {
+        primary_name: primaryName || "Primary Server",
+        ollama_host: ollamaHost,
+        ollama_port: parseInt(ollamaPort, 10) || 11434,
+        workers: workers.map((w) => ({
+          id: w.id,
+          name: w.name,
+          host: w.host,
+          desc: w.desc,
+          protocol: w.protocol,
+          services: w.services,
+        })),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Setup failed");
-      }
       setDone(true);
       setTimeout(() => onComplete(), 1200);
     } catch (e) {
