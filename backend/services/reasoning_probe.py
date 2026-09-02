@@ -19,29 +19,28 @@ The fragility signature is the variant accuracy drop (symbolic−base,
 noop−base) plus any entropy/margin shift when only the surface changes.
 """
 
-import asyncio
 import logging
 import random
-import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from services.ddc_embeddings import classify_ddc
 from services.orchestrator import _call_model
+from services.probe_base import (
+    NAME_POOL,
+    SYSTEM_PROMPT,
+    ProbeCell,
+    ProbeRunStatus,
+    extract_answer,
+    launch_probe_run,
+    mentions_exact,
+)
 
 logger = logging.getLogger("conductor")
 
-PROBE_SEMAPHORE = asyncio.Semaphore(2)
-
-_SYSTEM = (
-    "Solve the word problem step by step. Show your working, then conclude "
-    "with only the final numeric answer as a number on its own line."
-)
-
-_NAME_POOL = ["Priya", "Emilia", "Marcus", "Yuki", "Diego", "Sofia", "Leila", "Tomas"]
 _ITEM_POOL = ["bracelets", "posters", "cookies", "keychains", "drawings", "scarves"]
 _NOOP_POOL = [
     lambda r: f"There are {r.choice([120, 340, 560, 900, 1240])} {r.choice(['other stalls', 'residents', 'tables', 'vendors', 'houses'])} in the town, but they are not part of this problem.",
@@ -81,7 +80,7 @@ TEMPLATES: list[dict[str, Any]] = [
 
 def _t_clips(symbolic: bool, rng: random.Random) -> tuple[str, float]:
     if symbolic:
-        n = rng.choice(_NAME_POOL)
+        n = rng.choice(NAME_POOL)
         item = rng.choice(_ITEM_POOL)
         x = rng.choice([36, 42, 54, 60, 72, 84])
         m1 = rng.choice(["April", "June", "September", "October"])
@@ -97,7 +96,7 @@ def _t_clips(symbolic: bool, rng: random.Random) -> tuple[str, float]:
 
 def _t_fruit(symbolic: bool, rng: random.Random) -> tuple[str, float]:
     if symbolic:
-        n = rng.choice(_NAME_POOL)
+        n = rng.choice(NAME_POOL)
         a, b, c = rng.choice([(7, 11, 15), (9, 14, 18), (12, 8, 21), (6, 19, 13)])
     else:
         n, a, b, c = "Tom", 5, 7, 9
@@ -140,7 +139,7 @@ def _t_pencils(symbolic: bool, rng: random.Random) -> tuple[str, float]:
 
 def _t_baker(symbolic: bool, rng: random.Random) -> tuple[str, float]:
     if symbolic:
-        n = rng.choice(_NAME_POOL)
+        n = rng.choice(NAME_POOL)
         lo, s = rng.choice([(100, 20), (90, 12), (140, 25), (120, 18)])
     else:
         n, lo, s = "Otto", 100, 20
@@ -151,75 +150,20 @@ def _t_baker(symbolic: bool, rng: random.Random) -> tuple[str, float]:
     return text, float(lo - s - 2 * s)
 
 
-def _extract_answer(text: str) -> float | None:
-    """Best-guess answer extraction.
-
-    Prefers an explicit answer/total/result line; otherwise the last 'real'
-    number in the response, skipping list markers like '1.' / '2)'.
-    """
-    if not text:
-        return None
-    m = re.search(r"(?i)(?:final\s+answer|answer|total|result)[^\n\d]*[:.\-]?\s*([+-]?\d+(?:\.\d+)?)", text)
-    if m:
-        try:
-            return float(m.group(1))
-        except ValueError:
-            pass
-    nums = list(re.finditer(r"[+-]?\d+(?:\.\d+)?", text))
-    for mm in reversed(nums):
-        nxt = text[mm.end():mm.end() + 1]
-        line_start = text.rfind("\n", 0, mm.start()) + 1
-        if mm.start() == line_start and nxt in ". )":
-            continue
-        try:
-            return float(mm.group(0))
-        except ValueError:
-            continue
-    return None
-
-
-def _mentions_exact(text: str, value: float) -> bool:
-    """True if the response contains the expected value as a standalone number."""
-    num = str(int(value)) if float(value).is_integer() else str(value)
-    return re.search(rf"(?<!\d){re.escape(num)}(?!\d)", text) is not None
-
-
 def _noop_clause(rng: random.Random) -> str:
     pick = rng.choice(_NOOP_POOL)
     return pick(rng)
 
 
-class ProbeCell(BaseModel):
-    cell_id: str
-    model: str
-    provider: str
+class ReasoningProbeCell(ProbeCell):
     template_id: str
     title: str
     variant: str  # base | symbolic | noop
-    prompt: str = ""
-    expected: float | None = None
-    response: str = ""
-    parsed: float | None = None
-    correct: bool | None = None
-    status: str = "running"  # running | complete | error
-    error: str | None = None
-    entropy_mean: float | None = None
-    entropy_p95: float | None = None
-    median_branching: float | None = None
     ddc_margin: float | None = None
-    tokens: int | None = None
 
 
-class ReasoningProbeStatus(BaseModel):
-    run_id: str
-    status: str = "running"  # running | done
-    started_at: str
-    seed: int
-    models: list[dict[str, str]] = Field(default_factory=list)
-    total: int = 0
-    completed: int = 0
-    failed: int = 0
-    cells: list[ProbeCell] = Field(default_factory=list)
+class ReasoningProbeStatus(ProbeRunStatus):
+    cells: list[ReasoningProbeCell] = Field(default_factory=list)
 
 
 _probe_store: dict[str, ReasoningProbeStatus] = {}
@@ -388,16 +332,15 @@ def aggregate_reasoning_probe(run_id: str) -> dict[str, Any]:
     return {"run_id": run_id, "status": run.status, "rows": rows, "narrative": narrative}
 
 
-async def _run_cell(cell: ProbeCell, rng: random.Random) -> None:
+async def _run_cell(cell: ReasoningProbeCell, rng: random.Random) -> None:
     try:
-        async with PROBE_SEMAPHORE:
-            result, eval_count, _duration, entropy = await _call_model(
-                cell.model,
-                cell.prompt,
-                system=_SYSTEM,
-                model_name_override=cell.model,
-                provider_override=cell.provider,
-            )
+        result, eval_count, _duration, entropy = await _call_model(
+            cell.model,
+            cell.prompt,
+            system=SYSTEM_PROMPT,
+            model_name_override=cell.model,
+            provider_override=cell.provider,
+        )
         cell.response = (result or "")[:600]
         cell.tokens = eval_count
         # Detect error responses from _call_model (returns "[model error: ...]")
@@ -409,11 +352,11 @@ async def _run_cell(cell: ProbeCell, rng: random.Random) -> None:
             cell.entropy_mean = entropy.get("mean_entropy")
             cell.entropy_p95 = entropy.get("p95_entropy")
             cell.median_branching = entropy.get("median_branching")
-        if cell.expected is not None and _mentions_exact(result, cell.expected):
+        if cell.expected is not None and mentions_exact(result, cell.expected):
             cell.parsed = cell.expected
             cell.correct = True
         else:
-            parsed = _extract_answer(result)
+            parsed = extract_answer(result)
             cell.parsed = parsed
             if parsed is not None and cell.expected is not None:
                 cell.correct = abs(parsed - cell.expected) < 1e-9
@@ -433,16 +376,6 @@ async def _run_cell(cell: ProbeCell, rng: random.Random) -> None:
         cell.error = str(e)[:200]
 
 
-async def _process_probe(run_id: str) -> None:
-    run = _probe_store[run_id]
-    rng = random.Random(run.seed)
-    tasks = [asyncio.ensure_future(_run_cell(c, rng)) for c in run.cells]
-    await asyncio.gather(*tasks, return_exceptions=True)
-    run.completed = sum(1 for c in run.cells if c.status == "complete")
-    run.failed = sum(1 for c in run.cells if c.status == "error")
-    run.status = "done"
-
-
 def start_reasoning_probe(
     models: list[dict[str, str]],
     template_ids: list[str] | None = None,
@@ -455,7 +388,7 @@ def start_reasoning_probe(
         wanted = set(template_ids)
         templates = [t for t in TEMPLATES if t["id"] in wanted]
 
-    cells: list[ProbeCell] = []
+    cells: list[ReasoningProbeCell] = []
     for tpl in templates:
         for cfg in models:
             for variant in ("base", "symbolic", "noop"):
@@ -465,7 +398,7 @@ def start_reasoning_probe(
                     answer = base_answer
                 else:
                     text, answer = tpl["base"](variant == "symbolic", rng)
-                cells.append(ProbeCell(
+                cells.append(ReasoningProbeCell(
                     cell_id=uuid.uuid4().hex[:10],
                     model=cfg["model"],
                     provider=cfg["provider"],
@@ -486,8 +419,4 @@ def start_reasoning_probe(
         total=len(cells),
         cells=cells,
     )
-    _probe_store[run_id] = run
-    asyncio.create_task(_process_probe(run_id)).add_done_callback(
-        lambda fut: fut.result() if not fut.cancelled() and fut.exception() else None
-    )
-    return run
+    return launch_probe_run(_probe_store, run, _run_cell, random.Random(run.seed))

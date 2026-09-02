@@ -14,6 +14,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 from models.trace import TraceSession
 
+from services.probe_base import dispatch_background
+
 logger = logging.getLogger("conductor")
 
 CLASSIFY_TIMEOUT = 60.0  # per-cell timeout (models should respond within 60s)
@@ -271,10 +273,9 @@ async def start_classify_task(
     total = len(probes) * len(models) * len(traces)
     status = ClassifyTaskStatus(task_id=task_id, total_cells=total)
     _classify_store[task_id] = status
-    asyncio.create_task(_process_classify(task_id, probes, models, traces)).add_done_callback(
-        lambda t: None if t.cancelled() or not t.exception() else logger.error(
-            "Classify task %s failed: %s", task_id, t.exception(), exc_info=t.exception()
-        )
+    dispatch_background(
+        lambda: _process_classify(task_id, probes, models, traces),
+        label=f"Classify task {task_id}",
     )
     return task_id
 

@@ -17,31 +17,28 @@ factor, efficiency ratio (actual / optimal tokens).  The accuracy curve shows
 the three regimes; the effort curve shows the peak-then-decline signature.
 """
 
-import asyncio
 import logging
-import math
 import random
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from services.orchestrator import _call_model
+from services.probe_base import (
+    SYSTEM_PROMPT,
+    ProbeCell,
+    ProbeRunStatus,
+    extract_answer,
+    launch_probe_run,
+    mentions_exact,
+)
 
 logger = logging.getLogger("conductor")
 
-COMPLEXITY_SEMAPHORE = asyncio.Semaphore(2)
-
-_SYSTEM = (
-    "Solve the problem step by step. Show your working, then conclude "
-    "with only the final numeric answer as a number on its own line."
-)
-
 # ── Generators ──────────────────────────────────────────────────────
 
-_NAME_POOL = ["Priya", "Emilia", "Marcus", "Yuki", "Diego", "Sofia", "Leila", "Tomas"]
 _PEG_A = ["Peg A", "Peg Alpha", "Peg One", "Rod A"]
 _PEG_B = ["Peg B", "Peg Beta", "Peg Two", "Rod B"]
 _PEG_C = ["Peg C", "Peg Gamma", "Peg Three", "Rod C"]
@@ -131,37 +128,15 @@ OPTIMAL_TOKENS = {
 
 # ── Data models ─────────────────────────────────────────────────────
 
-class ComplexityCell(BaseModel):
-    cell_id: str
-    model: str
-    provider: str
+class ComplexityCell(ProbeCell):
     generator: str  # arithmetic_chain | tower_of_hanoi
     complexity: int
     instance: int  # 0-based within same complexity
-    prompt: str = ""
-    expected: float | None = None
-    response: str = ""
-    parsed: float | None = None
-    correct: bool | None = None
-    status: str = "running"  # running | complete | error
-    error: str | None = None
-    entropy_mean: float | None = None
-    entropy_p95: float | None = None
-    median_branching: float | None = None
-    tokens: int | None = None
     optimal_tokens: int | None = None
 
 
-class ComplexityProbeStatus(BaseModel):
-    run_id: str
-    status: str = "running"  # running | done
-    started_at: str
-    seed: int
-    models: list[dict[str, str]] = Field(default_factory=list)
+class ComplexityProbeStatus(ProbeRunStatus):
     generators: list[str] = Field(default_factory=list)
-    total: int = 0
-    completed: int = 0
-    failed: int = 0
     cells: list[ComplexityCell] = Field(default_factory=list)
 
 
@@ -172,51 +147,17 @@ def get_complexity_probe(run_id: str) -> ComplexityProbeStatus | None:
     return _probe_store.get(run_id)
 
 
-# ── Answer extraction ───────────────────────────────────────────────
-
-def _extract_answer(text: str) -> float | None:
-    """Best-guess answer extraction — same logic as reasoning_probe."""
-    if not text:
-        return None
-    m = re.search(
-        r"(?i)(?:final\s+answer|answer|total|result|minimum)[^\n\d]*[:.\-]?\s*([+-]?\d+(?:\.\d+)?)",
-        text,
-    )
-    if m:
-        try:
-            return float(m.group(1))
-        except ValueError:
-            pass
-    nums = list(re.finditer(r"[+-]?\d+(?:\.\d+)?", text))
-    for mm in reversed(nums):
-        nxt = text[mm.end() : mm.end() + 1]
-        line_start = text.rfind("\n", 0, mm.start()) + 1
-        if mm.start() == line_start and nxt in ". )":
-            continue
-        try:
-            return float(mm.group(0))
-        except ValueError:
-            continue
-    return None
-
-
-def _mentions_exact(text: str, value: float) -> bool:
-    num = str(int(value)) if float(value).is_integer() else str(value)
-    return re.search(rf"(?<!\d){re.escape(num)}(?!\d)", text) is not None
-
-
 # ── Cell runner ─────────────────────────────────────────────────────
 
 async def _run_cell(cell: ComplexityCell) -> None:
     try:
-        async with COMPLEXITY_SEMAPHORE:
-            result, eval_count, _duration, entropy = await _call_model(
-                cell.model,
-                cell.prompt,
-                system=_SYSTEM,
-                model_name_override=cell.model,
-                provider_override=cell.provider,
-            )
+        result, eval_count, _duration, entropy = await _call_model(
+            cell.model,
+            cell.prompt,
+            system=SYSTEM_PROMPT,
+            model_name_override=cell.model,
+            provider_override=cell.provider,
+        )
         cell.response = (result or "")[:800]
         cell.tokens = eval_count
         # Detect error responses from _call_model (returns "[model error: ...]")
@@ -228,11 +169,11 @@ async def _run_cell(cell: ComplexityCell) -> None:
             cell.entropy_mean = entropy.get("mean_entropy")
             cell.entropy_p95 = entropy.get("p95_entropy")
             cell.median_branching = entropy.get("median_branching")
-        if cell.expected is not None and _mentions_exact(result, cell.expected):
+        if cell.expected is not None and mentions_exact(result, cell.expected):
             cell.parsed = cell.expected
             cell.correct = True
         else:
-            parsed = _extract_answer(result)
+            parsed = extract_answer(result)
             cell.parsed = parsed
             if parsed is not None and cell.expected is not None:
                 cell.correct = abs(parsed - cell.expected) < 1e-9
@@ -244,15 +185,6 @@ async def _run_cell(cell: ComplexityCell) -> None:
 
 
 # ── Run orchestration ───────────────────────────────────────────────
-
-async def _process_probe(run_id: str) -> None:
-    run = _probe_store[run_id]
-    tasks = [asyncio.ensure_future(_run_cell(c)) for c in run.cells]
-    await asyncio.gather(*tasks, return_exceptions=True)
-    run.completed = sum(1 for c in run.cells if c.status == "complete")
-    run.failed = sum(1 for c in run.cells if c.status == "error")
-    run.status = "done"
-
 
 def start_complexity_probe(
     models: list[dict[str, str]],
@@ -296,11 +228,7 @@ def start_complexity_probe(
         total=len(cells),
         cells=cells,
     )
-    _probe_store[run_id] = run
-    asyncio.create_task(_process_probe(run_id)).add_done_callback(
-        lambda fut: fut.result() if not fut.cancelled() and fut.exception() else None
-    )
-    return run
+    return launch_probe_run(_probe_store, run, _run_cell)
 
 
 # ── Aggregation ─────────────────────────────────────────────────────
