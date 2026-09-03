@@ -86,8 +86,6 @@ function computeValues(trace: TraceSession) {
   return { confidence, relevance, transparency, adherence, conflictAvoid, dataConstraints, substance };
 }
 
-type Values = Record<string, number>;
-
 const AXIS_DESCRIPTIONS: Record<string, string> = {
   transparency: "Inverse of self-limiting phrases (\"I cannot\", \"no access\") — higher = more direct",
   confidence: "Model's stated confidence in its own output (0–1)",

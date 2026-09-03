@@ -654,5 +654,30 @@ A `<ResearchPopover>` component (portaled, following the existing tooltip patter
 - Truth over polish: a phenomenon label with no calibration evidence is surfaced as "decorative," never as fact.
 - Repo hygiene: no new machine IPs/hostnames; scrub hook active.
 
+## Phase 22 — Frontend Quality: Test Infrastructure, Lint Debt, Poll Robustness
+
+*Status: **ACTIVE (started 2026-09-02, on-hiatus 2026-09-03).*** Triggered by the 2026-09-02 network-layer refactor's post-commit review (commit `41da433`). Three caveats were named on that work: (1) the frontend has **no automated tests** — a large mechanical refactor was verified by build + a live-dashboard spot check, not a suite; (2) the tree carries **102 pre-existing ESLint errors** across 32 files, of which 2 are `react-hooks/rules-of-hooks` bugs (the same class that crashed the History tab on 2026-06-10); (3) `usePoll` routes its first tick through a 0 ms timer to satisfy the react-hooks lint rule — an ordering change worth eliminating or documenting.*
+
+*Progress as of 2026-09-03: #1 ✓ (vitest + RTL + happy-dom, `vitest.config.mts`, 3 suites), #2 ✓ (microtask first tick), #3 ✓ (the two rules-of-hooks bugs were **not** at the planned lines — real sites were `ResearchPopover.tsx` and `TokenVelocityGraph.tsx`; both fixed), #4 ✓ (mechanical debt: no-unused-vars 58→0, explicit-any 18→0, no-unused-expressions 3→0, prefer-const 2→0, no-unescaped-entities 1→0).* **183 total lint problems → 97.** *#5 partial:* fixed the two genuine `access-before-declare` bugs (`page.tsx` `setActiveTab`, `TestSuiteManager` `loadDetail`); the remaining 97 are advisory react-hooks-v6 noise, deliberately deferred (`Math.random`-in-`useMemo([])` is mount-stable; `Date.now()` at `SettingsModal:343` is an event handler; `Galaxy3D:566` mutates a Three.js ref — all false positives). `tsc` clean, `pnpm test` 23/23, `pnpm build` clean, prod HTTP 200.
+
+*Priority signal: the eslint debt is dominated by the *new* react-hooks v6 rules (`set-state-in-effect` ×40, `refs` ×21, `purity` ×15, `immutability` ×1) plus `exhaustive-deps` ×20 — these are advisory about legacy patterns, not correctness. The genuine bugs (rules-of-hooks ×2, `no-unused-expressions` ×3, access-before-declare ×2) were fixed first.*
+
+| # | Item | Effort | Est. Time | Notes |
+|---|------|--------|-----------|-------|
+| 1 | **✓ Frontend test infrastructure (vitest)** — add `vitest` + `@testing-library/react` + `happy-dom`; `vitest.config.mts` with the `@/` alias; a `pnpm test` script (config uses `.mts` not `.ts` to avoid the ESM-in-CJS warning). 3 suites / 23 tests. | ★★☆ | 1.5–2 h | Closes caveat #1. Pure + hook modules only — no Next page/components in scope, keeps config trivial. `"test": "vitest run"` |
+| 2 | **✓ `usePoll` first-tick order** — replaced the `schedule(0)` first tick with a microtask-flushed immediate tick (`Promise.resolve().then(tick)`); the recurring interval starts only after the first tick completes. Covered by a `usePoll` test asserting first tick fires before the first interval. (Approach deviates from the plan's wording but meets the goal.) | ★☆☆ | 30 min | Closes caveat #3 |
+| 3 | **✓ Fix genuine hook bugs first** — plan named `ResourceConstellation.tsx:22`/`TraceRadar.tsx:34`, but the real order-of-hooks violations were `ResearchPopover.tsx` (effect after early return → `useMemo`) and `TokenVelocityGraph.tsx` (memo after early return). Both fixed; repo now 0 rules-of-hooks. | ★☆☆ | 30 min | Correctness before style |
+| 4 | **✓ Mechanical lint cleanup** — `no-unused-vars` 58→0 (mostly dead imports; incl. removing dead props `SunburstChart.onSelect`, `ConfusionMatrix` color props, `SolarNexus telemetry/observatoryMode`, `TestRunner hasResults`; deleting `SynesthSchemaSVG`/`IntentProbs` etc.), `no-explicit-any` 18→0, `no-unused-expressions` 3→0, `prefer-const` 2→0, `no-unescaped-entities` 1→0. | ★★☆ | 2 h | Run per-file, tsc after each batch |
+| 5 | **Semantic lint cleanup, PARTIAL (on-hiatus)** — `set-state-in-effect` (40), `refs` (21), `purity` (15), `immutability` (1), `exhaustive-deps` (20). Only the two genuine `access-before-declare` bugs were fixed (`page.tsx` `setActiveTab`, `TestSuiteManager` `loadDetail`); the remaining 97 are advisory-v6 / false-positive noise and are **REFERRED** (defer unless a genuine bug class surfaces). | ★★★ | 3–4 h | File order: highest error-count first. Decision deferred per user's "genuine bugs only" |
+
+### Verification & Regression Checks
+
+- `pnpm test` green after #1–#2; fake-timer tests assert cadence, not wall time.
+- `npx tsc --noEmit` clean after every lint batch (#3–#5).
+- `pnpm build` clean + `systemctl --user restart mythic-nexus` + HTTP 200 after each component touched in #5 (production `next start` serves the prebuilt bundle — edits invisible until rebuild).
+- No behavior changes in #4: mechanical only. #5 changes are validated by the live dashboard + the existing pytest suite unaffected.
+- Repo hygiene: scrub hook active; no new IPs/hostnames.
+- **Unified pre-release gate** — `./tools/release_check.sh` (added 2026-09-03): one-shot backend `pytest`/`ruff` + frontend `tsc`/`vitest`/`eslint`(budget, non-fatal)/`build`, failing fast. Documented in DEVELOPMENT.md §3 checklist. Backend `pytest` (22 tests) is now a codified non-negotiable gate alongside the frontend's `pnpm test`.
+
 
 

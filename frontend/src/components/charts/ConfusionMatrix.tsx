@@ -17,8 +17,6 @@ interface Props {
   matrix: number[][];
   inputLabels: string[];
   outputLabels: string[];
-  inputColors: string[];
-  outputColors: string[];
   title?: string;
   total?: number;
   normMode?: NormMode;
@@ -26,7 +24,7 @@ interface Props {
   onExportCell?: (row: number, col: number) => void;
 }
 
-export default function ConfusionMatrix({ matrix, inputLabels, outputLabels, inputColors, outputColors, title, total: totalProp, normMode: externalNormMode, onNormModeChange, onExportCell }: Props) {
+export default function ConfusionMatrix({ matrix, inputLabels, outputLabels, title, total: totalProp, normMode: externalNormMode, onNormModeChange, onExportCell }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState<{ row: number; col: number; value: number; isRowTotal?: boolean; isColTotal?: boolean } | null>(null);
   const [showValues, setShowValues] = useState(true);

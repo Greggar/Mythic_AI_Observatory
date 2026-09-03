@@ -80,7 +80,6 @@ export default function SynesthSunburst({ traces }: Props) {
   const wedges = useMemo<Wedge[]>(() => {
     // Build 5x5 count matrix: counts[inputIdx][outputIdx]
     const counts = Array.from({ length: 5 }, () => Array(5).fill(0));
-    let total = 0;
     for (const t of traces) {
       if (!t.output) continue;
       const ip = getInputProbs(t);
@@ -90,7 +89,6 @@ export default function SynesthSunburst({ traces }: Props) {
           const w = ip[i] * op[j];
           if (w > 0) {
             counts[i][j] += w;
-            if (j === 0) total += w; // count once per trace via first output category
           }
         }
       }

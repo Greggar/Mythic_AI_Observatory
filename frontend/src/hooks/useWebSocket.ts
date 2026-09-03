@@ -15,7 +15,7 @@ export interface Telemetry {
   remotes: { status: string; target: string }[];
 }
 
-export function useWebSocket(_url?: string) {
+export function useWebSocket() {
   const { data, error } = usePoll<Telemetry>(
     () => apiGet<Telemetry>("/api/telemetry"),
     1500,

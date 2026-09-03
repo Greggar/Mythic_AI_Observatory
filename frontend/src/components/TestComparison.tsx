@@ -128,7 +128,7 @@ export default function TestComparison({ probes, models }: Props) {
   // Generate a trace document
   const handleGenerateDoc = useCallback(async (traceId: string) => {
     try {
-      const trace = await apiGet<any>(`/api/traces/${traceId}`);
+      const trace = await apiGet<{ id: string; model_used: string | null; timestamp?: string; input?: string; prompt?: string; output?: string | null; response?: string }>(`/api/traces/${traceId}`);
       const doc = [
         `Trace: ${trace.id}`,
         `Model: ${trace.model_used || "unknown"}`,
@@ -510,7 +510,6 @@ export default function TestComparison({ probes, models }: Props) {
             {/* Per-model average agreement */}
             <div className="space-y-1 self-center min-w-[80px]">
               {modelAvgAgreement.map((m) => {
-                const tint = Math.round((m.avg / 100) * 80);
                 return (
                   <div key={m.name} className="flex items-center gap-1.5 text-[9px] font-mono">
                     <span className="text-zinc-600 truncate max-w-[60px]" title={m.name}>

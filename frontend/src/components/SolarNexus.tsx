@@ -4,16 +4,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { Telemetry } from "@/hooks/useWebSocket";
 import type { TraceSession, TraceStep } from "@/types/trace";
 
 interface Props {
-  telemetry: Telemetry | null;
   trace: TraceSession | null;
   traceActive: boolean;
   activeTraceStep: number | null;
   phase?: "idle" | "replaying" | "complete";
-  observatoryMode?: boolean;
 }
 
 const SIZE = 800;
@@ -178,7 +175,6 @@ function ContextPane({ step, systemPrompt }: { step: TraceStep; systemPrompt: st
 }
 
 export default function SolarNexus({
-  telemetry,
   trace,
   traceActive,
   activeTraceStep,

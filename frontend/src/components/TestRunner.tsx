@@ -15,10 +15,9 @@ interface ModelOption {
 
 interface Props {
   onRun: (probes: Probe[], models: ModelOption[]) => void;
-  hasResults: boolean;
 }
 
-export default function TestRunner({ onRun, hasResults }: Props) {
+export default function TestRunner({ onRun }: Props) {
   const [probes, setProbes] = useState<Probe[]>([
     { action: "classify", attribute: "ddc", artefact: "prompt" },
   ]);

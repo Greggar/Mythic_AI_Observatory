@@ -170,6 +170,9 @@ Visit `http://localhost:3001` on the server and verify with the user:
 - [ ] **Model Switcher** — Settings → Models tab, switch from local → worker → local, verify model changes
 - [ ] **Context pane** — Click a model-calling step node in SolarNexus, confirm the split-pane shows system prompt + assembled context + token meter
 - [ ] **Build passes** — `pnpm build` exits 0 with no warnings
+- [ ] **Unit tests pass** — `pnpm test` exits 0 (vitest; network layer + `usePoll` suites, Phase 22). Since Phase 22, the frontend verification command is `tsc + test + build` — **`pnpm test` is a non-negotiable gate** before any frontend commit.
+- [ ] **Backend tests pass** — `cd backend && ./.venv/bin/pytest -q` exits 0 (22 tests: `test_chats.py`, `test_probes.py`, `test_smoke.py`, `test_traces_summary.py`). **`pytest` is a non-negotiable gate** before any backend/deploy.
+- [ ] **Unified release gate** — `./tools/release_check.sh` runs the full backend + frontend chain in one shot (backend `pytest` + `ruff`, frontend `tsc` + `vitest` + `eslint` [tracked budget, non-fatal] + `build`), failing fast. Run it before any release.
 
 Only after ALL checks pass, proceed to production deploy.
 
@@ -249,6 +252,8 @@ NEXT_PUBLIC_API_URL=http://198.51.100.1:8001
 ```
 
 **Golden rule:** Never skip the `pnpm build && next start` test on localhost before enabling LAN access. The build step catches type errors, the production start catches SSR/routing issues that dev mode hides.
+
+**Standing verification rule (Phase 22):** before finalizing any change, run the full frontend chain `npx tsc --noEmit` → `pnpm test` → `pnpm build` → `pnpm lint` (and `ruff check`/`pytest` for backend). The one-shot runner is `./tools/release_check.sh` (see §3). Leave the tree cleaner than you found it: zero compiler warnings, zero unused vars/imports/parameters you introduced, zero new lint errors, zero dead code you authored. Existing/deferred eslint debt (a deliberately-tracked 97 problems, see FUTURE_PLANS Phase 22) may be left but must not regress; fix new items autonomously.
 
 ---
 

@@ -338,7 +338,7 @@ function downloadFilteredCSV(entries: HistoryEntry[], label: string) {
     };
   });
   const keys = Object.keys(rows[0] ?? {});
-  const csv = [keys.join(","), ...rows.map((r) => keys.map((k) => `"${String((r as any)[k]).replace(/"/g, '""')}"`).join(","))].join("\n");
+  const csv = [keys.join(","), ...rows.map((r) => keys.map((k) => `"${String((r as Record<string, unknown>)[k]).replace(/"/g, '""')}"`).join(","))].join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -347,7 +347,7 @@ function downloadFilteredCSV(entries: HistoryEntry[], label: string) {
   URL.revokeObjectURL(a.href);
 }
 
-export default function SunburstChart({ entries, onSelect, grouping }: { entries: HistoryEntry[]; onSelect?: (id: string) => void; grouping?: string }) {
+export default function SunburstChart({ entries, grouping }: { entries: HistoryEntry[]; grouping?: string }) {
   const [hovered, setHovered] = useState<{ wedge: Wedge; x: number; y: number } | null>(null);
   const [selectedDigit, setSelectedDigit] = useState<string | null>(null);
   const [filterCode, setFilterCode] = useState<string | null>(null);

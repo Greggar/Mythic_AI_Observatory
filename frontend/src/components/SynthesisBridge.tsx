@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useMemo, useEffect } from "react";
+import { useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { TraceSession } from "@/types/trace";
 
@@ -157,7 +157,6 @@ export default function SynthesisBridge({ trace }: SynthesisBridgeProps) {
               }
               const chunk = chunks[seg.link.chunkIndex];
               const c = paletteFor(seg.link.chunkIndex, chunk.used);
-              const opacityStr = (0.3 + 0.6 * seg.link.overlap).toFixed(2);
               const isHovered =
                 hoveredData?.link.chunkIndex === seg.link.chunkIndex &&
                 hoveredData?.link.text === seg.link.text;

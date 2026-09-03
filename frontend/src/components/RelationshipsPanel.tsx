@@ -392,16 +392,6 @@ interface SynesthNode {
 
 const RING_COLORS = [DEPTH_COLORS, MOOD5_COLORS, SYNTAX3_COLORS, ACTION_COLORS, TONE_COLORS, FORM_COLORS, DDC7_COLORS];
 
-const RING_SPECS = [
-  { inner: 16, outer: 32, label: "Depth" },
-  { inner: 38, outer: 58, label: "Mood" },
-  { inner: 64, outer: 76, label: "Syntax" },
-  { inner: 84, outer: 114, label: "Action" },
-  { inner: 120, outer: 150, label: "Tone" },
-  { inner: 156, outer: 196, label: "Form" },
-  { inner: 200, outer: 207, label: "DDC" },
-];
-
 const LEVEL_LABELS = [DEPTH_LABELS, MOOD5_LABELS, SYNTAX3_LABELS, ACTION_LABELS, TONE_LABELS, FORM_LABELS, DDC7_LABELS];
 const CLASSIFIERS = [classifyDepth, classifyMood5, classifySyntax, classifyActionType, classifyPragmaticTone, classifyOutputForm];
 
@@ -785,37 +775,6 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
     return { nodes, links };
   }, [filteredTraces, relType]);
 
-  const handleGrammarExport = useCallback((ring: number, label: string) => {
-    const catIdx = LEVEL_LABELS[ring].indexOf(label);
-    if (catIdx === -1) return;
-    const matching = filteredTraces.filter(t => {
-      if (ring < 6) {
-        const c = CLASSIFIERS[ring](ring < 3 ? t.prompt : (t.output || ""));
-        return c === catIdx;
-      }
-      return ddcMainClassIndex(t) === catIdx;
-    });
-    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const lines = ['"prompt","depth","mood","syntax","action","tone","form","ddc"'];
-    for (const t of matching) {
-      const d = DEPTH_LABELS[classifyDepth(t.prompt)];
-      const m = MOOD5_LABELS[classifyMood5(t.prompt)];
-      const s = SYNTAX3_LABELS[classifySyntax(t.prompt)];
-      const a = ACTION_LABELS[classifyActionType(t.output || "")];
-      const to = TONE_LABELS[classifyPragmaticTone(t.output || "")];
-      const f = FORM_LABELS[classifyOutputForm(t.output || "")];
-      const dd = DDC7_LABELS[ddcMainClassIndex(t)];
-      lines.push(`${esc(t.prompt)},${esc(d)},${esc(m)},${esc(s)},${esc(a)},${esc(to)},${esc(f)},${esc(dd)}`);
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `grammar-segment-${label.replace(/\s+/g, "-").toLowerCase()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [filteredTraces]);
-
   const hasValidData = relType === "grammar" || (isMoodIntent ? INTENT_SUPER_LABELS.length > 0 : true);
   const groups = relType !== "grammar" && filteredTraces.length >= 3 && hasValidData && chords ? (chords?.groups ?? []) : [];
   const chordRows = relType !== "grammar" && filteredTraces.length >= 3 && hasValidData && chords ? (chords?.filter((c) => c.source.value > 0) ?? []) : [];
@@ -1100,7 +1059,6 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                   return pc && rc && parseInt(pc) === row && parseInt(rc) === col;
                 });
               } else if (relType === "cross") {
-                const nLcc = CROSS_LCC_ORDER.length;
                 matching = filteredTraces.filter(t => {
                   const dc = t.ddc?.prompt?.code?.[0];
                   const lc = t.lcc?.prompt?.code?.[0];
@@ -1115,7 +1073,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                   const step = t.steps?.find(s => s.label === "Intent Classification");
                   const intentProbs = step?.metadata?.intent_probs;
                   if (!Array.isArray(intentProbs) || moodIdx !== row) return false;
-                  const labels = intentProbs.map((ip: any) => ip.label).filter(Boolean);
+                  const labels = intentProbs.map((ip: IntentProb) => ip.label).filter(Boolean);
                   return labels.some((l: string) => {
                     const si = INTENT_SUPER_LABELS.indexOf(intentToSuper(l));
                     return si === col;
@@ -1140,8 +1098,6 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                   matrix={ioMatrix}
                   inputLabels={iLabels}
                   outputLabels={oLabels}
-                  inputColors={iColors}
-                  outputColors={oColors}
                   title={cfg.title}
                   total={matrixTotal}
                   normMode={normMode}
@@ -1227,7 +1183,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                     <rect x={0} y={0} width={W} height={H} rx={8} fill="url(#chord-glow)" />
 
                     <g transform={`translate(${CX}, ${CY})`}>
-                      {(groups as any[]).map((g: any, i: number) => {
+                      {groups.map((g, i) => {
                         if (g.value === 0) return null;
                         const color = nodeColors[i] || "#374151";
                         const p = arcGen({
@@ -1241,7 +1197,7 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
                         );
                       })}
 
-                    {(groups as any[]).map((g: any, i: number) => {
+                    {groups.map((g, i) => {
                       if (g.value === 0) return null;
                       const mid = (g.startAngle + g.endAngle) / 2;
                       const [lx, ly] = polar(0, 0, LABEL_R, mid);
@@ -1462,132 +1418,3 @@ export default function RelationshipsPanel({ refreshTrigger = 0, initialRelType,
 }
 
 // ── 7-Ring Synesthesia Schema SVG Component ──────────────
-const SW = 420;
-const SH = 420;
-const SCX = SW / 2;
-const SCY = SH / 2;
-
-function collectLevelNodes(root: SynesthNode, depthLevel: number): SynesthNode[] {
-  const result: SynesthNode[] = [];
-  function walk(n: SynesthNode, d: number) {
-    if (d === depthLevel) {
-      if (n.startAngle !== undefined && n.endAngle !== undefined && n.endAngle! - n.startAngle! > 0.001) {
-        result.push(n);
-      }
-      return;
-    }
-    for (const c of n.children || []) walk(c, d + 1);
-  }
-  for (const c of root.children || []) walk(c, 0);
-  return result;
-}
-
-function SynesthSchemaSVG({ data, onArcClick }: { data: SynesthNode; onArcClick?: (ring: number, label: string) => void }) {
-  const [hovered, setHovered] = useState<{ label: string; count: number; total: number; x: number; y: number; depthRing: number } | null>(null);
-  const total = data.count;
-
-  const allArcs: { path: string; color: string; opacity: number; hover: typeof hovered; key: string }[] = [];
-  for (let ring = 0; ring < 7; ring++) {
-    const spec = RING_SPECS[ring];
-    const nodes = collectLevelNodes(data, ring);
-    for (const node of nodes) {
-      const sa = node.startAngle!;
-      const ea = node.endAngle!;
-      const p = arcGen({ innerRadius: spec.inner, outerRadius: spec.outer, startAngle: sa, endAngle: ea });
-      if (!p) continue;
-      const opacity = 0.78;
-      allArcs.push({
-        path: p,
-        color: node.color,
-        opacity,
-        hover: { label: node.label, count: node.count, total, x: 0, y: 0, depthRing: ring },
-        key: `r${ring}-${node.label}-${sa.toFixed(4)}`,
-      });
-    }
-  }
-
-  return (
-    <svg viewBox={`0 0 ${SW} ${SH}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <radialGradient id="syn-glow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="rgba(45,212,191,0.05)" />
-          <stop offset="100%" stopColor="rgba(45,212,191,0)" />
-        </radialGradient>
-      </defs>
-      <rect x={0} y={0} width={SW} height={SH} rx={8} fill="url(#syn-glow)" />
-      <g transform={`translate(${SCX}, ${SCY})`}>
-        {/* Background rings for empty segments */}
-        {RING_SPECS.map((r, i) => (
-          <circle key={`bg-${i}`} cx={0} cy={0} r={r.outer} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={0.3} />
-        ))}
-
-        {/* Arcs (painted before center so they sit behind it) */}
-        {allArcs.map((a) => (
-          <path key={a.key} d={a.path} fill={a.color} opacity={a.opacity} stroke="rgba(0,0,0,0.3)" strokeWidth={0.3}
-            style={{ cursor: "pointer", transition: "opacity 0.15s" }}
-            onMouseEnter={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              setHovered({ ...a.hover!, x: e.clientX, y: e.clientY });
-            }}
-            onMouseMove={(e) => setHovered(h => h ? { ...h, x: e.clientX, y: e.clientY } : null)}
-            onMouseLeave={() => setHovered(null)}
-            onClick={() => onArcClick?.(a.hover!.depthRing, a.hover!.label)}
-          />
-        ))}
-
-        {/* Center circle + text on top */}
-        <circle cx={0} cy={0} r={14} fill="rgba(6,30,40,0.85)" stroke="rgba(45,212,191,0.08)" strokeWidth={0.5} />
-        <text x={0} y={-3} textAnchor="middle" fill="rgba(45,212,191,0.5)" fontSize="9" fontFamily="monospace">{total}</text>
-        <text x={0} y={8} textAnchor="middle" fill="rgba(45,212,191,0.2)" fontSize="5" fontFamily="monospace">traces</text>
-      </g>
-
-      {/* Legend – ring number + label */}
-      <g transform={`translate(8, ${SH - 90})`}>
-        <text x={0} y={0} fill="rgba(161,161,170,0.7)" fontSize="5" fontFamily="monospace"># RING</text>
-        <line x1={0} y1={4} x2={52} y2={4} stroke="rgba(255,255,255,0.08)" strokeWidth={0.5} />
-        {RING_SPECS.map((r, i) => {
-          const label = i === 2 ? `${r.label} →` : r.label;
-          const descs = [
-            "Grammatical completeness: interjection → minor sentence → full verb phrase",
-            "Grammatical mood: imperative, indicative, interrogative, conditional, subjunctive",
-            "Clause structure: simple (1 clause) → compound (coordinated) → complex (subordinated)",
-            "Response action type: direct execution, conversational phatic, refusal/guardrail",
-            "Pragmatic register: informative, instructional, entertainment, creative, analytical, corrective",
-            "Output format: structured (code/tables), bulleted, continuous prose, verse",
-            "Dewey Decimal Classification main class — topical domain (0–9)",
-          ];
-          return (
-            <g key={i} transform={`translate(0, ${10 + i * 11})`}>
-              <text x={0} y={0} fill="rgba(161,161,170,0.55)" fontSize="5" fontFamily="monospace">{i + 1}</text>
-              <text x={10} y={0} fill="rgba(161,161,170,0.7)" fontSize="5" fontFamily="monospace">{label}
-                <title>{descs[i]}</title>
-              </text>
-            </g>
-          );
-        })}
-      </g>
-
-      {/* Mood color legend */}
-      <g transform={`translate(${SW - 88}, ${SH - 95})`}>
-        <text x={0} y={0} fill="rgba(161,161,170,0.7)" fontSize="5" fontFamily="monospace">MOOD</text>
-        {MOOD5_LABELS.map((l, i) => (
-          <g key={i} transform={`translate(0, ${10 + i * 10})`}>
-            <rect x={0} y={-3} width={5} height={5} rx={1} fill={MOOD5_COLORS[i]} opacity={0.75} />
-            <text x={8} y={1} fill="rgba(161,161,170,0.6)" fontSize="4.5" fontFamily="monospace">{l}</text>
-          </g>
-        ))}
-      </g>
-
-      {/* Hover tooltip */}
-      {hovered && typeof document !== "undefined" && createPortal(
-        <div className="fixed z-[100] pointer-events-none" style={{ left: Math.min(hovered.x + 12, window.innerWidth - 180), top: hovered.y + 12 }}>
-          <div className="bg-[rgba(6,30,40,0.92)] backdrop-blur-sm border border-teal-mystic/20 rounded-md px-2.5 py-1.5 shadow-lg max-w-[170px]">
-            <p className="text-[10px] leading-tight text-teal-mystic/80 font-medium">{hovered.label}</p>
-            <p className="text-[8px] text-zinc-500 mt-0.5">Ring {hovered.depthRing + 1} · {hovered.count} / {hovered.total} ({total > 0 ? Math.round(hovered.count / total * 100) : 0}%)</p>
-          </div>
-        </div>,
-        document.body
-      )}
-    </svg>
-  );
-}

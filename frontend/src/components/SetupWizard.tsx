@@ -1,8 +1,8 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, ChevronRight, Server, Wifi, Cpu, Plus, Trash2, Sparkles, Search, Loader2 } from "lucide-react";
-import { apiGet, apiPost } from "@/lib/api";
+import { Check, ChevronRight, Server, Cpu, Plus, Trash2, Sparkles, Search, Loader2 } from "lucide-react";
+import { apiPost } from "@/lib/api";
 
 interface DiscoveredService {
   type: "ollama" | "docker_model_runner" | "vllm" | "observatory";

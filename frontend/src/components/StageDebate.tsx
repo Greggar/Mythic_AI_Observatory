@@ -46,22 +46,6 @@ const WEAK_NEGATE = [
 
 const TOPIC_PAT = /\b(previous|access|history|conversation|past|interactions?|store|retain|provide|unable|memory|record|data|privacy)\b/i;
 
-const STOPWORDS = new Set([
-  "the","a","an","is","are","was","were","be","been",
-  "i","you","he","she","it","we","they","me","my",
-  "your","his","her","its","our","their","to","of",
-  "in","for","on","with","at","by","from","about",
-  "that","this","these","those","and","or","but","not",
-  "can","do","am","have","will","would","could",
-  "should","may","might","shall","does","did","has",
-  "any","all","just","also","very","such","each",
-  "some","than","then","into","over","after","well",
-]);
-
-function meaningful(s: string): string[] {
-  return s.toLowerCase().split(/\W+/).filter((w) => w.length > 2 && !STOPWORDS.has(w));
-}
-
 function topicWords(s: string): string[] {
   const m = s.toLowerCase().match(TOPIC_PAT);
   if (!m) return [];
@@ -76,7 +60,7 @@ function classify(sentence: string): "affirms" | "denies" | null {
   if (/\bi\s+(can|do|am|have|will)\s+not\b/i.test(s)) affScore -= 2;
   affScore = Math.max(0, affScore);
 
-  let negScore = STRONG_NEGATE.filter((p) => p.test(s)).length * 2 +
+  const negScore = STRONG_NEGATE.filter((p) => p.test(s)).length * 2 +
                  WEAK_NEGATE.filter((p) => p.test(s)).length;
 
   if (affScore > negScore) return "affirms";

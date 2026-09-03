@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Zap, Cpu, Brain, Network, CheckCircle, Sparkles } from "lucide-react";
+import { Activity, Zap, Brain, CheckCircle, Sparkles } from "lucide-react";
 import { apiGet } from "@/lib/api";
 import { usePoll } from "@/lib/usePoll";
 

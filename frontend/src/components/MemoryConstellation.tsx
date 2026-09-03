@@ -145,14 +145,6 @@ function extractTheme(entries: HistoryEntry[], grouping?: string): string {
   return sorted.slice(0, 2).map(([w]) => w).join(" / ");
 }
 
-function getDDCValue(entry: HistoryEntry, side: "prompt" | "response", field: string): string {
-  const ddc = entry.ddc?.[side];
-  if (!ddc) return "Unclassified";
-  if (field === "domain") return ddc.domain || "Unclassified";
-  if (field === "action") return ddc.action || "Unclassified";
-  return ddc.code || "Unclassified";
-}
-
 function clusterByDDC(entries: HistoryEntry[]): HistoryEntry[][] {
   if (entries.length === 0) return [];
   const groups = new Map<string, HistoryEntry[]>();
@@ -164,40 +156,6 @@ function clusterByDDC(entries: HistoryEntry[]): HistoryEntry[][] {
   }
   return [...groups.values()]
     .map((g) => g.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()))
-    .sort((a, b) => b.length - a.length);
-}
-
-function clusterByPromptKeywords(entries: HistoryEntry[]): HistoryEntry[][] {
-  if (entries.length === 0) return [];
-  const n = entries.length;
-  const adj: number[][] = Array.from({ length: n }, () => []);
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      if (computeSimilarity(entries[i].prompt, entries[j].prompt) > 0.15) {
-        adj[i].push(j);
-        adj[j].push(i);
-      }
-    }
-  }
-  const visited = new Set<number>();
-  const groups: number[][] = [];
-  for (let i = 0; i < n; i++) {
-    if (visited.has(i)) continue;
-    const stack = [i];
-    const group: number[] = [];
-    while (stack.length > 0) {
-      const idx = stack.pop()!;
-      if (visited.has(idx)) continue;
-      visited.add(idx);
-      group.push(idx);
-      for (const nb of adj[idx]) {
-        if (!visited.has(nb)) stack.push(nb);
-      }
-    }
-    groups.push(group);
-  }
-  return groups
-    .map((g) => g.map((i) => entries[i]).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()))
     .sort((a, b) => b.length - a.length);
 }
 
@@ -281,7 +239,6 @@ export default function MemoryConstellation({ onSelect, onCompare, refreshTrigge
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const prevCount = useRef(0);
   const [hovered, setHovered] = useState<{ entry: HistoryEntry; x: number; y: number } | null>(null);
   const [highlightedCluster, setHighlightedCluster] = useState<number | null>(null);
   const hoverTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -549,7 +506,7 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
       </div>
 
       {visualization === "sunburst" ? (
-        <SunburstChart entries={filteredEntries} onSelect={onSelect} grouping={grouping} />
+        <SunburstChart entries={filteredEntries} grouping={grouping} />
       ) : (
         <>
       <div
@@ -616,7 +573,6 @@ function clusterByMultiLabel(entries: HistoryEntry[]): HistoryEntry[][] {
                     const dim = hoveredTraceId !== null
                       ? hoveredTraceId !== dot.entry.id
                       : highlightedCluster !== null && highlightedCluster !== ci;
-                    const dotAnnotations = getAnnotations(dot.entry.id);
                     return (
                       <motion.g
                         key={`${dot.entry.id}-${ci}-${ei}`}

@@ -8,7 +8,6 @@ interface Props {
   traceActive: boolean;
   traceStep: number | null;
   conductorState: string;
-  observatoryMode?: boolean;
 }
 
 export default function SolarCore({
@@ -16,7 +15,6 @@ export default function SolarCore({
   traceActive,
   traceStep,
   conductorState,
-  observatoryMode = false,
 }: Props) {
   const CX = size / 2;
   const CY = size / 2;

@@ -24,8 +24,6 @@ export default function TokenVelocityGraph({ steps }: Props) {
       }));
   }, [steps]);
 
-  if (points.length < 1) return null;
-
   const maxTokS = Math.max(...points.map((p) => p.tok_s), 1);
   const W = 220;
   const H = 56;
@@ -46,6 +44,8 @@ export default function TokenVelocityGraph({ steps }: Props) {
     d += ` L ${pts[pts.length - 1].x.toFixed(2)} ${pts[pts.length - 1].y.toFixed(2)}`;
     return d;
   }, [points, maxTokS]);
+
+  if (points.length < 1) return null;
 
   const latest = points[points.length - 1];
   const latestTokS = latest.tok_s.toFixed(1);

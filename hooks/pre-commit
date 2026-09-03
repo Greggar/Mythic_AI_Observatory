@@ -1,4 +1,44 @@
 #!/usr/bin/env bash
-# Pre-commit hook — delegates to tools/scrub_check.sh.
+# Pre-commit hook — runs the security scrub gate, then (when relevant files
+# changed) the unit tests so the test gate can't be skipped at commit time.
 # Install once per checkout:  git config core.hooksPath hooks
-exec "$(git rev-parse --show-toplevel)/tools/scrub_check.sh"
+#
+# Escape hatch for the test gate only:  git commit --no-verify
+set -u
+
+ROOT="$(git rev-parse --show-toplevel)"
+FAIL=0
+
+# 1) Security / scrub gate (always, hard block). See SECURITY.md.
+if ! "$ROOT/tools/scrub_check.sh"; then
+  FAIL=1
+fi
+
+# 2) Test gate — only when staged files touch code that has a suite.
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+frontend_changed=$(printf '%s\n' "$staged" | grep -E '^frontend/.*\.(ts|tsx|js|mjs|json)$' || true)
+backend_changed=$(printf '%s\n' "$staged" | grep -E '^backend/.*\.py$' || true)
+
+if [ -n "$frontend_changed" ]; then
+  echo "pre-commit: frontend changed -> running vitest"
+  if ! (cd "$ROOT/frontend" && pnpm test >/tmp/precommit-fe-test.log 2>&1); then
+    echo "pre-commit: FRONTEND TESTS FAILED — see /tmp/precommit-fe-test.log (tail below)"
+    tail -20 /tmp/precommit-fe-test.log
+    FAIL=1
+  fi
+fi
+
+if [ -n "$backend_changed" ]; then
+  echo "pre-commit: backend changed -> running pytest"
+  if ! (cd "$ROOT/backend" && ./.venv/bin/pytest -q >/tmp/precommit-be-test.log 2>&1); then
+    echo "pre-commit: BACKEND TESTS FAILED — see /tmp/precommit-be-test.log (tail below)"
+    tail -20 /tmp/precommit-be-test.log
+    FAIL=1
+  fi
+fi
+
+if [ "$FAIL" -ne 0 ]; then
+  echo "pre-commit: BLOCKED (see errors above). Use --no-verify to force."
+  exit 1
+fi
+exit 0

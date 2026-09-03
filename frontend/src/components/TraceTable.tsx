@@ -2,13 +2,9 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { apiGet } from "@/lib/api";
+import type { TraceSession } from "@/types/trace";
 
-interface ClassDisplay {
-  code: string;
-  label: string;
-  score?: number;
-  margin?: number;
-}
+
 
 interface TraceRow {
   id: string;
@@ -42,7 +38,7 @@ function confDot(margin: number | null): string {
 
 async function generateDoc(id: string): Promise<void> {
   try {
-    const trace = await apiGet<any>(`/api/traces/${id}`);
+    const trace = await apiGet<TraceSession>(`/api/traces/${id}`);
     const lines: string[] = [];
     lines.push("=".repeat(60));
     lines.push(`TRACE DOCUMENT — ${id}`);
@@ -176,7 +172,7 @@ export default function TraceTable({ refreshTrigger, onPlay }: Props) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    apiGet<any[]>("/api/traces?limit=40")
+    apiGet<TraceSession[]>("/api/traces?limit=40")
       .then((data) => {
         if (cancelled) return;
         const mapped: TraceRow[] = data

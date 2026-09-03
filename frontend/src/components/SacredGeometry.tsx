@@ -1,12 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 interface Props {
-  size: number;
   cx: number;
   cy: number;
-  observatoryMode?: boolean;
 }
 
 function celticKnot(x: number, y: number, r: number, lobes: number, offset: number) {
@@ -57,8 +55,7 @@ function maritimeCompassRose(cx: number, cy: number, r: number) {
   return lines.join(" ");
 }
 
-export default function SacredGeometry({ size, cx, cy, observatoryMode = false }: Props) {
-  const geoOpacity = observatoryMode ? 0.06 : 0.035;
+export default function SacredGeometry({ cx, cy }: Props) {
   const knot1 = useMemo(() => celticKnot(cx, cy, 140, 8, 0), [cx, cy]);
   const knot2 = useMemo(() => celticKnot(cx, cy, 190, 12, Math.PI / 12), [cx, cy]);
   const astrolabe1 = useMemo(() => astrolabeRing(cx, cy, 240), [cx, cy]);

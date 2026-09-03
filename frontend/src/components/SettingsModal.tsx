@@ -74,7 +74,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [analysisNetworkSourceId, setAnalysisNetworkSourceId] = useState("");
   const [analysisNetworkModelName, setAnalysisNetworkModelName] = useState("");
   const [analysisModelSaved, setAnalysisModelSaved] = useState(false);
-  const [modelSaved, setModelSaved] = useState(false);
+  const [, setModelSaved] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [networkSources, setNetworkSources] = useState<{ id: string; label: string; host: string; port: number; configured_model: string; models: string[]; error: string | null }[]>([]);
   const [networkSourceId, setNetworkSourceId] = useState("");
@@ -1079,7 +1079,7 @@ export default function SettingsModal({ open, onClose }: SettingsModalProps) {
                       Embedding Service URL
                     </label>
                     <p className="text-[10px] text-zinc-600 mb-2">
-                      Leave blank to use the same service as the orchestrator model. Set if using Docker Model Runner (which doesn't serve embeddings).
+                      Leave blank to use the same service as the orchestrator model. Set if using Docker Model Runner (which doesn&apos;t serve embeddings).
                     </p>
                     <input
                       type="text"

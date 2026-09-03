@@ -55,7 +55,7 @@ interface DateBucket {
 
 function buildBuckets(
   traces: Props["traces"],
-  getDigit: (t: any) => number | null
+  getDigit: (t: Props["traces"][number]) => number | null
 ): DateBucket[] {
   const map = new Map<string, number[]>();
   const traceMap = new Map<string, number>();
@@ -85,14 +85,14 @@ export default function DriftHeatmap({ traces }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
-  const getPromptDigit = useCallback((t: any): number | null => {
+  const getPromptDigit = useCallback((t: Props["traces"][number]): number | null => {
     const c = t.ddc?.prompt?.code;
     if (!c) return null;
     const d = parseInt(c[0]);
     return isNaN(d) ? null : d;
   }, []);
 
-  const getResponseDigit = useCallback((t: any): number | null => {
+  const getResponseDigit = useCallback((t: Props["traces"][number]): number | null => {
     const c = t.ddc?.response?.code;
     if (!c) return null;
     const d = parseInt(c[0]);

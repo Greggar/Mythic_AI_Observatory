@@ -258,10 +258,10 @@ export default function ComplexityLadderPanel() {
   }, []);
 
   const toggleModel = (name: string) => {
-    setSelectedModels(prev => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
+    setSelectedModels(prev => { const n = new Set(prev); if (n.has(name)) n.delete(name); else n.add(name); return n; });
   };
   const toggleGen = (id: string) => {
-    setSelectedGens(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setSelectedGens(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   };
 
   const pollRun = (runId: string) => {
@@ -306,7 +306,7 @@ export default function ComplexityLadderPanel() {
   };
 
   const toggleCell = (id: string) => {
-    setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setExpanded(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   };
 
   // Build chart data from summary
@@ -350,8 +350,6 @@ export default function ComplexityLadderPanel() {
       levels.flatMap(lv => Object.keys(lv.models))
     )
   ));
-
-  const pending = run ? run.total - run.completed - run.failed : 0;
 
   return (
     <div className="glass-panel p-5 space-y-4">

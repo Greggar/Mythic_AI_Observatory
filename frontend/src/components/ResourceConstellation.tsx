@@ -35,12 +35,6 @@ const STATUS_GLOW: Record<string, string> = {
   unavailable: "#f59e0b",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  green: "#34d399",
-  yellow: "#f59e0b",
-  red: "#ef4444",
-};
-
 function parsePct(value: string): number {
   const m = value.match(/^([\d.]+)/);
   return m ? parseFloat(m[1]) : 0;
@@ -77,10 +71,6 @@ export default function ResourceConstellation({ active }: ConstellationProps) {
 
   const clearHover = useCallback(() => {
     hoverTimeout.current = setTimeout(() => setHovered(null), 150);
-  }, []);
-
-  const keepHover = useCallback(() => {
-    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
   }, []);
 
   const handleMouseEnter = useCallback((e: React.MouseEvent, label: string, target?: string) => {

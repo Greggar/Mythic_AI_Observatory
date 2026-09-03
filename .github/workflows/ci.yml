@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  verify:
+    name: release_check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend deps (pytest + ruff)
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff
+
+      - name: Set up Node + pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable pnpm and cache
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # SCRUB NOTE: we run the gate on a fresh checkout — the local
+      # ~/.config/mythic/scrub_extra.txt machine-specific patterns are absent,
+      # but the embedded RFC1918/CGNAT/secret patterns in tools/scrub_check.sh
+      # still run via the pre-commit gate in the full chain.
+      - name: Run unified release gate
+        run: ./tools/release_check.sh all

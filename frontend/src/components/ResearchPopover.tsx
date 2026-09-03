@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getResearchRefs, type ResearchKey } from "@/data/researchRefs";
 
@@ -15,12 +15,10 @@ export default function ResearchPopover({ refKey, align = "left", className = ""
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
-  const refs = getResearchRefs(refKey);
-
-  if (refs.length === 0) return null;
+  const refs = useMemo(() => getResearchRefs(refKey), [refKey]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || refs.length === 0) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
       if (btnRef.current?.contains(t) || popRef.current?.contains(t)) return;
@@ -35,7 +33,9 @@ export default function ResearchPopover({ refKey, align = "left", className = ""
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, refs.length]);
+
+  if (refs.length === 0) return null;
 
   const toggle = (e: React.MouseEvent) => {
     setPos({ x: e.clientX, y: e.clientY });

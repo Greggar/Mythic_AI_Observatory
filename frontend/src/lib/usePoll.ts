@@ -92,7 +92,15 @@ export function usePoll<T>(
       }
     };
 
-    schedule(0);
+    // First tick is flushed on the microtask queue — before the browser gets a
+    // chance to idle — so the first fetch lands at t≈0 rather than after a
+    // setTimeout(0) macrotask. The recurring interval only starts once that
+    // first tick has completed, so a slow first fetch never overlaps itself.
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      await tick();
+      if (!cancelled) schedule(intervalMs);
+    });
     if (pauseOnHidden) {
       document.addEventListener("visibilitychange", onVisibility);
     }

@@ -19,7 +19,7 @@ function mulberry32(seed: number): () => number {
 function dominantEigen(B: number[][], n: number): { val: number; vec: number[] } {
   const rnd = mulberry32(42);
   let vec = Array.from({ length: n }, () => rnd() - 0.5);
-  let norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
+  const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
   if (norm < 1e-12) return { val: 0, vec: Array(n).fill(0) };
   vec = vec.map((v) => v / norm);
 

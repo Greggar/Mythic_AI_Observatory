@@ -48,7 +48,7 @@ export default function ForkInTheRoad({ intents }: Props) {
       </div>
 
       {/* Rejected paths */}
-      {alternatives.map((alt, i) => (
+      {alternatives.map((alt) => (
         <div
           key={alt.label}
           className="relative pl-5 pt-2 pb-2 border-l-2 border-zinc-700/30 ml-0"

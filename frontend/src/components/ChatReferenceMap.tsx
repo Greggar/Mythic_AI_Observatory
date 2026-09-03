@@ -234,7 +234,7 @@ export default function ChatReferenceMap({ exchanges, onSelectExchange }: Props)
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="Cross-turn reference arcs between chat exchanges">
           {/* Arcs */}
-          {links.map((link, i) => {
+          {links.map((link) => {
             const active = isLinkActive(link);
             const isRetrieval = link.kind === "retrieval";
             return (

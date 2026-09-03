@@ -108,7 +108,7 @@ export default function TraceSummaryModal({ trace, onClose }: Props) {
             Orchestration Trace
           </div>
           <div className="space-y-2">
-            {trace.steps.map((step, i) => (
+            {trace.steps.map((step) => (
               <div key={step.id} className="p-2.5 rounded-lg bg-white/[0.02] border border-white/[0.05]">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-medium text-zinc-300">{step.label}</span>

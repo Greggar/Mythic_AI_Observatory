@@ -322,8 +322,8 @@ export default function Galaxy3D({ onSelect, refreshTrigger }: Props) {
       controls.dispose();
       renderer.dispose();
       for (const c of scene.children) {
-        if ("geometry" in c) (c as any).geometry?.dispose();
-        if ("material" in c) (c as any).material?.dispose();
+        if ("geometry" in c) (c as { geometry?: { dispose(): void } }).geometry?.dispose();
+        if ("material" in c) (c as { material?: { dispose(): void } }).material?.dispose();
       }
       scene.clear();
       container.innerHTML = "";
@@ -420,7 +420,6 @@ export default function Galaxy3D({ onSelect, refreshTrigger }: Props) {
           const origSize = 0.35 + (1 - Math.max(0, Math.min(1, (Date.now() - new Date(entry.created_at).getTime()) / (30 * 86400000)))) * 0.5;
           const sizes = new Float32Array(posAttr.count);
           const colors = new Float32Array(posAttr.count * 3);
-          const highlightColor = new THREE.Color("#ffffff");
           for (let i = 0; i < posAttr.count; i++) {
             if (i === intersects[0].index) {
               sizes[i] = 1.2;

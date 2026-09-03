@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
 
 interface Props {
   x1: number;
@@ -14,7 +13,7 @@ interface Props {
 }
 
 export default function EnergyPath({ x1, y1, x2, y2, active, index, influence = 0 }: Props) {
-  const [mounted, setMounted] = useState(false);
+  const [, setMounted] = useState(false);
   const [burst, setBurst] = useState(false);
   const [fading, setFading] = useState(false);
   const isActive = active || fading;
@@ -55,7 +54,6 @@ export default function EnergyPath({ x1, y1, x2, y2, active, index, influence = 
   const reversePathD = `M ${x2} ${y2} Q ${revCpx} ${revCpy} ${x1} ${y1}`;
 
   const inf = Math.min(Math.max(influence, 0), 1);
-  const baseOpacity = isActive ? 0.15 + inf * 0.3 : 0.04 + inf * 0.06;
   const strokeW = isActive ? 1 + inf * 1.5 : 0.5 + inf * 0.5;
   const fadeRatio = fading ? 0.3 : 1;
 

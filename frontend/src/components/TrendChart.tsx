@@ -1,8 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { TrendingUp } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Telemetry } from "@/hooks/useWebSocket";
 
 interface Props {

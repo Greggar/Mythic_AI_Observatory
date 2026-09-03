@@ -4,10 +4,7 @@ import { motion } from "framer-motion";
 import {
   Search,
   Clock,
-  Cpu,
   Brain,
-  Network,
-  HardDrive,
   Zap,
   User,
 } from "lucide-react";
@@ -143,7 +140,7 @@ export default function SessionInspector({ trace }: Props) {
       {/* Step timeline mini */}
       <div className="space-y-1">
         <div className="text-[8px] font-mono text-zinc-600 uppercase tracking-wider mb-1.5">Stages</div>
-        {trace.steps.map((step, i) => (
+        {trace.steps.map((step) => (
           <div key={step.id} className="flex items-center gap-2 py-1">
             <div
               className={`w-1.5 h-1.5 rounded-full shrink-0 ${

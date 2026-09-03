@@ -5,13 +5,6 @@ import { detectContradiction } from "./StageDebate";
 import { createPortal } from "react-dom";
 import { apiGet } from "@/lib/api";
 
-interface RetrievedChunk {
-  trace_id: string;
-  content: string;
-  relevance: number;
-  used: boolean;
-}
-
 interface Signal {
   key: string;
   label: string;

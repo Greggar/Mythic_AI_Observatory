@@ -19,7 +19,7 @@ export default function BatchInput({ onBatchComplete }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [lines, setLines] = useState<string[]>([]);
   const [running, setRunning] = useState(false);
-  const [batchId, setBatchId] = useState<string | null>(null);
+  const [, setBatchId] = useState<string | null>(null);
   const [status, setStatus] = useState<BatchStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);

@@ -63,6 +63,7 @@ export default function Home() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [compareTraces, setCompareTraces] = useState<TraceSession[]>([]);
   const [firstRun, setFirstRun] = useState<boolean | null>(null);
+  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "chat" | "history" | "analysis" | "tests">("systems");
   const timelineRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to timeline when a history trace is selected
@@ -102,7 +103,6 @@ export default function Home() {
   }, [chatCompleted]);
 
   const isLiveProcessing = loading && trace !== null;
-  const traceActive = phase === "replaying" || phase === "complete" || isLiveProcessing || liveComplete;
 
   // Derive live step index from the trace itself when polling
   const liveStepIndex = isLiveProcessing
@@ -213,8 +213,6 @@ export default function Home() {
 
   const activeTrace = replayTrace || trace;
 
-  const isIdle = !activeTrace && !loading;
-  const [activeTab, setActiveTab] = useState<"systems" | "trace" | "chat" | "history" | "analysis" | "tests">("systems");
   const [analysisType, setAnalysisType] = useState<string>("synesthesia");
   const [chartType, setChartType] = useState<string>(DEFAULT_CHART[analysisType] || "confusion");
 
@@ -417,12 +415,10 @@ export default function Home() {
 
               <ErrorBoundary>
                 <SolarNexus
-                  telemetry={telemetry}
                   trace={activeTrace}
                   traceActive={activePhase === "replaying" || activePhase === "complete"}
                   activeTraceStep={activePhase === "replaying" ? activeStep : null}
                   phase={activePhase}
-                  observatoryMode={isIdle}
                 />
               </ErrorBoundary>
 
@@ -532,7 +528,6 @@ export default function Home() {
             <TestSuiteManager />
             <TestRunner
               onRun={(probes, models) => { setTestProbes(probes); setTestModels(models); }}
-              hasResults={testProbes.length > 0}
             />
             {testProbes.length > 0 && testModels.length > 0 && (
               <TestComparison probes={testProbes} models={testModels} />
@@ -625,7 +620,7 @@ export default function Home() {
                 <ErrorBoundary>
                   <RelationshipsPanel
                     refreshTrigger={historyRefresh}
-                    initialRelType={analysisType as any}
+                    initialRelType={analysisType as "synesthesia" | "drift" | "cross" | "grammar" | "mood-intent" | "memory"}
                     chartType={chartType}
                     onChartTypeChange={setChartType}
                   />

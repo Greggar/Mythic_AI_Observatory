@@ -21,15 +21,15 @@ interface TooltipState {
 
 interface Props {
   traces: { id: string; prompt: string; output: string | null; created_at?: string }[];
-  synInputProbs: (t: any) => number[];
-  synOutputProbs: (t: any) => number[];
+  synInputProbs: (t: Props["traces"][number]) => number[];
+  synOutputProbs: (t: Props["traces"][number]) => number[];
   inputLabels: string[];
   outputLabels: string[];
 }
 
 function bucketMeanProbs(
   traces: Props["traces"],
-  getProbs: (t: any) => number[],
+  getProbs: (t: Props["traces"][number]) => number[],
   numCats: number
 ): { dateKey: string; buckets: number[]; traceCount: number }[] {
   const sumMap = new Map<string, number[]>();

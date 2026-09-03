@@ -26,11 +26,9 @@ export default function EmbeddingConfusionProfile({ traces }: Props) {
   const {
     confusionCounts,
     totalConflicts,
-    mainClassCounts,
     highestPairs,
   } = useMemo(() => {
     const confusion = Array.from({ length: 10 }, () => Array(10).fill(0));
-    const counts = Array(10).fill(0);
     let conflicts = 0;
 
     for (const t of traces) {
@@ -39,14 +37,12 @@ export default function EmbeddingConfusionProfile({ traces }: Props) {
       const d0 = mainClassDigit(ts[0].code);
       const d1 = mainClassDigit(ts[1].code);
       if (d0 === null || d1 === null) continue;
-      counts[d0]++;
       const margin = ts[0].score - ts[1].score;
       if (margin < 0.05 && margin >= 0) {
         confusion[d0][d1]++;
         conflicts++;
       }
     }
-
     const pairs: { a: number; b: number; count: number }[] = [];
     for (let i = 0; i < 10; i++) {
       for (let j = 0; j < 10; j++) {
@@ -60,7 +56,6 @@ export default function EmbeddingConfusionProfile({ traces }: Props) {
     return {
       confusionCounts: confusion,
       totalConflicts: conflicts,
-      mainClassCounts: counts,
       highestPairs: pairs.slice(0, 5),
     };
   }, [traces]);

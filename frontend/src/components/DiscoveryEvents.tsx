@@ -46,7 +46,7 @@ export default function DiscoveryEvents({
   triggerEvent,
 }: Props) {
   const [discovery, setDiscovery] = useState<DiscoveryType>(null);
-  const [mounted, setMounted] = useState(false);
+  const [, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   // Detect discovery events based on trace data

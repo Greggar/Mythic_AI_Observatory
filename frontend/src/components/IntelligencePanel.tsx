@@ -274,38 +274,6 @@ function ChunkDisplay({ chunks }: { chunks: RetrievedChunk[] }) {
   );
 }
 
-function IntentProbs({ intents }: { intents: IntentProb[] }) {
-  const maxConf = Math.max(...intents.map((i) => i.confidence), 0.01);
-  return (
-    <div className="mt-2 space-y-1.5">
-      <div className="text-[9px] font-semibold tracking-widest uppercase text-zinc-500 mb-1">
-        Intent Probabilities
-      </div>
-      {intents.map((intent, i) => {
-        const pct = Math.round(intent.confidence * 100);
-        const color =
-          intent.confidence > 0.6
-            ? "bg-teal-mystic"
-            : intent.confidence > 0.25
-              ? "bg-solar-gold"
-              : "bg-zinc-500";
-        return (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-zinc-400 w-20 truncate">{intent.label}</span>
-            <div className="flex-1 h-2 rounded-full bg-white/[0.05] overflow-hidden">
-              <div
-                className={`h-full rounded-full ${color} transition-all duration-500`}
-                style={{ width: `${(intent.confidence / maxConf) * 100}%` }}
-              />
-            </div>
-            <span className="text-[10px] font-mono text-zinc-500 w-8 text-right">{pct}%</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 import { useEffect, useMemo, useRef, useState } from "react";
 
 interface StageInfo {

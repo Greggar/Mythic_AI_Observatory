@@ -13,7 +13,6 @@ interface Props {
   timeOffset: number;
   telemetry: Telemetry | null;
   isActive: boolean;
-  observatoryMode?: boolean;
 }
 
 type NodeState = "idle" | "active" | "processing" | "completed" | "unreachable";
@@ -84,7 +83,6 @@ export default function StageNode({
   timeOffset,
   telemetry,
   isActive,
-  observatoryMode = false,
 }: Props) {
   const CX = size / 2;
   const CY = size / 2;

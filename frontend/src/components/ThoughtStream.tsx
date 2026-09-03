@@ -4,12 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 
 interface Props {
-  size: number;
   cx: number;
   cy: number;
   activeStepIndex: number | null;
   phase: "idle" | "replaying" | "complete";
-  stepOutputs: Record<number, string | undefined>;
 }
 
 function BranchingPathways({ cx, cy }: { cx: number; cy: number }) {
@@ -312,12 +310,10 @@ const STEP_VISUALISER: Record<number, React.FC<{ cx: number; cy: number }>> = {
 };
 
 export default function ThoughtStream({
-  size,
   cx,
   cy,
   activeStepIndex,
   phase,
-  stepOutputs,
 }: Props) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);

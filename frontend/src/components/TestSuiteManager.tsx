@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { Play, Plus, Trash2, ChevronDown, ChevronUp, ExternalLink, RefreshCw } from "lucide-react";
+import { Play, Plus, Trash2, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 import { pollUntil, type PollHandle } from "@/lib/usePoll";
 import type { TraceSummary } from "@/types/trace";
@@ -57,7 +57,7 @@ export default function TestSuiteManager() {
   const [loading, setLoading] = useState(true);
   const [expandedSuite, setExpandedSuite] = useState<string | null>(null);
   const [detail, setDetail] = useState<SuiteDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [, setDetailLoading] = useState(false);
 
   // Create/edit state
   const [creating, setCreating] = useState(false);
@@ -92,6 +92,14 @@ export default function TestSuiteManager() {
   useEffect(() => { fetchSuites(); }, [fetchSuites]);
 
   // Poll active run
+  const loadDetail = async (suiteId: string) => {
+    setDetailLoading(true);
+    try {
+      setDetail(await apiGet<SuiteDetail>(`/api/suites/${suiteId}`));
+    } catch {}
+    setDetailLoading(false);
+  };
+
   useEffect(() => {
     if (!activeRun) return;
     pollRef.current?.stop();
@@ -114,14 +122,6 @@ export default function TestSuiteManager() {
     pollRef.current = handle;
     return () => handle.stop();
   }, [activeRun, expandedSuite, fetchSuites]);
-
-  const loadDetail = async (suiteId: string) => {
-    setDetailLoading(true);
-    try {
-      setDetail(await apiGet<SuiteDetail>(`/api/suites/${suiteId}`));
-    } catch {}
-    setDetailLoading(false);
-  };
 
   const toggleExpand = async (suiteId: string) => {
     if (expandedSuite === suiteId) {
