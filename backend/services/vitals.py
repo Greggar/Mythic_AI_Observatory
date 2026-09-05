@@ -1,7 +1,5 @@
 import asyncio
-import json
 import logging
-import os
 import socket
 import subprocess
 from collections import defaultdict, deque
@@ -177,17 +175,13 @@ def _get_gpu_stats_local() -> dict[str, float]:
 
 
 async def collect_vitals() -> list[dict[str, Any]]:
-    now = time()
-
     prometheus_url = config_manager.get_prometheus_url()
 
     cpu_q = '(1 - avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[1m]))) * 100'
     mem_q = '(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100'
     disk_q = 'sum by(instance)(rate(node_disk_read_bytes_total{device!~"loop.*|snap.*"}[1m])) + sum by(instance)(rate(node_disk_written_bytes_total{device!~"loop.*|snap.*"}[1m]))'
     net_q = 'sum by(instance)(rate(node_network_receive_bytes_total{device!~"lo"}[1m]) + rate(node_network_transmit_bytes_total{device!~"lo"}[1m]))'
-    load_q = 'node_load15'
     disk_space_q = '(node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_avail_bytes{mountpoint="/"}) / node_filesystem_size_bytes{mountpoint="/"} * 100'
-    uptime_q = 'time() - node_boot_time_seconds'
 
     loop = asyncio.get_event_loop()
     gpu_local = await loop.run_in_executor(None, _get_gpu_stats_local)
@@ -197,22 +191,19 @@ async def collect_vitals() -> list[dict[str, Any]]:
     # Also get remote CPU/mem via Prometheus
     prom_ok = prometheus_url and await _prom_reachable(prometheus_url)
     if prom_ok:
-        cpu_res, mem_res, disk_res, net_res, load_res, ds_res, up_res = await asyncio.gather(
+        cpu_res, mem_res, disk_res, net_res, ds_res = await asyncio.gather(
             _promql(prometheus_url, cpu_q), _promql(prometheus_url, mem_q),
             _promql(prometheus_url, disk_q), _promql(prometheus_url, net_q),
-            _promql(prometheus_url, load_q), _promql(prometheus_url, disk_space_q),
-            _promql(prometheus_url, uptime_q),
+            _promql(prometheus_url, disk_space_q),
         )
     else:
-        cpu_res = mem_res = disk_res = net_res = load_res = ds_res = up_res = []
+        cpu_res = mem_res = disk_res = net_res = ds_res = []
 
     cpu_map = _by_instance(cpu_res)
     mem_map = _by_instance(mem_res)
     disk_map = _by_instance(disk_res)
     net_map = _by_instance(net_res)
-    load_map = _by_instance(load_res)
     ds_map = _by_instance(ds_res)
-    up_map = _by_instance(up_res)
 
     discovered = await _discover_instances()
     machine_map = _build_machine_map(discovered)
@@ -237,9 +228,7 @@ async def collect_vitals() -> list[dict[str, Any]]:
             mem_val = mem_map.get(instance, mem_local)
             disk_val = disk_map.get(instance, 0.0)
             net_val = net_map.get(instance, 0.0)
-            load_val = load_map.get(instance, 0.0)
             ds_pct = ds_map.get(instance, 0.0)
-            uptime_val = up_map.get(instance, 0.0)
 
             vitals = [
                 {"id": "cpu",  "label": "CPU",     "value": f"{cpu_val:.0f}%",          "status": _vital_status(cpu_val, 80, 90)},
@@ -347,7 +336,7 @@ async def probe_provider_health() -> dict[str, dict[str, Any]]:
             await writer.wait_closed()
             latency = round((__import__("time").time() - start) * 1000)
             results[pid] = {"reachable": True, "latency_ms": latency, "last_check": now_str}
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             results[pid] = {"reachable": False, "latency_ms": None, "last_check": now_str}
 
     tasks = []

@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from models.trace import DdcMetadata, DdcEntry
+from models.trace import DdcEntry, DdcMetadata
 from services import config_manager
 
 logger = logging.getLogger("conductor")
@@ -76,7 +76,7 @@ DDC_CATEGORIES: list[dict[str, Any]] = [
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(av * bv for av, bv in zip(a, b))
+    dot = sum(av * bv for av, bv in zip(a, b, strict=True))
     na = math.sqrt(sum(v * v for v in a))
     nb = math.sqrt(sum(v * v for v in b))
     if na == 0 or nb == 0:

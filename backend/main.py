@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import csv
 import io
 import json
@@ -9,33 +10,65 @@ import subprocess
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 # Load .env before any other imports that read env vars
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).parent / ".env")
 
+# NOTE: these imports intentionally sit after load_dotenv() — several read env
+# vars (OLLAMA_HOST, ORCHESTRATOR_MODEL, ...) at import time. Moving them above
+# re-introduces the env-vs-default precedence bug (see ARCHITECTURE.md §3.9).
 import httpx
-import requests
 import psutil
+import requests
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_client import Gauge, generate_latest, REGISTRY
+from prometheus_client import REGISTRY, Gauge, generate_latest
 from pydantic import BaseModel, Field
 
-from models.trace import TraceSession
-from services.profile import compute_profile, ModelProfile
 from models.annotation import Annotation
-from services.orchestrator import orchestrate, get_trace, list_traces, summarize_trace, delete_trace, bulk_delete_traces, get_activity_events, get_model_provider, set_model_provider, get_local_model, set_local_model, get_analysis_model, set_analysis_model, get_analysis_provider, set_analysis_provider, warmup_model, next_exchange_index, _call_model, LOCAL_MODEL
-from services import annotation_service
-from services.vitals import collect_vitals
-from services import config_manager
+from models.trace import TraceSession
+from services import annotation_service, config_manager
 from services.classifier_agent import classifier_loop, merge_synesth
-from services.classify_task import start_classify_task, cancel_classify_task, get_classify_status, ClassifyTaskStatus, ClassifyCellResult
-from services.reasoning_probe import start_reasoning_probe, get_reasoning_probe, aggregate_reasoning_probe, ReasoningProbeStatus
+from services.classify_task import (
+    ClassifyTaskStatus,
+    cancel_classify_task,
+    get_classify_status,
+    start_classify_task,
+)
 from services.log_broadcaster import get_broadcaster, install_handler
+from services.orchestrator import (
+    _call_model,
+    bulk_delete_traces,
+    delete_trace,
+    get_activity_events,
+    get_analysis_model,
+    get_analysis_provider,
+    get_local_model,
+    get_model_provider,
+    get_trace,
+    list_traces,
+    next_exchange_index,
+    orchestrate,
+    set_analysis_model,
+    set_analysis_provider,
+    set_local_model,
+    set_model_provider,
+    summarize_trace,
+    warmup_model,
+)
+from services.profile import ModelProfile, compute_profile
+from services.reasoning_probe import (
+    ReasoningProbeStatus,
+    aggregate_reasoning_probe,
+    get_reasoning_probe,
+    start_reasoning_probe,
+)
+from services.vitals import collect_vitals
 
 
 def _log_task_exception(task: asyncio.Task) -> None:
@@ -194,7 +227,7 @@ async def collect_telemetry() -> dict[str, Any]:
     ollama_models_gauge.set(ollama.get("count", 0))
 
     return {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "hostname": platform.node(),
         "cpu": {"percent": cpu_pct},
         "memory": {"percent": mem_pct},
@@ -307,7 +340,7 @@ class SetupBody(BaseModel):
 
 @app.post("/api/config/setup")
 async def post_setup(body: SetupBody) -> dict[str, Any]:
-    from services.config_manager import save, get_all
+    from services.config_manager import get_all, save
 
     cfg = get_all()
 
@@ -375,8 +408,8 @@ async def put_network_config(body: NetworkConfigBody) -> dict[str, Any]:
 @app.post("/api/network/scan")
 async def scan_network() -> dict[str, Any]:
     """Scan the local subnet for Ollama and Observatory instances."""
-    import socket
     import ipaddress
+    import socket
 
     # Detect local subnet
     local_ip = None
@@ -438,7 +471,7 @@ async def scan_network() -> dict[str, Any]:
                 "port": OLLAMA_PORT,
                 "models": models,
             })
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             pass
 
         # Probe Docker Model Runner (Ollama-compatible API on port 12434)
@@ -473,7 +506,7 @@ async def scan_network() -> dict[str, Any]:
                 "protocol": protocol,
                 "models": models,
             })
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             pass
 
         # Probe vLLM / OpenAI-compatible server (port 8000)
@@ -501,7 +534,7 @@ async def scan_network() -> dict[str, Any]:
                     "protocol": "openai",
                     "models": models,
                 })
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             pass
 
         # Probe Observatory
@@ -527,16 +560,14 @@ async def scan_network() -> dict[str, Any]:
                 "port": OBSERVATORY_PORT,
                 "info": info,
             })
-        except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
+        except (TimeoutError, ConnectionRefusedError, OSError):
             pass
 
         if services:
             # Try to get hostname via reverse DNS
             hostname = None
-            try:
+            with contextlib.suppress(socket.herror, socket.gaierror, OSError):
                 hostname = socket.gethostbyaddr(ip_str)[0]
-            except (socket.herror, socket.gaierror, OSError):
-                pass
 
             discovered.append({
                 "ip": ip_str,
@@ -745,7 +776,7 @@ class BatchStatus(BaseModel):
     status: str = "running"  # running | done
     trace_ids: list[str] = Field(default_factory=list)
     error_details: list[BatchError] = Field(default_factory=list)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 _BATCH_CONCURRENCY = int(os.environ.get("BATCH_CONCURRENCY", "2"))
 _batch_semaphore = asyncio.Semaphore(_BATCH_CONCURRENCY)
@@ -785,7 +816,7 @@ async def _process_batch(batch_id: str, prompts: list[str], trace_ids: list[str]
                     BatchError(trace_id=tid, line=idx + 1, error=str(e))
                 )
                 logger.error("Batch trace %s (line %d) failed: %s", tid, idx + 1, e)
-    tasks = [_run_one(p, tid, i) for i, (p, tid) in enumerate(zip(prompts, trace_ids))]
+    tasks = [_run_one(p, tid, i) for i, (p, tid) in enumerate(zip(prompts, trace_ids, strict=True))]
     await asyncio.gather(*tasks, return_exceptions=True)
     _batch_store[batch_id].status = "done"
 
@@ -903,8 +934,15 @@ async def api_test_status(test_batch_id: str) -> TestRunStatus:
 # ── Test Suites (saved prompt sets + run history) ──────────────
 
 from services.suite_manager import (
-    list_suites, get_suite, create_suite, update_suite, delete_suite,
-    create_run, update_run, get_run, seed_from_diagnostics,
+    create_run,
+    create_suite,
+    delete_suite,
+    get_run,
+    get_suite,
+    list_suites,
+    seed_from_diagnostics,
+    update_run,
+    update_suite,
 )
 
 _suite_run_semaphore = asyncio.Semaphore(2)
@@ -1004,7 +1042,7 @@ async def _process_suite_run(suite_id: str, run_id: str, models: list[TestModelC
 
     update_run(suite_id, run_id, {
         "status": "done",
-        "completed_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": datetime.now(UTC).isoformat(),
         "completed_count": completed,
         "failed_count": failed,
         "trace_ids": list(trace_ids),
@@ -1019,7 +1057,6 @@ async def api_run_suite(suite_id: str, req: SuiteRunRequest) -> dict:
         raise HTTPException(status_code=404, detail="Suite not found")
     if not req.models:
         raise HTTPException(status_code=400, detail="At least one model required")
-    now = datetime.now(timezone.utc).isoformat()
     total = len(suite.get("prompts", [])) * len(req.models)
     run = create_run(suite_id, [{"provider": m.provider, "model": m.model} for m in req.models], total)
     if not run:
@@ -1216,9 +1253,10 @@ async def api_complexity_probe_summary(run_id: str) -> dict:
 
 @app.get("/api/probe/complexity/{run_id}/export.csv")
 async def api_complexity_probe_export(run_id: str):
-    from services.complexity_probe import get_complexity_probe, aggregate_complexity_probe
     import csv
     import io
+
+    from services.complexity_probe import aggregate_complexity_probe, get_complexity_probe
 
     agg = aggregate_complexity_probe(run_id)
     if not agg:
@@ -1275,6 +1313,7 @@ async def api_complexity_probe_export(run_id: str):
 
 from fastapi.responses import StreamingResponse
 
+
 @app.get("/api/logs/stream")
 async def api_log_stream() -> StreamingResponse:
     broadcaster = get_broadcaster()
@@ -1320,7 +1359,6 @@ async def api_list_traces(limit: int = 50, view: str = "full") -> list[TraceSess
     return traces
 
 
-from fastapi import HTTPException
 
 @app.get("/api/traces/{trace_id}", response_model=TraceSession | None)
 async def api_get_trace(trace_id: str) -> TraceSession | None:
@@ -1400,6 +1438,7 @@ async def api_get_chat(chat_id: str) -> list[TraceSession]:
 
 from services.classifier_agent import _classifier_cycle
 
+
 @app.post("/api/traces/classify-synesth")
 async def api_classify_synesth() -> dict:
     await _classifier_cycle()
@@ -1416,7 +1455,7 @@ class SchemaBody(BaseModel):
 @app.get("/api/schema")
 async def get_schema() -> dict:
     try:
-        with open(_SCHEMA_PATH, "r") as f:
+        with open(_SCHEMA_PATH) as f:
             return {"content": f.read()}
     except FileNotFoundError:
         return {"content": ""}
@@ -1805,8 +1844,9 @@ async def api_activity(since: str | None = None, limit: int = 50) -> list[dict]:
 
 # ── Run ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    import uvicorn
     import os
+
+    import uvicorn
     host = os.getenv("CONDUCTOR_HOST", "127.0.0.1")
     port = int(os.getenv("CONDUCTOR_PORT", "8001"))
     uvicorn.run("main:app", host=host, port=port, reload=True)

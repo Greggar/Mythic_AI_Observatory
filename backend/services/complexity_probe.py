@@ -20,7 +20,7 @@ the three regimes; the effort curve shows the peak-then-decline signature.
 import logging
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import Field
@@ -221,7 +221,7 @@ def start_complexity_probe(
     run = ComplexityProbeStatus(
         run_id=run_id,
         status="running",
-        started_at=datetime.now(timezone.utc).isoformat(),
+        started_at=datetime.now(UTC).isoformat(),
         seed=seed if seed is not None else rng.randrange(1 << 30),
         models=models,
         generators=gens,

@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 from models.trace import TraceSession
 
-
 HEDGE_PATTERNS = re.compile(
     r"\b(?:I\s+(?:cannot|can\'t|don\'t|do not|think|suppose|guess|believe|imagine|would\s+say)"
     r"|generally\s+speaking"

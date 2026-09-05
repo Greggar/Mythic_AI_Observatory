@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("conductor")
@@ -121,7 +121,7 @@ def create_suite(
     description: str = "",
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     suite = {
         "id": uuid.uuid4().hex[:12],
         "name": name,
@@ -167,7 +167,7 @@ def update_suite(
                 "category": p.get("category", ""),
                 "notes": p.get("notes", ""),
             })
-    suite["updated_at"] = datetime.now(timezone.utc).isoformat()
+    suite["updated_at"] = datetime.now(UTC).isoformat()
     _save_suite(suite)
     return suite
 
@@ -185,7 +185,7 @@ def create_run(suite_id: str, models: list[dict[str, str]], total: int) -> dict[
     suite = _load_suite(suite_id)
     if not suite:
         return None
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     run = {
         "run_id": uuid.uuid4().hex[:12],
         "models": models,

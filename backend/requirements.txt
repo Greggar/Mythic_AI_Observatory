@@ -24,3 +24,4 @@ websockets==16.0
 
 # Dev / testing
 pytest==9.1.1
+ruff==0.16.5

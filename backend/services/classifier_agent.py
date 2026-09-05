@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any
 
 from models.trace import SynesthClassification, TraceSession
 from services import config_manager

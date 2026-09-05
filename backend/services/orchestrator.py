@@ -1,11 +1,12 @@
 import asyncio
+import contextlib
 import json
 import logging
 import math
 import os
 import uuid
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
@@ -14,10 +15,12 @@ import psutil
 
 logger = logging.getLogger("conductor")
 
-from models.trace import TraceSession, TraceStep, TelemetryImpact, LlmInsight, TokenEntropy
+from models.trace import LlmInsight, TelemetryImpact, TokenEntropy, TraceSession, TraceStep
 from services import config_manager
-from services.ddc_embeddings import classify_ddc, classify_multi as classify_multi_ddc
-from services.lcc_embeddings import classify_lcc, classify_multi as classify_multi_lcc
+from services.ddc_embeddings import classify_ddc
+from services.ddc_embeddings import classify_multi as classify_multi_ddc
+from services.lcc_embeddings import classify_lcc
+from services.lcc_embeddings import classify_multi as classify_multi_lcc
 
 # Set to "local" to use the primary server's CPU, "worker" for a remote GPU machine
 # Use set_model_provider() to change at runtime
@@ -172,11 +175,9 @@ async def warmup_model() -> None:
     # would try to spawn a second runner and hang startup ~60s (CUDA busy).
     exec_model = model_name
     if ANALYSIS_PROVIDER == "worker":
-        try:
+        with contextlib.suppress(Exception):
             exec_model = config_manager.get_service("worker_llm").get("model", "") or exec_model
-        except Exception:
-            pass
-    if ANALYSIS_MODEL and ANALYSIS_MODEL != exec_model:
+    if ANALYSIS_MODEL and exec_model != ANALYSIS_MODEL:
         an_url = config_manager.get_worker_url() if ANALYSIS_PROVIDER == "worker" else base_url
         an_protocol = config_manager.get_worker_protocol() if ANALYSIS_PROVIDER == "worker" else "ollama"
         if an_url:
@@ -573,7 +574,6 @@ async def _generate_llm_insights(session: TraceSession) -> list[LlmInsight]:
     total_ms = sum(step_map.values())
 
     insights: list[LlmInsight] = []
-    model_label = session.model_used or LOCAL_MODEL or "unknown"
 
     # Slowest stage
     if step_map:
@@ -730,9 +730,9 @@ async def _generate_trace_explanation(session: TraceSession) -> str | None:
         out_len = len(session.output)
         parts.append(f"The model ({model_used}) generated a {out_len}-character response.")
     elif session.status == "error":
-        parts.append(f"The pipeline errored before producing a final response.")
+        parts.append("The pipeline errored before producing a final response.")
     else:
-        parts.append(f"No output was generated.")
+        parts.append("No output was generated.")
 
     # Stage timing summary
     timed_steps = [(s.label, s.duration_ms) for s in session.steps if s.label and s.duration_ms]
@@ -763,7 +763,7 @@ def emit_event(kind: str, label: str, session_id: str | None = None, detail: str
         "label": label,
         "session_id": session_id,
         "detail": detail,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     _activity_events.append(event)
 
@@ -888,7 +888,7 @@ def _get_embed_model() -> str:
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(y * y for y in b) ** 0.5
     if na < 1e-12 or nb < 1e-12:
@@ -972,7 +972,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
             id=stage_id,
             label=label,
             status="processing",
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(UTC).isoformat(),
             model_used=qualified_model if model else None,
             agent_used=agent_name,
             cpu_before=cpu_before,
@@ -998,7 +998,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
                 eval_duration_ns = None
             else:
                 if stage_id == "step-6" and not headless:
-                    step.metadata["gen_started_at"] = datetime.now(timezone.utc).isoformat()
+                    step.metadata["gen_started_at"] = datetime.now(UTC).isoformat()
                 output, eval_count, eval_duration_ns, entropy = await _call_model(
                     model, combined, system,
                     model_name_override=model_override if model_override else None,
@@ -1072,7 +1072,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
                 # Pairwise edges: query to each chunk, and chunk-to-chunk
                 edges: list[dict] = []
                 # query -> all chunks
-                for ci, chunk in enumerate(top_chunks):
+                for chunk in top_chunks:
                     edges.append({
                         "source": "query",
                         "target": chunk["trace_id"],
@@ -1146,7 +1146,7 @@ async def orchestrate(prompt: str, trace_id: str | None = None, headless: bool =
 
     session.status = "error" if any(s.status == "error" for s in session.steps) else "complete"
     session.output = context[-1] if context else prompt
-    session.completed_at = datetime.now(timezone.utc).isoformat()
+    session.completed_at = datetime.now(UTC).isoformat()
     session.confidence = _compute_confidence(session)
     session.insight_tags = _detect_insights(session)
 
@@ -1239,7 +1239,7 @@ STALE_THRESHOLD_S = 60  # steps running longer than this are flagged as potentia
 
 def _annotate_staleness(session: TraceSession) -> None:
     """Mark steps that have been 'processing' for >STALE_THRESHOLD_S as stale."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for step in session.steps:
         if step.status != "processing":
             step.metadata.pop("stale", None)
@@ -1345,7 +1345,7 @@ def delete_trace(trace_id: str) -> bool:
         if os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE) as f:
                 lines = f.readlines()
-            kept = [l for l in lines if trace_id not in l]
+            kept = [line for line in lines if trace_id not in line]
             if len(kept) < len(lines):
                 with open(HISTORY_FILE, "w") as f:
                     f.writelines(kept)
@@ -1366,7 +1366,7 @@ def bulk_delete_traces(trace_ids: list[str]) -> int:
             with open(HISTORY_FILE) as f:
                 lines = f.readlines()
             id_set = set(trace_ids)
-            kept = [l for l in lines if not any(tid in l for tid in id_set)]
+            kept = [line for line in lines if not any(tid in line for tid in id_set)]
             if len(kept) < len(lines):
                 with open(HISTORY_FILE, "w") as f:
                     f.writelines(kept)

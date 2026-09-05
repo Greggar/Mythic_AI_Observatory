@@ -1,0 +1,55 @@
+# Ruff config — conservative, high-signal rule set for this codebase.
+# Standalone ruff.toml (top-level keys, not the [tool.ruff] pyproject form).
+#
+# ruff 0.16 broadened its default rule selection substantially; we deliberately
+# scope down to genuine-correctness + maintainability rules and ignore the
+# opinionated lint families that would force re-architecting intentional
+# resilience patterns (broad excepts, try/except-pass, async file I/O).
+#
+# Gate integration: `tools/release_check.sh` runs `ruff check .` when ruff is
+# installed (locally via the venv, and in CI).
+
+target-version = "py312"
+line-length = 100
+
+[lint]
+select = [
+    # Pyflakes — genuine bugs (unused imports/vars, undefined names, redefinition)
+    "F",
+    # Pycodestyle errors (subset) — real mistakes, not whitespace pedantry
+    "E4",
+    "E7",
+    "E9",
+    # Straightforward autofixable cleanup
+    "I",      # isort (import ordering)
+    "UP",     # pyupgrade (modern idioms, deprecated imports)
+    "B",      # bugbear (common correctness footguns)
+    "SIM",    # simplify (redundant constructs)
+    "RUF100", # unused-noqa (keep comments honest)
+]
+
+ignore = [
+    # Intentional resilience: the dashboard must not crash on any downstream
+    # fault — broad excepts and try/except-pass are deliberate, not bugs.
+    "BLE001",  # blind-except
+    "S110",    # try-except-pass
+    "S112",    # try-except-continue
+    # Larger re-architecture, out of scope for a lint gate.
+    "ASYNC230", # blocking file I/O in async fns
+    # Nitpicks / opinionated, low value here.
+    "RUF012", # mutable-class-default
+    "RUF059", # unused-unpacked-variable
+    "PERF102",# incorrect-dict-iterator
+    "PLW0602",# global-variable-not-assigned
+    "FURB122",# for-loop-writes
+    "PYI041", # redundant-numeric-union
+]
+
+[lint.per-file-ignores]
+# main.py / orchestrator.py / vitals.py deliberately keep the project imports
+# BELOW their "load_dotenv() + logger" binding so env vars are loaded before
+# any module reads them at import time (OLLAMA_HOST, ORCHESTRATOR_MODEL, ...).
+# This ordering is required — see ARCHITECTURE.md §3.9. E402 is a false positive.
+"main.py" = ["E402"]
+"services/orchestrator.py" = ["E402"]
+"services/vitals.py" = ["E402"]

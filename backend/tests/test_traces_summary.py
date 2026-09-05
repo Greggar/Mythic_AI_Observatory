@@ -8,13 +8,13 @@ that only detail views use: embeddings, entropy & branching series, retrieved
 chunks, vector graph, context assemblies, rationales, LLM insights.
 """
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from models.trace import TokenEntropy, TraceSession, TraceStep
 from services.orchestrator import summarize_trace
-from models.trace import TraceSession, TraceStep, TokenEntropy
 
 
 def _make_trace() -> TraceSession:

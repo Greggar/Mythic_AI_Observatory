@@ -6,14 +6,15 @@ Results are ephemeral (in-memory) and do not modify existing traces.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
-from models.trace import TraceSession
 
+from models.trace import TraceSession
 from services.probe_base import dispatch_background
 
 logger = logging.getLogger("conductor")
@@ -182,10 +183,8 @@ def _parse_json_response(raw: str) -> dict[str, Any] | None:
                 if main in ddc_labels:
                     result["label"] = ddc_labels[main]
         if conf_match:
-            try:
+            with contextlib.suppress(ValueError):
                 result["confidence"] = float(conf_match.group(1))
-            except ValueError:
-                pass
         return result if result.get("label") or result.get("code") else None
 
     return None

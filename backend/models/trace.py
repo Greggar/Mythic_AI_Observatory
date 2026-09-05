@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -14,7 +14,7 @@ class TraceStep(BaseModel):
     id: str
     label: str
     status: str  # pending | processing | complete | error
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     duration_ms: int | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     model_used: str | None = None
@@ -117,7 +117,7 @@ class TraceSession(BaseModel):
     output: str | None = None
     confidence: float | None = None
     insight_tags: list[str] = Field(default_factory=list)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     completed_at: str | None = None
     model_used: str | None = None
     agent_used: str | None = None

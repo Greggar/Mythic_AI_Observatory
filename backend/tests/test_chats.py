@@ -14,9 +14,9 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import main  # noqa: E402
-from services import orchestrator  # noqa: E402
-from services.orchestrator import _store  # noqa: E402
+import main
+from services import orchestrator
+from services.orchestrator import _store
 
 
 @pytest.fixture(autouse=True)

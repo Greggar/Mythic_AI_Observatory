@@ -22,7 +22,7 @@ noop−base) plus any entropy/margin shift when only the surface changes.
 import logging
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import Field
@@ -243,7 +243,6 @@ def _generate_narrative(rows: list[dict[str, Any]]) -> str:
         # Entropy shift
         h_base = base.get("entropy_mean")
         h_sym = sym.get("entropy_mean")
-        h_noop = noop.get("entropy_mean")
         if h_base is not None and h_sym is not None:
             delta_h = h_sym - h_base
             direction = "more" if delta_h > 0 else "less"
@@ -413,7 +412,7 @@ def start_reasoning_probe(
     run = ReasoningProbeStatus(
         run_id=run_id,
         status="running",
-        started_at=datetime.now(timezone.utc).isoformat(),
+        started_at=datetime.now(UTC).isoformat(),
         seed=seed if seed is not None else rng.randrange(1 << 30),
         models=models,
         total=len(cells),

@@ -4,7 +4,7 @@ import re
 
 import httpx
 
-from models.trace import DdcMetadata, DdcEntry
+from models.trace import DdcEntry, DdcMetadata
 
 logger = logging.getLogger("conductor")
 

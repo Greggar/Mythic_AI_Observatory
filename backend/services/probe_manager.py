@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("conductor")
@@ -35,7 +35,7 @@ def get_profile_path(model_name: str) -> str:
 
 def _default_profile(model_name: str, provider: str = "") -> dict[str, Any]:
     slug = get_model_slug(model_name)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     return {
         "model": model_name,
         "model_slug": slug,
@@ -115,7 +115,7 @@ def save_probe_result(
     error: str | None = None,
 ) -> dict[str, Any]:
     profile = load_or_create_profile(model_name, provider)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     probe_result = {
         "category": category,
         "prompt": prompt,

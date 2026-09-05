@@ -17,7 +17,6 @@ from services.probe_base import (
     mentions_exact,
 )
 
-
 # ── Answer-extraction heuristics ────────────────────────────────────
 
 def test_extract_answer_keyword_line():

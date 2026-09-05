@@ -6,11 +6,10 @@ file for crash recovery and retrospective analysis.
 """
 
 import asyncio
-import json
 import logging
 import os
 from collections import Counter
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from typing import Any
 
@@ -67,7 +66,7 @@ class LogBroadcaster:
         """
         result = list(reversed(self._ring))
         if since:
-            cutoff = datetime.fromtimestamp(since, tz=timezone.utc)
+            cutoff = datetime.fromtimestamp(since, tz=UTC)
             result = [e for e in result if _parse_ts(e["ts"]) >= cutoff]
         if level:
             result = [e for e in result if e.get("level") == level.upper()]
@@ -75,7 +74,7 @@ class LogBroadcaster:
 
     def get_summary(self, window_seconds: float = 300) -> dict[str, Any]:
         """Aggregate log stats over a sliding window (default 5 min)."""
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         cutoff = now - timedelta(seconds=window_seconds)
         window_entries = [e for e in self._ring if _parse_ts(e["ts"]) >= cutoff]
 
@@ -88,10 +87,6 @@ class LogBroadcaster:
         total = len(window_entries)
         errors = level_counts.get("ERROR", 0)
         warnings = level_counts.get("WARNING", 0)
-
-        # Also compute 24h counts from the full ring
-        day_cutoff = now - timedelta(hours=24)
-        day_entries = [e for e in self._ring if _parse_ts(e["ts"]) >= day_cutoff]
 
         return {
             "total_entries": len(self._ring),
@@ -108,7 +103,7 @@ def _parse_ts(ts_str: str) -> datetime:
     try:
         return datetime.fromisoformat(ts_str)
     except Exception:
-        return datetime.min.replace(tzinfo=timezone.utc)
+        return datetime.min.replace(tzinfo=UTC)
 
 
 _broadcaster = LogBroadcaster()
@@ -123,7 +118,7 @@ class SSELogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             entry: dict[str, Any] = {
-                "ts": datetime.now(tz=timezone.utc).isoformat(),
+                "ts": datetime.now(tz=UTC).isoformat(),
                 "level": record.levelname,
                 "name": record.name,
                 "msg": self.format(record),

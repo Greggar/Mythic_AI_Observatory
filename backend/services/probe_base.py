@@ -18,7 +18,8 @@ runner, and call ``launch_probe_run``.
 import asyncio
 import logging
 import re
-from typing import Any, Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -97,9 +98,6 @@ class ProbeCell(BaseModel):
     tokens: int | None = None
 
 
-S = TypeVar("S", bound="ProbeRunStatus")
-
-
 class ProbeRunStatus(BaseModel):
     """Shared run envelope. Subclass and narrow ``cells`` to the cell kind."""
 
@@ -116,7 +114,7 @@ class ProbeRunStatus(BaseModel):
 
 # ── Run orchestration ───────────────────────────────────────────────
 
-def launch_probe_run(
+def launch_probe_run[S: "ProbeRunStatus"](
     store: dict[str, S],
     run: S,
     runner: Callable[..., Awaitable[None]],
