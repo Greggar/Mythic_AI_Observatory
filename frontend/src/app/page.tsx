@@ -37,6 +37,7 @@ import ComplexityLadderPanel from "@/components/ComplexityLadderPanel";
 import LogTerminal from "@/components/LogTerminal";
 import ModelSwitcher from "@/components/ModelSwitcher";
 import ComparativeRadarPanel from "@/components/ComparativeRadarPanel";
+import ProbeHistoryPanel from "@/components/ProbeHistoryPanel";
 import SetupWizard from "@/components/SetupWizard";
 import Galaxy3D from "@/components/Galaxy3D";
 import ChatPanel from "@/components/ChatPanel";
@@ -515,6 +516,7 @@ export default function Home() {
                   onClose={() => setCompareTraces([])}
                 />
               )}
+              <ProbeHistoryPanel />
               <TraceTable refreshTrigger={historyRefresh} onPlay={handleHistorySelect} />
             </div>
           </div>
