@@ -31,6 +31,7 @@ backend/data/synesth_cache.json
 backend/data/annotations.jsonl
 backend/data/model_profiles/
 backend/data/test_suites/
+backend/data/probe_history.jsonl
 
 # Build artifacts
 dist/

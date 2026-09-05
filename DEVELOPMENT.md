@@ -171,7 +171,7 @@ Visit `http://localhost:3001` on the server and verify with the user:
 - [ ] **Context pane** — Click a model-calling step node in SolarNexus, confirm the split-pane shows system prompt + assembled context + token meter
 - [ ] **Build passes** — `pnpm build` exits 0 with no warnings
 - [ ] **Unit tests pass** — `pnpm test` exits 0 (vitest; network layer + `usePoll` suites, Phase 22). Since Phase 22, the frontend verification command is `tsc + test + build` — **`pnpm test` is a non-negotiable gate** before any frontend commit.
-- [ ] **Backend tests pass** — `cd backend && ./.venv/bin/pytest -q` exits 0 (22 tests: `test_chats.py`, `test_probes.py`, `test_smoke.py`, `test_traces_summary.py`). **`pytest` is a non-negotiable gate** before any backend/deploy.
+- [ ] **Backend tests pass** — `cd backend && ./.venv/bin/pytest -q` exits 0 (27 tests: `test_chats.py`, `test_probes.py`, `test_probe_history.py`, `test_smoke.py`, `test_traces_summary.py`). **`pytest` is a non-negotiable gate** before any backend/deploy.
 - [ ] **Unified release gate** — `./tools/release_check.sh` runs the full backend + frontend chain in one shot (backend `pytest` + `ruff`, frontend `tsc` + `vitest` + `eslint` [tracked budget, non-fatal] + `build`), failing fast. Run it before any release.
 
 Only after ALL checks pass, proceed to production deploy.

@@ -82,6 +82,9 @@ def _log_task_exception(task: asyncio.Task) -> None:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("conductor")
 
+# Accumulated probe baselines, written by tools/run_probe_baseline.py (weekly cadence).
+PROBE_HISTORY_FILE = os.path.join(os.path.dirname(__file__), "data", "probe_history.jsonl")
+
 app = FastAPI(title="Mythic AI Observatory — Conductor API")
 
 _last_activity: float = time.time()
@@ -1307,6 +1310,31 @@ async def api_complexity_probe_export(run_id: str):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="complexity-probe-{run_id}.csv"'},
     )
+
+
+@app.get("/api/probes/history")
+async def api_probes_history(limit: int = 20, probe: str | None = None) -> list[dict]:
+    """Read accumulated probe baselines from probe_history.jsonl (newest first).
+
+    Produced by ``tools/run_probe_baseline.py`` (weekly cadence). Optional
+    ``probe`` filter: ``reasoning`` or ``complexity``.
+    """
+    try:
+        lines = Path(PROBE_HISTORY_FILE).read_text().splitlines()
+    except FileNotFoundError:
+        return []
+    records = []
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    if probe:
+        records = [r for r in records if r.get("type") == probe]
+    records.sort(key=lambda r: r.get("run_at", ""), reverse=True)
+    return records[:limit]
 
 
 # ── Log streaming (SSE) ─────────────────────────────────────────
